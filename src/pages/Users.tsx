@@ -1,0 +1,620 @@
+import { useState, Fragment } from "react";
+import { useToast } from "@/hooks/use-toast";
+import dayjs from "dayjs";
+import { AdminLayout } from "../components/AdminLayout";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import { Search, Download, Filter, Plus, Minus, MoreVertical, ChevronLeft, ChevronRight, LogIn, UserX, UserCheck, Ban, ShieldCheck, History, Trash2 } from "lucide-react";
+import { useSort } from "../hooks/useSort";
+import { useDebounce } from "../hooks/useDebounce";
+import { SortHeader } from "../components/ui/table-sort";
+import { exportUsers, fetchUsers, UserEntry, updateAccountBalance, updateUserSettings, assignGroupAdmin, loginAsUser, deleteUser } from "../api/user/userApi";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/contexts/AuthContext";
+import { ConfirmationDialog } from "../components/ConfirmationDialog";
+import { AuditLogModal } from "../components/AuditLogModal";
+import { PaginationControls } from "@/components/ui/pagination-controls";
+
+type SortField = "fullName" | "username" | "recommendations" | "dateCreated" | "accountbalance";
+
+export default function UsersPage() {
+  const { user: authUser } = useAuth();
+  const queryClient = useQueryClient();
+  const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearch = useDebounce(searchQuery, 500);
+  const effectiveSearch = debouncedSearch.length >= 3 || debouncedSearch.length === 0 ? debouncedSearch : "";
+  const { sortField, sortDir, handleSort: originalHandleSort } = useSort<SortField>();
+
+  const handleSort = (field: SortField) => {
+    originalHandleSort(field);
+    setCurrentPage(1);
+  };
+  const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(100);
+  const [filterByGroup, setFilterByGroup] = useState(false);
+  const [balanceInputs, setBalanceInputs] = useState<Record<string, string>>({});
+  const [balanceDialogOpen, setBalanceDialogOpen] = useState(false);
+  const [balanceDialogUser, setBalanceDialogUser] = useState<UserEntry | null>(null);
+  const [balanceDialogMode, setBalanceDialogMode] = useState<"add" | "subtract">("add");
+  const [balanceDialogAmount, setBalanceDialogAmount] = useState(0);
+  const [balanceDialogComment, setBalanceDialogComment] = useState("");
+  const { toast } = useToast();
+  const [isExporting, setIsExporting] = useState(false);
+  const [isUpdatingBalance, setIsUpdatingBalance] = useState(false);
+  const [balanceInputErrors, setBalanceInputErrors] = useState<Record<string, boolean>>({});
+  const [impersonatingUserId, setImpersonatingUserId] = useState<string | null>(null);
+  const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
+  const [auditTarget, setAuditTarget] = useState<{ id: string; name: string } | null>(null);
+
+  // Delete state
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const openDeleteDialog = (id: string) => {
+    setDeleteTargetId(id);
+    setIsDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTargetId) return;
+    setIsDeleting(true);
+    try {
+      await deleteUser(deleteTargetId);
+      setIsDeleteDialogOpen(false);
+      setDeleteTargetId(null);
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      toast({
+        title: "User Deleted",
+        description: "The user has been deleted successfully.",
+        duration: 4000
+      });
+    } catch (error) {
+      console.error("Failed to delete user", error);
+      toast({
+        title: "Delete Failed",
+        description: "Failed to delete the user. Please try again.",
+        variant: "destructive",
+        duration: 4000
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleExportAll = async () => {
+    setIsExporting(true);
+    try {
+      await exportUsers();
+      toast({
+        title: "Success",
+        description: "The users list has been exported.",
+        duration: 4000
+      });
+    } catch (error) {
+      console.error("Error exporting users", error);
+      toast({
+        title: "Error",
+        description: "Failed to export users.",
+        variant: "destructive",
+        duration: 4000
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const openBalanceDialog = (user: UserEntry, mode: "add" | "subtract") => {
+    const raw = balanceInputs[user.id] || "";
+    const amount = parseFloat(raw);
+    if (!raw || isNaN(amount) || amount <= 0) {
+      setBalanceInputErrors((prev) => ({ ...prev, [user.id]: true }));
+      return;
+    }
+    setBalanceInputErrors((prev) => ({ ...prev, [user.id]: false }));
+    setBalanceDialogUser(user);
+    setBalanceDialogMode(mode);
+    setBalanceDialogAmount(amount);
+    setBalanceDialogComment("");
+    setBalanceDialogOpen(true);
+  };
+
+  const handleBalanceSave = async () => {
+    if (!balanceDialogUser || !balanceDialogComment.trim()) return;
+    setIsUpdatingBalance(true);
+    try {
+      const result = await updateAccountBalance({
+        email: balanceDialogUser.email,
+        accountBalance: balanceDialogMode === "subtract" ? -balanceDialogAmount : balanceDialogAmount,
+        comment: balanceDialogComment.trim()
+      });
+
+      if (result.success) {
+        toast({
+          title: result.message || "Account balance updated successfully.",
+          duration: 4000
+        });
+        setBalanceInputs((prev) => ({ ...prev, [balanceDialogUser.id]: "" }));
+        queryClient.invalidateQueries({ queryKey: ["users"] });
+      } else {
+        toast({
+          title: result.message || "Failed to update account balance.",
+          variant: "destructive",
+          duration: 4000
+        });
+      }
+    } catch (err) {
+      console.error("Error updating balance", err);
+      toast({
+        title: "Failed to update account balance.",
+        variant: "destructive",
+        duration: 4000
+      });
+    } finally {
+      setIsUpdatingBalance(false);
+      setBalanceDialogOpen(false);
+    }
+  };
+
+  const handleUserSettings = async (user: UserEntry, settings: { isActive?: boolean; isExcludeUserBalance?: boolean }) => {
+    try {
+      await updateUserSettings(user.id, settings);
+      toast({
+        title: "User settings updated successfully.",
+        duration: 4000
+      });
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+    } catch (err) {
+      console.error("Error updating user settings", err);
+      toast({
+        title: "Failed to update user settings.",
+        variant: "destructive",
+        duration: 4000
+      });
+    }
+  };
+
+  const handleAssignGroupAdmin = async (user: UserEntry) => {
+    try {
+      await assignGroupAdmin(user.id);
+      toast({
+        title: "User has been assigned as group admin.",
+        duration: 4000
+      });
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+    } catch (err) {
+      console.error("Error assigning group admin", err);
+      toast({
+        title: "Failed to assign group admin.",
+        variant: "destructive",
+        duration: 4000
+      });
+    }
+  };
+
+  const handleLoginAsUser = async (user: UserEntry) => {
+    setImpersonatingUserId(user.id);
+    try {
+      const result = await loginAsUser(user.email);
+      if (result.token) {
+        window.open(
+          import.meta.env.VITE_FRONTEND_URL + "/impersonate-login?token=" + String(result.token) + "&email=" + encodeURIComponent(user.email) + "&isLoginWithToken=true",
+          "_blank",
+          "noopener,noreferrer"
+        );
+      }
+    } catch (err) {
+      console.error("Error logging in as user", err);
+      toast({
+        title: "Failed to login as user.",
+        variant: "destructive",
+        duration: 4000
+      });
+    } finally {
+      setImpersonatingUserId(null);
+    }
+  };
+
+  const openAuditLog = (id: string, name: string) => {
+    setAuditTarget({ id, name });
+    setIsAuditModalOpen(true);
+  };
+
+  const {
+    data: queryData,
+    isLoading,
+    error
+  } = useQuery({
+    queryKey: ["users", currentPage, rowsPerPage, sortField, sortDir, effectiveSearch, filterByGroup],
+    queryFn: () =>
+      fetchUsers({
+        currentPage,
+        perPage: rowsPerPage,
+        sortField: sortField ?? undefined,
+        sortDirection: sortDir ?? undefined,
+        searchValue: effectiveSearch.trim() || undefined,
+        filterByGroup: filterByGroup || undefined
+      }),
+    staleTime: 0,
+    gcTime: 0
+  });
+
+  const paginatedUsers = queryData?.items ?? [];
+  const totalCount = queryData?.totalCount ?? 0;
+  const totalPages = Math.ceil(totalCount / rowsPerPage);
+  const startIdx = totalCount > 0 ? (currentPage - 1) * rowsPerPage + 1 : 0;
+  const endIdx = Math.min(currentPage * rowsPerPage, totalCount);
+
+  return (
+    <AdminLayout>
+      <div className="space-y-6">
+        <h1 className="text-2xl font-semibold" data-testid="text-page-heading">
+          Users
+        </h1>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-4 flex-wrap border-b px-6 py-4">
+            <div className="relative w-full max-w-xs">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Full Name, Email"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="pl-9"
+                data-testid="input-search-users"
+              />
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <label className="flex items-center gap-2 cursor-pointer text-sm" data-testid="button-filter-group">
+                <span>Filter by Group</span>
+                <input
+                  type="checkbox"
+                  checked={filterByGroup}
+                  onChange={(e) => {
+                    setFilterByGroup(e.target.checked);
+                    setCurrentPage(1);
+                  }}
+                  className="h-4 w-4 rounded border-[#0ab39c] text-[#0ab39c] accent-[#0ab39c] cursor-pointer"
+                  data-testid="checkbox-filter-group"
+                />
+              </label>
+              <Button size="sm" className="bg-[#405189] hover:bg-[#405189]/90 text-white" data-testid="button-export-all" onClick={handleExportAll} disabled={isExporting}>
+                <Download className="h-3.5 w-3.5 mr-1.5" />
+                {isExporting ? "Exporting..." : "Export All"}
+              </Button>
+            </div>
+          </CardHeader>
+
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full" data-testid="table-users">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <SortHeader field="fullName" sortField={sortField} sortDir={sortDir} handleSort={handleSort}>
+                      Full Name
+                    </SortHeader>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                      Username
+                      <br />
+                      Email
+                    </th>
+                    <SortHeader field="recommendations" sortField={sortField} sortDir={sortDir} handleSort={handleSort}>
+                      Recommendations
+                    </SortHeader>
+                    <SortHeader field="accountbalance" sortField={sortField} sortDir={sortDir} handleSort={handleSort}>
+                      Account Balance
+                    </SortHeader>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Account Balance Actions</th>
+                    <SortHeader field="dateCreated" sortField={sortField} sortDir={sortDir} handleSort={handleSort}>
+                      Date Created
+                    </SortHeader>
+                    {filterByGroup && <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Group Name</th>}
+                    {filterByGroup && <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Group Account Balance</th>}
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {isLoading && (
+                    <tr>
+                      <td colSpan={filterByGroup ? 9 : 7} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                        Loading...
+                      </td>
+                    </tr>
+                  )}
+                  {!isLoading && error && (
+                    <tr>
+                      <td colSpan={filterByGroup ? 9 : 7} className="px-4 py-8 text-center text-sm text-destructive">
+                        {(error as Error)?.message || "Failed to load data"}
+                      </td>
+                    </tr>
+                  )}
+                  {!isLoading && !error && paginatedUsers.length === 0 && (
+                    <tr>
+                      <td colSpan={filterByGroup ? 9 : 7} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                        No records found.
+                      </td>
+                    </tr>
+                  )}
+                  {!isLoading &&
+                    !error &&
+                    paginatedUsers.map((user: UserEntry) => (
+                      <tr key={user.id} className="border-b last:border-b-0 hover:bg-muted/20 transition-colors" data-testid={`row-user-${user.id}`}>
+                        <td className="px-4 py-3">
+                          <span className="text-sm font-medium" data-testid={`text-fullname-${user.id}`}>
+                            {user.fullName}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="text-sm font-medium" data-testid={`text-username-${user.id}`}>
+                            {user.userName}
+                          </div>
+                          <div className="text-xs text-muted-foreground" data-testid={`text-email-${user.id}`}>
+                            {user.email}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-sm" data-testid={`text-recommendations-${user.id}`}>
+                            {user.recommendationsCount}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-sm" data-testid={`text-balance-${user.id}`}>
+                            ${user.accountBalance.toFixed(2)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <Input
+                                type="text"
+                                className={`h-8 w-28 text-sm${balanceInputErrors[user.id] ? " border-destructive focus-visible:ring-destructive" : ""}`}
+                                value={balanceInputs[user.id] || ""}
+                                onChange={(e) => {
+                                  setBalanceInputs((prev) => ({ ...prev, [user.id]: e.target.value }));
+                                  if (balanceInputErrors[user.id]) setBalanceInputErrors((prev) => ({ ...prev, [user.id]: false }));
+                                }}
+                                data-testid={`input-balance-${user.id}`}
+                              />
+                              <Button size="icon" variant="ghost" className="h-8 w-8 text-[#0ab39c]" onClick={() => openBalanceDialog(user, "add")} data-testid={`button-add-balance-${user.id}`}>
+                                <Plus className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-8 w-8 text-muted-foreground"
+                                onClick={() => openBalanceDialog(user, "subtract")}
+                                disabled={user.accountBalance <= 0}
+                                data-testid={`button-subtract-balance-${user.id}`}
+                              >
+                                <Minus className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                            {balanceInputErrors[user.id] && (
+                              <p className="text-xs text-destructive mt-1" data-testid={`error-balance-${user.id}`}>
+                                Please enter an amount for the user.
+                              </p>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-sm" data-testid={`text-date-${user.id}`}>
+                            {dayjs(user.dateCreated).isValid() ? dayjs(user.dateCreated).format("MM/DD/YYYY") : user.dateCreated}
+                          </span>
+                        </td>
+                        {filterByGroup && (
+                          <td className="px-4 py-3">
+                            <div className="text-sm" data-testid={`text-group-name-${user.id}`}>
+                              {user.groupNames}
+                            </div>
+                          </td>
+                        )}
+                        {filterByGroup && (
+                          <td className="px-4 py-3">
+                            <div className="text-sm" data-testid={`text-group-balance-${user.id}`}>
+                              {user.groupBalances}
+                            </div>
+                          </td>
+                        )}
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end">
+                            <div className="inline-flex rounded-md shadow-sm">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="icon"
+                                    variant="outline"
+                                    className="h-8 w-8 rounded-r-none border-r-0 text-[#405189] hover:text-[#405189] hover:bg-[#405189]/5"
+                                    onClick={() => handleLoginAsUser(user)}
+                                    disabled={impersonatingUserId !== null}
+                                    data-testid={`action-login-${user.id}`}
+                                  >
+                                    <LogIn className={cn("h-4 w-4", impersonatingUserId === user.id ? "animate-spin" : "")} />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>{impersonatingUserId === user.id ? "Logging in..." : "Login"}</TooltipContent>
+                              </Tooltip>
+
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="icon"
+                                    variant="outline"
+                                    className="h-8 w-8 rounded-none border-r-0 text-[#405189] hover:text-[#405189] hover:bg-[#405189]/5"
+                                    onClick={() => openAuditLog(user.id, user.fullName)}
+                                    data-testid={`action-audit-${user.id}`}
+                                  >
+                                    <History className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>View audit logs</TooltipContent>
+                              </Tooltip>
+
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="icon"
+                                    variant="outline"
+                                    className={cn(
+                                      "h-8 w-8 rounded-none border-r-0 hover:bg-opacity-10",
+                                      user.isActive
+                                        ? "text-[#f06548] hover:text-[#f06548] hover:bg-[#f06548]/5"
+                                        : "text-[#45CB85] hover:text-[#45CB85] hover:bg-[#45CB85]/5"
+                                    )}
+                                    onClick={() => handleUserSettings(user, { isActive: !user.isActive })}
+                                    data-testid={`action-inactive-${user.id}`}
+                                  >
+                                    {user.isActive ? <UserX className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />}
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>{user.isActive ? "Deactivate User" : "Activate User"}</TooltipContent>
+                              </Tooltip>
+
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="icon"
+                                    variant="outline"
+                                    className={cn(
+                                      "h-8 w-8 hover:bg-opacity-10 text-[#64748b] hover:text-[#64748b] hover:bg-[#64748b]/5",
+                                      authUser?.isSuperAdmin ? "rounded-none border-r-0" : "rounded-l-none"
+                                    )}
+                                    onClick={() => handleUserSettings(user, { isExcludeUserBalance: !user.isExcludeUserBalance })}
+                                    data-testid={`action-exclude-balance-${user.id}`}
+                                  >
+                                    <Ban className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>{user.isExcludeUserBalance ? "Include user balance" : "Exclude user balance"}</TooltipContent>
+                              </Tooltip>
+
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="icon"
+                                    variant="outline"
+                                    className={cn(
+                                      "h-8 w-8 text-[#0ab39c] hover:text-[#0ab39c] hover:bg-[#0ab39c]/5",
+                                      authUser?.isSuperAdmin ? "rounded-none border-r-0" : "rounded-l-none"
+                                    )}
+                                    onClick={() => handleAssignGroupAdmin(user)}
+                                    data-testid={`action-make-admin-${user.id}`}
+                                  >
+                                    <ShieldCheck className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Make Group Admin</TooltipContent>
+                              </Tooltip>
+                              {authUser?.isSuperAdmin && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      size="icon"
+                                      variant="outline"
+                                      className="h-8 w-8 rounded-l-none text-[#f06548] hover:text-[#f06548] hover:bg-[#f06548]/5"
+                                      onClick={() => openDeleteDialog(user.id)}
+                                      data-testid={`action-delete-${user.id}`}
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Delete user</TooltipContent>
+                                </Tooltip>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+
+            <PaginationControls
+              currentPage={currentPage}
+              totalCount={totalCount}
+              rowsPerPage={rowsPerPage}
+              onPageChange={setCurrentPage}
+              onRowsPerPageChange={(v) => {
+                setRowsPerPage(v);
+                setCurrentPage(1);
+              }}
+              dataTestId="pagination-users"
+            />
+          </CardContent>
+        </Card>
+      </div>
+      <ConfirmationDialog
+        open={balanceDialogOpen}
+        onOpenChange={(open) => {
+          if (!isUpdatingBalance) {
+            setBalanceDialogOpen(open);
+            if (!open) {
+              setBalanceDialogComment("");
+              setBalanceDialogUser(null);
+            }
+          }
+        }}
+        title="Confirm Balance Update"
+        description={
+          balanceDialogUser && (
+            <p className="text-sm">
+              You are about to <strong>{balanceDialogMode === "add" ? "add" : "subtract"}</strong>{" "}
+              <strong>${balanceDialogAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> {balanceDialogMode === "add" ? "to" : "from"} the account of{" "}
+              <strong>{balanceDialogUser.fullName}</strong>.
+            </p>
+          )
+        }
+        noteLabel={
+          (
+            <span>
+              Comment <span className="text-destructive">*</span>
+            </span>
+          ) as any
+        }
+        noteValue={balanceDialogComment}
+        onNoteChange={(val) => {
+          if (val.length <= 1200) setBalanceDialogComment(val);
+        }}
+        maxNoteLength={1200}
+        confirmLabel="SAVE"
+        cancelLabel="CANCEL"
+        onConfirm={handleBalanceSave}
+        isSubmitting={isUpdatingBalance}
+        dataTestId="dialog-balance-update"
+      />
+
+      <ConfirmationDialog
+        open={isDeleteDialogOpen}
+        onOpenChange={(open) => {
+          setIsDeleteDialogOpen(open);
+          if (!open) setDeleteTargetId(null);
+        }}
+        title="Delete User"
+        description="Are you sure you want to delete this user? This action cannot be undone."
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        onConfirm={handleDeleteConfirm}
+        isSubmitting={isDeleting}
+        confirmButtonClass="bg-[#f06548] text-white hover:bg-[#d0543c]"
+        dataTestId="dialog-delete-user"
+      />
+
+      <AuditLogModal
+        isOpen={isAuditModalOpen}
+        onOpenChange={setIsAuditModalOpen}
+        entityId={auditTarget?.id || ""}
+        entityType="AspNetUsers"
+        title={`Audit Logs - ${auditTarget?.name}`}
+      />
+    </AdminLayout>
+  );
+}

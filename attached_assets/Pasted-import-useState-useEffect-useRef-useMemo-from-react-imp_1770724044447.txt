@@ -1,0 +1,1636 @@
+import { useState, useEffect, useRef, useMemo } from "react";
+import { Link } from "wouter";
+import { useQuery } from "@tanstack/react-query";
+import { motion, AnimatePresence } from "framer-motion";
+import { Header } from "@/components/header";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  Share2,
+  Bell,
+  ExternalLink,
+  ArrowLeft,
+  Users,
+  TrendingUp,
+  Calendar,
+  ChevronDown,
+  ChevronUp,
+  LayoutGrid,
+  List,
+  ChevronLeft,
+  ChevronRight,
+  FileText,
+  Download,
+  ZoomIn,
+  ZoomOut,
+  Globe,
+  Mail,
+  Phone,
+  MapPin,
+} from "lucide-react";
+import { Document, Page, pdfjs } from "react-pdf";
+import { Skeleton } from "@/components/ui/skeleton";
+
+pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+
+// Helper function to proxy external URLs through backend to avoid CORS issues
+function getProxyUrl(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  // Only proxy external Azure blob storage URLs
+  if (url.includes('catacapstorage.blob.core.windows.net')) {
+    return `/api/proxy-file?url=${encodeURIComponent(url)}`;
+  }
+  return url;
+}
+
+const ASSET_PATH = "/assets/theme-sdg";
+
+const themeImages: Record<number, string> = {
+  1: `${ASSET_PATH}/theme1.jpg`,
+  2: `${ASSET_PATH}/theme2.jpg`,
+  3: `${ASSET_PATH}/theme3.jpg`,
+  4: `${ASSET_PATH}/theme4.jpg`,
+  7: `${ASSET_PATH}/theme7.jpg`,
+  8: `${ASSET_PATH}/theme8.jpg`,
+  11: `${ASSET_PATH}/theme1.jpg`, // Sustainable Communities - fallback to theme1
+  18: `${ASSET_PATH}/theme2.jpg`, // Technology Innovation - fallback to theme2
+};
+
+const sdgImages: Record<number, string> = {
+  1: `${ASSET_PATH}/sdg1.jpg`,
+  2: `${ASSET_PATH}/sdg2.jpg`,
+  3: `${ASSET_PATH}/sdg3.jpg`,
+  4: `${ASSET_PATH}/sdg4.jpg`,
+  5: `${ASSET_PATH}/sdg5.jpg`,
+  6: `${ASSET_PATH}/sdg6.jpg`,
+  7: `${ASSET_PATH}/sdg7.jpg`,
+  8: `${ASSET_PATH}/sdg8.jpg`,
+  9: `${ASSET_PATH}/sdg9.jpg`,
+  10: `${ASSET_PATH}/sdg10.jpg`,
+  11: `${ASSET_PATH}/sdg11.jpg`,
+  12: `${ASSET_PATH}/sdg12.jpg`,
+  13: `${ASSET_PATH}/sdg13.jpg`,
+  14: `${ASSET_PATH}/sdg14.jpg`,
+  15: `${ASSET_PATH}/sdg15.jpg`,
+  16: `${ASSET_PATH}/sdg16.jpg`,
+  17: `${ASSET_PATH}/sdg17.jpg`,
+};
+
+const themeNames: Record<number, string> = {
+  1: "Gender Equity",
+  2: "Racial Justice",
+  3: "Climate Action",
+  4: "Economic Empowerment",
+  7: "Education Access",
+  8: "Healthcare",
+  11: "Sustainable Communities",
+  18: "Technology Innovation",
+};
+
+const sdgNames: Record<number, string> = {
+  1: "No Poverty",
+  2: "Zero Hunger",
+  3: "Good Health and Well-Being",
+  4: "Quality Education",
+  5: "Gender Equality",
+  6: "Clean Water and Sanitation",
+  7: "Affordable and Clean Energy",
+  8: "Decent Work and Economic Growth",
+  9: "Industry, Innovation and Infrastructure",
+  10: "Reduced Inequalities",
+  11: "Sustainable Cities and Communities",
+  12: "Responsible Consumption and Production",
+  13: "Climate Action",
+  14: "Life Below Water",
+  15: "Life on Land",
+  16: "Peace, Justice and Strong Institutions",
+  17: "Partnerships for the Goals",
+};
+
+interface InvestmentData {
+  id: number;
+  name: string;
+  description: string;
+  themes: string;
+  sdGs: string;
+  terms: string;
+  minimumInvestment: string;
+  website: string;
+  contactInfoFullName: string;
+  contactInfoEmailAddress: string;
+  contactInfoPhoneNumber: string;
+  otherCountryAddress: string;
+  country: string;
+  target: string;
+  tileImageFileName: string;
+  imageFileName: string;
+  pdfFileName: string;
+  logoFileName: string;
+  currentBalance: number;
+  numberOfInvestors: number;
+  fundraisingCloseDate: string;
+  missionAndVision: string;
+  projectedReturn: number;
+  highestInvestment: number;
+  averageInvestment: number;
+  matchedCampaigns: {
+    id: number;
+    name: string;
+    description: string;
+    target: string;
+    tileImageFileName: string;
+    property: string;
+    currentBalance: number;
+    numberOfInvestors: number;
+  }[];
+  investorsList: {
+    name: string;
+    profileImage: string;
+    amount: number;
+    investedAgo: string;
+  }[];
+}
+
+function Speedometer({ percentage }: { percentage: number }) {
+  const clampedPct = Math.min(Math.max(percentage, 0), 100);
+
+  const cx = 50;
+  const cy = 50;
+  const radius = 40;
+
+  const startX = cx - radius;
+  const startY = cy;
+  const endX = cx + radius;
+  const endY = cy;
+
+  const arcPath = `M ${startX} ${startY} A ${radius} ${radius} 0 1 1 ${endX} ${endY}`;
+
+  return (
+    <div className="relative w-28 h-28 flex items-center justify-center mx-auto">
+      <svg viewBox="0 0 100 100" className="w-full h-full">
+        <path
+          d={arcPath}
+          fill="none"
+          stroke="#e2e8f0"
+          strokeWidth="8"
+          strokeLinecap="round"
+        />
+        <motion.path
+          d={arcPath}
+          fill="none"
+          stroke="#80b73f"
+          strokeWidth="8"
+          strokeLinecap="round"
+          initial={{ pathLength: 0 }}
+          whileInView={{ pathLength: clampedPct / 100 }}
+          viewport={{ once: true }}
+          transition={{ duration: 1, delay: 0.1 }}
+          style={{
+            strokeDasharray: "1",
+            strokeDashoffset: "0",
+          }}
+        />
+        <text
+          x={cx}
+          y={cy + 2}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          fontSize="18"
+          fontWeight="700"
+          fill="#80b73f"
+        >
+          {percentage}%
+        </text>
+        <text
+          x={cx}
+          y={cy + 16}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          fontSize="9"
+          fill="#6b7280"
+        >
+          funded
+        </text>
+      </svg>
+    </div>
+  );
+}
+
+function MiniSpeedometer({ percentage }: { percentage: number }) {
+  const clampedPct = Math.min(Math.max(percentage, 0), 100);
+
+  const cx = 50;
+  const cy = 50;
+  const radius = 40;
+
+  const startX = cx - radius;
+  const startY = cy;
+  const endX = cx + radius;
+  const endY = cy;
+
+  const arcPath = `M ${startX} ${startY} A ${radius} ${radius} 0 1 1 ${endX} ${endY}`;
+
+  return (
+    <div className="relative w-16 h-16 flex items-center justify-center mx-auto">
+      <svg viewBox="0 0 100 100" className="w-full h-full">
+        <path
+          d={arcPath}
+          fill="none"
+          stroke="#e2e8f0"
+          strokeWidth="10"
+          strokeLinecap="round"
+        />
+        <motion.path
+          d={arcPath}
+          fill="none"
+          stroke="#80b73f"
+          strokeWidth="10"
+          strokeLinecap="round"
+          initial={{ pathLength: 0 }}
+          whileInView={{ pathLength: clampedPct / 100 }}
+          viewport={{ once: true }}
+          transition={{ duration: 1, delay: 0.1 }}
+          style={{
+            strokeDasharray: "1",
+            strokeDashoffset: "0",
+          }}
+        />
+        <text
+          x={cx}
+          y={cy + 2}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          fontSize="16"
+          fontWeight="700"
+          fill="#80b73f"
+        >
+          {percentage}%
+        </text>
+        <text
+          x={cx}
+          y={cy + 14}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          fontSize="8"
+          fill="#6b7280"
+        >
+          funded
+        </text>
+      </svg>
+    </div>
+  );
+}
+
+function RecentSupportersSection({
+  investors,
+}: {
+  investors: InvestmentData["investorsList"];
+}) {
+  const [isExpanded, setIsExpanded] = useState(true);
+
+  return (
+    <section className="mb-8" data-testid="section-recent-supporters-tab">
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="flex items-center justify-between w-full text-left mb-4"
+        data-testid="button-toggle-supporters"
+      >
+        <h3 className="text-lg font-semibold text-foreground">
+          Recent Supporters
+        </h3>
+        {isExpanded ? (
+          <ChevronUp className="w-5 h-5 text-muted-foreground" />
+        ) : (
+          <ChevronDown className="w-5 h-5 text-muted-foreground" />
+        )}
+      </button>
+
+      {isExpanded && (
+        <div
+          className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4"
+          data-testid="list-recent-supporters"
+        >
+          {investors.map((supporter, index) => (
+            <div
+              key={index}
+              className="border border-border rounded-xl p-4 bg-muted/20 hover-elevate cursor-pointer"
+              data-testid={`tab-supporter-${index}`}
+            >
+              <div className="flex flex-col items-center text-center">
+                <Avatar className="w-16 h-16 mb-3">
+                  {supporter.profileImage ? (
+                    <AvatarImage
+                      src={getProxyUrl(supporter.profileImage)}
+                      alt={supporter.name}
+                    />
+                  ) : null}
+                  <AvatarFallback
+                    className="text-xl font-semibold"
+                    style={{ backgroundColor: "#7dd3fc", color: "#1e3a5f" }}
+                  >
+                    {supporter.name.charAt(0).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <p className="font-medium text-foreground text-sm mb-1">
+                  {supporter.name}
+                </p>
+                <p className="text-lg font-bold text-[#80b73f] mb-1">
+                  ${supporter.amount.toLocaleString()}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {supporter.investedAgo}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PitchMaterialSection({ pdfUrl }: { pdfUrl?: string }) {
+  const [numPages, setNumPages] = useState<number>(0);
+  const [pageNumber, setPageNumber] = useState(1);
+  const [scale, setScale] = useState(1.0);
+  const [pdfError, setPdfError] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const displayPdfUrl = getProxyUrl(pdfUrl) || "/sample-pitch.pdf";
+
+  const pdfOptions = useMemo(
+    () => ({
+      cMapUrl: "https://unpkg.com/pdfjs-dist@4.4.168/cmaps/",
+      cMapPacked: true,
+    }),
+    [],
+  );
+
+  useEffect(() => {
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      if (
+        event.reason?.name === "AbortError" ||
+        event.reason?.message?.includes("aborted") ||
+        event.reason?.message?.includes("BodyStreamBuffer")
+      ) {
+        event.preventDefault();
+      }
+    };
+
+    window.addEventListener("unhandledrejection", handleUnhandledRejection);
+    return () =>
+      window.removeEventListener(
+        "unhandledrejection",
+        handleUnhandledRejection,
+      );
+  }, []);
+
+  function onDocumentLoadSuccess({ numPages }: { numPages: number }) {
+    setNumPages(numPages);
+    setPdfError(false);
+    setIsLoading(false);
+  }
+
+  function onDocumentLoadError(error: Error) {
+    if (error.name === "AbortError" || error.message?.includes("aborted")) {
+      return;
+    }
+    setPdfError(true);
+    setIsLoading(false);
+  }
+
+  const goToPrevPage = () => setPageNumber((prev) => Math.max(prev - 1, 1));
+  const goToNextPage = () =>
+    setPageNumber((prev) => Math.min(prev + 1, numPages));
+  const zoomIn = () => setScale((prev) => Math.min(prev + 0.2, 2.0));
+  const zoomOut = () => setScale((prev) => Math.max(prev - 0.2, 0.5));
+
+  return (
+    <section data-testid="section-pitch-material">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+          <FileText className="w-5 h-5" />
+          Pitch Material
+        </h3>
+        <Button
+          variant="outline"
+          size="sm"
+          asChild
+          data-testid="button-download-pdf"
+        >
+          <a
+            href={displayPdfUrl}
+            download
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Download PDF
+          </a>
+        </Button>
+      </div>
+
+      <Card className="p-4" data-testid="card-pdf-viewer">
+        {pdfError ? (
+          <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+            <FileText className="w-12 h-12 mb-4 opacity-50" />
+            <p className="text-sm">Unable to load PDF document</p>
+            <p className="text-xs mt-1">
+              Please try downloading the file instead
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between mb-4 pb-3 border-b">
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={goToPrevPage}
+                  disabled={pageNumber <= 1}
+                  data-testid="button-prev-page"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </Button>
+                <span
+                  className="text-sm text-muted-foreground min-w-[80px] text-center"
+                  data-testid="text-page-info"
+                >
+                  Page {pageNumber} of {numPages || "..."}
+                </span>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={goToNextPage}
+                  disabled={pageNumber >= numPages}
+                  data-testid="button-next-page"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={zoomOut}
+                  disabled={scale <= 0.5}
+                  data-testid="button-zoom-out"
+                >
+                  <ZoomOut className="w-4 h-4" />
+                </Button>
+                <span className="text-sm text-muted-foreground min-w-[50px] text-center">
+                  {Math.round(scale * 100)}%
+                </span>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={zoomIn}
+                  disabled={scale >= 2.0}
+                  data-testid="button-zoom-in"
+                >
+                  <ZoomIn className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+
+            <div
+              className="overflow-auto bg-muted/30 rounded-md flex justify-center min-h-[400px] max-h-[600px]"
+              data-testid="pdf-container"
+            >
+              <Document
+                file={displayPdfUrl}
+                onLoadSuccess={onDocumentLoadSuccess}
+                onLoadError={onDocumentLoadError}
+                loading={
+                  <div className="flex items-center justify-center py-20">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                  </div>
+                }
+                options={pdfOptions}
+              >
+                <Page
+                  pageNumber={pageNumber}
+                  scale={scale}
+                  renderTextLayer={false}
+                  renderAnnotationLayer={false}
+                />
+              </Document>
+            </div>
+          </>
+        )}
+      </Card>
+    </section>
+  );
+}
+
+function parseIds(ids: string): number[] {
+  if (!ids) return [];
+  return ids
+    .split(",")
+    .map((id) => parseInt(id.trim(), 10))
+    .filter((id) => !isNaN(id));
+}
+
+function stripHtml(html: string): string {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  return doc.body.textContent || "";
+}
+
+export default function InvestmentPage() {
+  const [investAmount, setInvestAmount] = useState("300");
+  const [showStickyHeader, setShowStickyHeader] = useState(false);
+  const [similarViewMode, setSimilarViewMode] = useState<"carousel" | "list">(
+    "carousel",
+  );
+  const [carouselIndex, setCarouselIndex] = useState(0);
+  const heroRef = useRef<HTMLElement>(null);
+
+  const {
+    data: investmentData,
+    isLoading,
+    error,
+  } = useQuery<InvestmentData>({
+    queryKey: ["/api/investment", "amity"],
+    queryFn: async () => {
+      const response = await fetch("/api/investment/amity");
+      if (!response.ok) throw new Error("Failed to fetch investment data");
+      return response.json();
+    },
+  });
+
+  const investmentThemes = useMemo(() => {
+    if (!investmentData?.themes) return [];
+    return parseIds(investmentData.themes).map((id) => ({
+      id,
+      name: themeNames[id] || `Theme ${id}`,
+      image: themeImages[id],
+      bg: "bg-[#80b73f]",
+      dot: "bg-white/30",
+    }));
+  }, [investmentData?.themes]);
+
+  const investmentSdgs = useMemo(() => {
+    if (!investmentData?.sdGs) return [];
+    return parseIds(investmentData.sdGs).map((id) => ({
+      id,
+      name: sdgNames[id] || `SDG ${id}`,
+      image: sdgImages[id],
+    }));
+  }, [investmentData?.sdGs]);
+
+  const target = investmentData
+    ? parseFloat(investmentData.target) * 1000
+    : 50000;
+  const currentBalance = investmentData?.currentBalance || 0;
+  const progressPercent =
+    target > 0 ? Math.min(Math.round((currentBalance / target) * 100), 100) : 0;
+
+  useEffect(() => {
+    const handleScroll = () => {
+      if (heroRef.current) {
+        const heroBottom = heroRef.current.getBoundingClientRect().bottom;
+        setShowStickyHeader(heroBottom <= 120);
+      }
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <div className="max-w-7xl mx-auto px-4 py-8">
+          <Skeleton className="h-64 w-full mb-8" />
+          <div className="flex flex-col lg:flex-row gap-8">
+            <div className="flex-1 space-y-4">
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-48 w-full" />
+              <Skeleton className="h-32 w-full" />
+            </div>
+            <div className="lg:w-80 xl:w-96 space-y-4">
+              <Skeleton className="h-96 w-full" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !investmentData) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <div className="max-w-7xl mx-auto px-4 py-16 text-center">
+          <p className="text-muted-foreground">
+            Failed to load investment data. Please try again later.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const matchedCampaigns = investmentData.matchedCampaigns || [];
+
+  return (
+    <div className="min-h-screen bg-background">
+      <Header />
+
+      <AnimatePresence>
+        {showStickyHeader && (
+          <motion.div
+            initial={{ y: -100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -100, opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="fixed top-14 left-0 right-0 z-40 bg-slate-900 border-b border-slate-700 shadow-md"
+            data-testid="sticky-hero-header"
+          >
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2 sm:py-3">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4">
+                <div className="flex items-center gap-2 sm:gap-3 flex-wrap min-w-0">
+                  <div className="flex flex-wrap gap-1.5 shrink-0">
+                    {investmentThemes.slice(0, 3).map((theme) => (
+                      <span
+                        key={theme.id}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold bg-[#80b73f] text-white"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-white/30" />
+                        {theme.name}
+                      </span>
+                    ))}
+                  </div>
+                  <h2
+                    className="text-sm sm:text-base font-bold text-white"
+                    data-testid="sticky-title"
+                  >
+                    {investmentData.name}
+                  </h2>
+                </div>
+                <div className="flex items-center gap-3 sm:gap-4 shrink-0">
+                  <div className="flex items-center gap-3 sm:gap-4 text-xs sm:text-sm">
+                    <div className="flex items-center gap-1 sm:gap-1.5">
+                      <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-400" />
+                      <span className="font-semibold text-white">
+                        {investmentData.numberOfInvestors}
+                      </span>
+                      <span className="text-slate-400">investors</span>
+                    </div>
+                    <div className="flex items-center gap-1 sm:gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-400" />
+                      <span className="font-semibold text-white">
+                        {new Date(investmentData.fundraisingCloseDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      </span>
+                      <span className="text-slate-400">close date</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <section
+        ref={heroRef}
+        className="relative bg-slate-900 overflow-hidden"
+        data-testid="hero-section"
+      >
+        <div className="absolute inset-0">
+          <img
+            src={getProxyUrl(investmentData.imageFileName)}
+            alt={investmentData.name}
+            className="w-full h-full object-cover opacity-30"
+            data-testid="hero-bg-image"
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/80 to-transparent" />
+        </div>
+
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 md:py-20">
+          <Link href="/">
+            <Button
+              variant="ghost"
+              className="text-white/80 mb-6 bg-white/10 backdrop-blur-sm"
+              data-testid="button-back-to-home"
+            >
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Explore Investments
+            </Button>
+          </Link>
+
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6 }}
+            className="flex flex-col gap-4"
+          >
+            <div className="flex flex-wrap gap-2 mb-2">
+              {investmentThemes.map((theme) => (
+                <span
+                  key={theme.id}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-[#80b73f] text-white"
+                  data-testid={`badge-theme-${theme.id}`}
+                >
+                  <span className="w-2 h-2 rounded-full bg-white/30" />
+                  {theme.name}
+                </span>
+              ))}
+            </div>
+
+            <h1
+              className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-2"
+              data-testid="text-hero-title"
+            >
+              {investmentData.name}
+            </h1>
+
+            <p
+              className="text-base md:text-lg text-white/80 max-w-2xl line-clamp-3"
+              data-testid="text-hero-description"
+            >
+              {stripHtml(investmentData.description).substring(0, 200)}...
+            </p>
+
+            <div className="flex items-center gap-6 mt-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Users className="w-5 h-5 text-[#80b73f]" />
+                <span
+                  className="text-white font-semibold"
+                  data-testid="text-hero-investors"
+                >
+                  {investmentData.numberOfInvestors} investors
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Calendar className="w-5 h-5 text-[#80b73f]" />
+                <span
+                  className="text-white font-semibold"
+                  data-testid="text-hero-close-date"
+                >
+                  Closes {new Date(investmentData.fundraisingCloseDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                </span>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      </section>
+
+      <main className="max-w-7xl mx-auto px-4 py-8">
+        <div className="flex flex-col lg:flex-row gap-8">
+          <div className="flex-1">
+            <Tabs defaultValue="overview" className="mb-6">
+              <TabsList
+                className="w-full h-auto bg-transparent p-0 border-b border-border flex overflow-x-auto scrollbar-hide"
+                data-testid="tabs-container"
+              >
+                <TabsTrigger
+                  value="overview"
+                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-b-primary data-[state=active]:text-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none bg-transparent text-muted-foreground px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm whitespace-nowrap shrink-0"
+                  data-testid="tab-overview"
+                >
+                  Overview
+                </TabsTrigger>
+                <TabsTrigger
+                  value="mission"
+                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-b-primary data-[state=active]:text-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none bg-transparent text-muted-foreground px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm whitespace-nowrap shrink-0"
+                  data-testid="tab-mission"
+                >
+                  Our Why
+                </TabsTrigger>
+                <TabsTrigger
+                  value="terms"
+                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-b-primary data-[state=active]:text-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none bg-transparent text-muted-foreground px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm whitespace-nowrap shrink-0"
+                  data-testid="tab-terms"
+                >
+                  Terms
+                </TabsTrigger>
+                <TabsTrigger
+                  value="pitch"
+                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-b-primary data-[state=active]:text-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none bg-transparent text-muted-foreground px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm whitespace-nowrap shrink-0"
+                  data-testid="tab-pitch"
+                >
+                  Pitch Material
+                </TabsTrigger>
+                <TabsTrigger
+                  value="supporters"
+                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-b-primary data-[state=active]:text-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none bg-transparent text-muted-foreground px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm whitespace-nowrap shrink-0"
+                  data-testid="tab-supporters"
+                >
+                  Supporters
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="overview" className="mt-6">
+                <section className="mb-8" data-testid="section-about">
+                  <h3
+                    className="text-lg font-semibold text-foreground mb-4"
+                    data-testid="heading-about"
+                  >
+                    About {investmentData.name}
+                  </h3>
+                  <div
+                    className="text-sm text-muted-foreground space-y-4 leading-relaxed prose prose-sm max-w-none"
+                    dangerouslySetInnerHTML={{
+                      __html: investmentData.description,
+                    }}
+                  />
+                </section>
+
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.5, delay: 0.1 }}
+                  data-testid="section-themes-sdgs"
+                  className="mb-8"
+                >
+                  <h3 className="text-lg font-semibold text-foreground mb-6">
+                    Themes & SDGs Supported
+                  </h3>
+
+                  {investmentThemes.length > 0 && (
+                    <div
+                      className="flex flex-wrap gap-4 mb-6"
+                      data-testid="list-themes"
+                    >
+                      {investmentThemes.map((theme) => (
+                        <div
+                          key={theme.id}
+                          className="flex flex-col items-center group"
+                          data-testid={`theme-card-${theme.id}`}
+                        >
+                          <div className="relative w-24 h-24 md:w-28 md:h-28 rounded-lg overflow-hidden shadow-md transition-transform group-hover:scale-105">
+                            {theme.image ? (
+                              <img
+                                src={theme.image}
+                                alt={theme.name}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div
+                                className={`w-full h-full ${theme.bg} flex items-center justify-center`}
+                              >
+                                <span
+                                  className={`w-8 h-8 rounded-full ${theme.dot}`}
+                                />
+                              </div>
+                            )}
+                          </div>
+                          <span className="mt-2 text-sm font-medium text-foreground text-center max-w-24 md:max-w-28 line-clamp-2">
+                            {theme.name}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {investmentSdgs.length > 0 && (
+                    <div
+                      className="flex flex-wrap gap-3"
+                      data-testid="list-sdgs"
+                    >
+                      {investmentSdgs.map((sdg) => (
+                        <div
+                          key={sdg.id}
+                          className="group relative"
+                          data-testid={`sdg-icon-${sdg.id}`}
+                        >
+                          <div className="w-16 h-16 md:w-20 md:h-20 rounded-md overflow-hidden shadow-sm transition-transform group-hover:scale-110 cursor-pointer">
+                            {sdg.image ? (
+                              <img
+                                src={sdg.image}
+                                alt={sdg.name}
+                                className="w-full h-full object-cover"
+                                title={sdg.name}
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-primary/20 flex items-center justify-center">
+                                <span className="text-xs font-bold text-primary">
+                                  {sdg.id}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10">
+                            {sdg.name}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {investmentThemes.length === 0 &&
+                    investmentSdgs.length === 0 && (
+                      <p className="text-muted-foreground">
+                        No themes or SDGs associated with this investment.
+                      </p>
+                    )}
+                </motion.div>
+
+                <h3 className="text-lg font-semibold text-foreground mb-2">
+                  Investment Stats
+                </h3>
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2, duration: 0.6 }}
+                    className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-2 mb-6"
+                  >
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: 0.3, duration: 0.4 }}
+                      className="relative text-center px-3 sm:px-4 py-3"
+                    >
+                      <div className="absolute left-0 top-1/2 -translate-y-1/2 h-3/4 w-[3px] rounded-full bg-gradient-to-b from-transparent via-primary/40 to-transparent" />
+                      <div className="absolute left-0 top-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+                      <div className="absolute left-0 bottom-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+
+                      <p
+                        className="text-xl sm:text-2xl lg:text-3xl font-bold text-primary"
+                        data-testid="stat-investors"
+                      >
+                        {investmentData.numberOfInvestors}
+                      </p>
+                      <p className="text-[10px] sm:text-xs lg:text-sm text-muted-foreground mt-1">
+                        Total Investors
+                      </p>
+
+                      <div className="absolute right-0 top-1/2 -translate-y-1/2 h-3/4 w-[3px] rounded-full bg-gradient-to-b from-transparent via-primary/40 to-transparent" />
+                      <div className="absolute right-0 top-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+                      <div className="absolute right-0 bottom-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+                    </motion.div>
+
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: 0.4, duration: 0.4 }}
+                      className="relative text-center px-3 sm:px-4 py-3"
+                    >
+                      <div className="absolute left-0 top-1/2 -translate-y-1/2 h-3/4 w-[3px] rounded-full bg-gradient-to-b from-transparent via-primary/40 to-transparent" />
+                      <div className="absolute left-0 top-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+                      <div className="absolute left-0 bottom-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+
+                      <p
+                        className="text-lg sm:text-xl lg:text-2xl font-bold text-primary"
+                        data-testid="stat-close-date"
+                      >
+                        {new Date(investmentData.fundraisingCloseDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      </p>
+                      <p className="text-[10px] sm:text-xs lg:text-sm text-muted-foreground mt-1">
+                        Fundraising Close Date
+                      </p>
+
+                      <div className="absolute right-0 top-1/2 -translate-y-1/2 h-3/4 w-[3px] rounded-full bg-gradient-to-b from-transparent via-primary/40 to-transparent" />
+                      <div className="absolute right-0 top-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+                      <div className="absolute right-0 bottom-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+                    </motion.div>
+
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: 0.5, duration: 0.4 }}
+                      className="relative text-center px-3 sm:px-4 py-3"
+                    >
+                      <div className="absolute left-0 top-1/2 -translate-y-1/2 h-3/4 w-[3px] rounded-full bg-gradient-to-b from-transparent via-primary/40 to-transparent" />
+                      <div className="absolute left-0 top-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+                      <div className="absolute left-0 bottom-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+
+                      <p
+                        className="text-xl sm:text-2xl lg:text-3xl font-bold text-primary"
+                        data-testid="stat-highest"
+                      >
+                        ${investmentData.highestInvestment.toLocaleString()}
+                      </p>
+                      <p className="text-[10px] sm:text-xs lg:text-sm text-muted-foreground mt-1">
+                        Highest Investment
+                      </p>
+
+                      <div className="absolute right-0 top-1/2 -translate-y-1/2 h-3/4 w-[3px] rounded-full bg-gradient-to-b from-transparent via-primary/40 to-transparent" />
+                      <div className="absolute right-0 top-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+                      <div className="absolute right-0 bottom-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+                    </motion.div>
+
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: 0.6, duration: 0.4 }}
+                      className="relative text-center px-3 sm:px-4 py-3"
+                    >
+                      <div className="absolute left-0 top-1/2 -translate-y-1/2 h-3/4 w-[3px] rounded-full bg-gradient-to-b from-transparent via-primary/40 to-transparent" />
+                      <div className="absolute left-0 top-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+                      <div className="absolute left-0 bottom-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+
+                      <p
+                        className="text-xl sm:text-2xl lg:text-3xl font-bold text-primary"
+                        data-testid="stat-capital"
+                      >
+                        ${currentBalance.toLocaleString()}
+                      </p>
+                      <p className="text-[10px] sm:text-xs lg:text-sm text-muted-foreground mt-1">
+                        Capital Raised
+                      </p>
+
+                      <div className="absolute right-0 top-1/2 -translate-y-1/2 h-3/4 w-[3px] rounded-full bg-gradient-to-b from-transparent via-primary/40 to-transparent" />
+                      <div className="absolute right-0 top-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+                      <div className="absolute right-0 bottom-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+                    </motion.div>
+                  </motion.div>
+              </TabsContent>
+
+              <TabsContent value="mission" className="mt-6">
+                <section data-testid="section-mission-tab">
+                  <h3 className="text-lg font-semibold text-foreground mb-4">
+                    Our Why
+                  </h3>
+
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2, duration: 0.6 }}
+                    className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-6 mb-6"
+                  >
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: 0.3, duration: 0.4 }}
+                      className="relative text-center px-3 sm:px-4 py-3"
+                    >
+                      <div className="absolute left-0 top-1/2 -translate-y-1/2 h-3/4 w-[3px] rounded-full bg-gradient-to-b from-transparent via-primary/40 to-transparent" />
+                      <div className="absolute left-0 top-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+                      <div className="absolute left-0 bottom-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+
+                      <p
+                        className="text-xl sm:text-2xl lg:text-3xl font-bold text-primary"
+                        data-testid="stat-investors"
+                      >
+                        {investmentData.numberOfInvestors}
+                      </p>
+                      <p className="text-[10px] sm:text-xs lg:text-sm text-muted-foreground mt-1">
+                        Total Investors
+                      </p>
+
+                      <div className="absolute right-0 top-1/2 -translate-y-1/2 h-3/4 w-[3px] rounded-full bg-gradient-to-b from-transparent via-primary/40 to-transparent" />
+                      <div className="absolute right-0 top-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+                      <div className="absolute right-0 bottom-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+                    </motion.div>
+
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: 0.4, duration: 0.4 }}
+                      className="relative text-center px-3 sm:px-4 py-3"
+                    >
+                      <div className="absolute left-0 top-1/2 -translate-y-1/2 h-3/4 w-[3px] rounded-full bg-gradient-to-b from-transparent via-primary/40 to-transparent" />
+                      <div className="absolute left-0 top-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+                      <div className="absolute left-0 bottom-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+
+                      <p
+                        className="text-lg sm:text-xl lg:text-2xl font-bold text-primary"
+                        data-testid="stat-close-date"
+                      >
+                        {new Date(investmentData.fundraisingCloseDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      </p>
+                      <p className="text-[10px] sm:text-xs lg:text-sm text-muted-foreground mt-1">
+                        Fundraising Close Date
+                      </p>
+
+                      <div className="absolute right-0 top-1/2 -translate-y-1/2 h-3/4 w-[3px] rounded-full bg-gradient-to-b from-transparent via-primary/40 to-transparent" />
+                      <div className="absolute right-0 top-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+                      <div className="absolute right-0 bottom-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+                    </motion.div>
+
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: 0.5, duration: 0.4 }}
+                      className="relative text-center px-3 sm:px-4 py-3"
+                    >
+                      <div className="absolute left-0 top-1/2 -translate-y-1/2 h-3/4 w-[3px] rounded-full bg-gradient-to-b from-transparent via-primary/40 to-transparent" />
+                      <div className="absolute left-0 top-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+                      <div className="absolute left-0 bottom-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+
+                      <p
+                        className="text-xl sm:text-2xl lg:text-3xl font-bold text-primary"
+                        data-testid="stat-highest"
+                      >
+                        ${investmentData.highestInvestment.toLocaleString()}
+                      </p>
+                      <p className="text-[10px] sm:text-xs lg:text-sm text-muted-foreground mt-1">
+                        Highest Investment
+                      </p>
+
+                      <div className="absolute right-0 top-1/2 -translate-y-1/2 h-3/4 w-[3px] rounded-full bg-gradient-to-b from-transparent via-primary/40 to-transparent" />
+                      <div className="absolute right-0 top-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+                      <div className="absolute right-0 bottom-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+                    </motion.div>
+
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: 0.6, duration: 0.4 }}
+                      className="relative text-center px-3 sm:px-4 py-3"
+                    >
+                      <div className="absolute left-0 top-1/2 -translate-y-1/2 h-3/4 w-[3px] rounded-full bg-gradient-to-b from-transparent via-primary/40 to-transparent" />
+                      <div className="absolute left-0 top-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+                      <div className="absolute left-0 bottom-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+
+                      <p
+                        className="text-xl sm:text-2xl lg:text-3xl font-bold text-primary"
+                        data-testid="stat-capital"
+                      >
+                        ${currentBalance.toLocaleString()}
+                      </p>
+                      <p className="text-[10px] sm:text-xs lg:text-sm text-muted-foreground mt-1">
+                        Capital Raised
+                      </p>
+
+                      <div className="absolute right-0 top-1/2 -translate-y-1/2 h-3/4 w-[3px] rounded-full bg-gradient-to-b from-transparent via-primary/40 to-transparent" />
+                      <div className="absolute right-0 top-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+                      <div className="absolute right-0 bottom-[12%] w-2 sm:w-3 h-[3px] rounded-full bg-primary/30" />
+                    </motion.div>
+                  </motion.div>
+
+                  <h3 className="text-lg font-semibold text-foreground mb-6">
+                    Our Mission and Vision
+                  </h3>
+                  <div className="text-sm text-muted-foreground space-y-4 leading-relaxed">
+                    <p>{investmentData.missionAndVision}</p>
+                  </div>
+                </section>
+              </TabsContent>
+
+              <TabsContent value="terms" className="mt-6">
+                <section data-testid="section-terms-tab">
+                  <h3 className="text-lg font-semibold text-foreground mb-4">
+                    Investment Terms
+                  </h3>
+                  <div className="divide-y">
+                    <div className="grid grid-cols-1 md:grid-cols-[200px_1fr] gap-2 md:gap-4 py-3 text-sm">
+                      <span className="text-muted-foreground">Terms:</span>
+                      <div
+                        className="prose prose-sm max-w-none"
+                        dangerouslySetInnerHTML={{
+                          __html: investmentData.terms,
+                        }}
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-[200px_1fr] gap-2 md:gap-4 py-3 text-sm">
+                      <span className="text-muted-foreground">
+                        Minimum Investment:
+                      </span>
+                      <span className="font-medium">
+                        $
+                        {parseFloat(
+                          investmentData.minimumInvestment,
+                        ).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-[200px_1fr] gap-2 md:gap-4 py-3 text-sm">
+                      <span className="text-muted-foreground">
+                        Fundraising Close Date:
+                      </span>
+                      <span className="font-medium">
+                        {new Date(
+                          investmentData.fundraisingCloseDate,
+                        ).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-[200px_1fr] gap-2 md:gap-4 py-3 text-sm">
+                      <span className="text-muted-foreground">Website:</span>
+                      <a
+                        href={investmentData.website}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary inline-flex items-center gap-1"
+                      >
+                        <Globe className="w-3 h-3" />
+                        {investmentData.website}
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-[200px_1fr] gap-2 md:gap-4 py-3 text-sm">
+                      <span className="text-muted-foreground">
+                        Contact Person:
+                      </span>
+                      <span className="font-medium">
+                        {investmentData.contactInfoFullName}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-[200px_1fr] gap-2 md:gap-4 py-3 text-sm">
+                      <span className="text-muted-foreground">Email:</span>
+                      <a
+                        href={`mailto:${investmentData.contactInfoEmailAddress}`}
+                        className="text-primary inline-flex items-center gap-1"
+                      >
+                        <Mail className="w-3 h-3" />
+                        {investmentData.contactInfoEmailAddress}
+                      </a>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-[200px_1fr] gap-2 md:gap-4 py-3 text-sm">
+                      <span className="text-muted-foreground">Phone:</span>
+                      <a
+                        href={`tel:${investmentData.contactInfoPhoneNumber}`}
+                        className="text-primary inline-flex items-center gap-1"
+                      >
+                        <Phone className="w-3 h-3" />
+                        {investmentData.contactInfoPhoneNumber}
+                      </a>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-[200px_1fr] gap-2 md:gap-4 py-3 text-sm">
+                      <span className="text-muted-foreground">Location:</span>
+                      <span className="font-medium inline-flex items-start gap-1">
+                        <MapPin className="w-3 h-3 mt-1 shrink-0" />
+                        {investmentData.otherCountryAddress},{" "}
+                        {investmentData.country}
+                      </span>
+                    </div>
+                  </div>
+                </section>
+              </TabsContent>
+
+              <TabsContent value="pitch" className="mt-6">
+                <PitchMaterialSection pdfUrl={investmentData.pdfFileName} />
+              </TabsContent>
+
+              <TabsContent value="supporters" className="mt-6">
+                <RecentSupportersSection
+                  investors={investmentData.investorsList || []}
+                />
+              </TabsContent>
+            </Tabs>
+          </div>
+
+          <div className="lg:w-80 xl:w-96 space-y-6">
+            <div className="lg:sticky lg:top-20 space-y-6">
+              <Card className="p-5" data-testid="card-funding-progress">
+                <h4
+                  className="text-sm font-medium text-muted-foreground mb-4"
+                  data-testid="heading-funding-progress"
+                >
+                  Funding Progress
+                </h4>
+
+                <Speedometer percentage={progressPercent} />
+
+                <div className="text-center mt-4 mb-4">
+                  <span
+                    className="text-3xl font-bold text-[#80b73f]"
+                    data-testid="text-amount-raised"
+                  >
+                    ${currentBalance.toLocaleString()}
+                  </span>
+                  <p
+                    className="text-sm text-muted-foreground"
+                    data-testid="text-goal"
+                  >
+                    of a ${target.toLocaleString()} goal
+                  </p>
+                </div>
+
+                <div className="flex justify-between text-sm mb-6 border-t pt-4">
+                  <span className="text-muted-foreground">Investors</span>
+                  <span className="font-semibold" data-testid="text-investors">
+                    {investmentData.numberOfInvestors}
+                  </span>
+                </div>
+
+                <div className="border-t pt-4">
+                  <p
+                    className="text-sm font-medium text-foreground mb-3"
+                    data-testid="label-donate-to-invest"
+                  >
+                    Donate to invest?
+                  </p>
+
+                  <div
+                    className="grid grid-cols-3 gap-2 mb-4"
+                    data-testid="preset-amounts"
+                  >
+                    {[1000, 2000, 5000, 10000, 25000].map((amount) => (
+                      <Button
+                        key={amount}
+                        variant={
+                          investAmount === String(amount)
+                            ? "default"
+                            : "outline"
+                        }
+                        size="sm"
+                        onClick={() => setInvestAmount(String(amount))}
+                        className="text-sm"
+                        data-testid={`button-amount-${amount}`}
+                      >
+                        ${amount.toLocaleString()}
+                      </Button>
+                    ))}
+                    <Button
+                      variant={
+                        !["1000", "2000", "5000", "10000", "25000"].includes(
+                          investAmount,
+                        )
+                          ? "default"
+                          : "outline"
+                      }
+                      size="sm"
+                      onClick={() => setInvestAmount("")}
+                      className="text-sm"
+                      data-testid="button-amount-other"
+                    >
+                      OTHER
+                    </Button>
+                  </div>
+
+                  <p className="text-sm text-muted-foreground mb-2">
+                    Invest: Min (${investmentData.minimumInvestment})
+                  </p>
+                  <div className="flex gap-2 mb-3">
+                    <div className="relative flex-1">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground">
+                        $
+                      </span>
+                      <Input
+                        type="text"
+                        value={investAmount}
+                        onChange={(e) =>
+                          setInvestAmount(e.target.value.replace(/[^0-9]/g, ""))
+                        }
+                        className="pl-7"
+                        placeholder={investmentData.minimumInvestment}
+                        data-testid="input-invest-amount"
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    className="w-full font-semibold"
+                    data-testid="button-invest-now"
+                  >
+                    Invest Now
+                  </Button>
+                </div>
+
+                <div className="flex gap-2 mt-4">
+                  <Button
+                    variant="outline"
+                    className="flex-1 gap-2"
+                    data-testid="button-share"
+                  >
+                    <Share2 className="w-4 h-4" />
+                    Share
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="flex-1 gap-2"
+                    data-testid="button-get-updates"
+                  >
+                    <Bell className="w-4 h-4" />
+                    Get Updates
+                  </Button>
+                </div>
+              </Card>
+
+              {matchedCampaigns.length > 0 && (
+                <Card className="p-5" data-testid="card-similar-investments">
+                  <div className="flex items-center justify-between mb-4">
+                    <h4
+                      className="text-sm font-medium text-muted-foreground"
+                      data-testid="heading-similar-investments"
+                    >
+                      Similar Investments
+                    </h4>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant={
+                          similarViewMode === "carousel" ? "default" : "ghost"
+                        }
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => setSimilarViewMode("carousel")}
+                        data-testid="button-view-carousel"
+                      >
+                        <LayoutGrid className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant={
+                          similarViewMode === "list" ? "default" : "ghost"
+                        }
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => setSimilarViewMode("list")}
+                        data-testid="button-view-list"
+                      >
+                        <List className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {similarViewMode === "carousel" && (
+                    <div data-testid="carousel-similar-investments">
+                      <div className="relative">
+                        <AnimatePresence mode="wait">
+                          <motion.div
+                            key={carouselIndex}
+                            initial={{ opacity: 0, x: 20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: -20 }}
+                            transition={{ duration: 0.2 }}
+                            className="relative pt-8 mt-8"
+                            data-testid={`carousel-card-${matchedCampaigns[carouselIndex]?.id}`}
+                          >
+                            <div
+                              className="absolute -top-4 left-4 w-16 h-16 rounded-full flex items-center justify-center text-white text-xl font-bold z-10 border-4 border-background overflow-hidden"
+                              style={{ backgroundColor: "#7dd3fc" }}
+                            >
+                              {matchedCampaigns[carouselIndex]
+                                ?.tileImageFileName ? (
+                                <img
+                                  src={getProxyUrl(
+                                    matchedCampaigns[carouselIndex]
+                                      .tileImageFileName
+                                  )}
+                                  alt={matchedCampaigns[carouselIndex].name}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    (e.target as HTMLImageElement).style.display = 'none';
+                                    (e.target as HTMLImageElement).parentElement!.textContent = matchedCampaigns[carouselIndex]?.name.charAt(0) || '';
+                                  }}
+                                />
+                              ) : (
+                                matchedCampaigns[carouselIndex]?.name.charAt(0)
+                              )}
+                            </div>
+
+                            <div className="border border-border rounded-xl p-4 pt-6 bg-muted/20">
+                              <MiniSpeedometer
+                                percentage={Math.min(
+                                  Math.round(
+                                    (matchedCampaigns[carouselIndex]
+                                      ?.currentBalance /
+                                      (parseFloat(
+                                        matchedCampaigns[carouselIndex]
+                                          ?.target || "1",
+                                      ) *
+                                        1000)) *
+                                      100,
+                                  ),
+                                  100,
+                                )}
+                              />
+
+                              <div className="text-center mt-3">
+                                <div className="flex items-center justify-center gap-1">
+                                  <span className="text-lg font-bold text-[#80b73f]">
+                                    $
+                                    {matchedCampaigns[
+                                      carouselIndex
+                                    ]?.currentBalance.toLocaleString()}
+                                  </span>
+                                  <span className="text-xs text-muted-foreground">
+                                    of $
+                                    {(
+                                      parseFloat(
+                                        matchedCampaigns[carouselIndex]
+                                          ?.target || "0",
+                                      ) * 1000
+                                    ).toLocaleString()}{" "}
+                                    goal
+                                  </span>
+                                </div>
+
+                                <p
+                                  className="text-sm font-medium text-foreground mb-3"
+                                  data-testid={`carousel-name-${matchedCampaigns[carouselIndex]?.id}`}
+                                >
+                                  {matchedCampaigns[carouselIndex]?.name}
+                                </p>
+
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="w-full"
+                                  data-testid={`button-view-details-${matchedCampaigns[carouselIndex]?.id}`}
+                                >
+                                  View Details
+                                </Button>
+                              </div>
+                            </div>
+                          </motion.div>
+                        </AnimatePresence>
+
+                        <div className="flex items-center justify-between mt-3">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() =>
+                              setCarouselIndex((prev) =>
+                                prev === 0
+                                  ? matchedCampaigns.length - 1
+                                  : prev - 1,
+                              )
+                            }
+                            data-testid="button-carousel-prev"
+                          >
+                            <ChevronLeft className="w-4 h-4" />
+                          </Button>
+
+                          <div className="flex items-center gap-1.5">
+                            {matchedCampaigns.slice(0, 5).map((_, idx) => (
+                              <button
+                                key={idx}
+                                className={`w-2 h-2 rounded-full transition-colors ${idx === carouselIndex ? "bg-primary" : "bg-muted-foreground/30"}`}
+                                onClick={() => setCarouselIndex(idx)}
+                                data-testid={`carousel-dot-${idx}`}
+                              />
+                            ))}
+                          </div>
+
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() =>
+                              setCarouselIndex((prev) =>
+                                prev === matchedCampaigns.length - 1
+                                  ? 0
+                                  : prev + 1,
+                              )
+                            }
+                            data-testid="button-carousel-next"
+                          >
+                            <ChevronRight className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {similarViewMode === "list" && (
+                    <div
+                      className="space-y-3"
+                      data-testid="list-similar-investments"
+                    >
+                      {matchedCampaigns.slice(0, 5).map((campaign) => (
+                        <div
+                          key={campaign.id}
+                          className="flex items-center gap-3 p-2 rounded-lg hover-elevate cursor-pointer"
+                          data-testid={`similar-investment-${campaign.id}`}
+                        >
+                          <div
+                            className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0 overflow-hidden"
+                            style={{ backgroundColor: "#80b73f" }}
+                          >
+                            {campaign.tileImageFileName ? (
+                              <img
+                                src={getProxyUrl(campaign.tileImageFileName)}
+                                alt={campaign.name}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).style.display = 'none';
+                                  (e.target as HTMLImageElement).parentElement!.textContent = campaign.name.charAt(0);
+                                }}
+                              />
+                            ) : (
+                              campaign.name.charAt(0)
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p
+                              className="text-sm font-medium text-foreground truncate"
+                              data-testid={`similar-name-${campaign.id}`}
+                            >
+                              {campaign.name}
+                            </p>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <span>
+                                {campaign.numberOfInvestors} investors
+                              </span>
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <div className="text-xs font-semibold text-[#80b73f]">
+                              ${campaign.currentBalance.toLocaleString()}
+                            </div>
+                            <div className="text-[10px] text-muted-foreground">
+                              raised
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Card>
+              )}
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}

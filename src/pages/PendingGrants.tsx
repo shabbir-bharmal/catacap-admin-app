@@ -1,0 +1,647 @@
+import { useState, useMemo, useEffect, Fragment } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/hooks/use-toast";
+import { AdminLayout } from "../components/AdminLayout";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Search, Download, ChevronLeft, ChevronRight, ChevronDown, FileText, Ban, SendHorizonal, X, Loader2, Trash2 } from "lucide-react";
+import { useSort } from "../hooks/useSort";
+import { SortHeader } from "../components/ui/table-sort";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { fetchPendingGrants, updatePendingGrant, exportPendingGrants, fetchPendingGrantNotes, deletePendingGrant, PendingGrantEntry, NoteEntry } from "../api/pending-grant/pendingGrantApi";
+import { currency_format } from "../helpers/format";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import dayjs from "dayjs";
+import { ConfirmationDialog } from "../components/ConfirmationDialog";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import { PaginationControls } from "@/components/ui/pagination-controls";
+
+type SortField = "fullName" | "status" | "daysCount" | "createdDate";
+
+const STATUS_OPTIONS = ["All", "Pending", "In Transit", "Received", "Rejected"];
+
+function PendingGrantNotes({ grantId }: { grantId: number }) {
+  const {
+    data: notes,
+    isLoading,
+    error
+  } = useQuery({
+    queryKey: ["pendingGrantNotes", grantId],
+    queryFn: () => fetchPendingGrantNotes(grantId),
+    staleTime: 0,
+    gcTime: 0
+  });
+
+  if (isLoading) {
+    return <div className="px-4 py-8 text-center text-sm text-muted-foreground whitespace-normal">Loading notes...</div>;
+  }
+
+  if (error) {
+    return <div className="px-4 py-8 text-center text-sm text-destructive whitespace-normal">Failed to load notes: {(error as Error).message}</div>;
+  }
+
+  return (
+    <div className="p-4 bg-muted/30">
+      <div className="overflow-x-auto rounded-lg border shadow-sm bg-card">
+        <table className="w-full" data-testid={`table-notes-${grantId}`}>
+          <thead>
+            <tr className="bg-[#405189]">
+              <th className="px-4 py-2.5 text-left text-xs font-semibold text-white uppercase tracking-wider whitespace-nowrap">Date</th>
+              <th className="px-4 py-2.5 text-left text-xs font-semibold text-white uppercase tracking-wider whitespace-nowrap">User Name</th>
+              <th className="px-4 py-2.5 text-left text-xs font-semibold text-white uppercase tracking-wider whitespace-nowrap">Old Status</th>
+              <th className="px-4 py-2.5 text-left text-xs font-semibold text-white uppercase tracking-wider whitespace-nowrap">New Status</th>
+              <th className="px-4 py-2.5 text-left text-xs font-semibold text-white uppercase tracking-wider whitespace-nowrap">Note</th>
+            </tr>
+          </thead>
+          <tbody>
+            {notes && notes.length > 0 ? (
+              notes.map((entry: NoteEntry, idx: number) => (
+                <tr key={idx} className={`border-b last:border-0 ${idx % 2 === 0 ? "bg-card" : "bg-muted/30"}`} data-testid={`row-note-entry-${grantId}-${idx}`}>
+                  <td className="px-4 py-3 text-sm" data-testid={`text-note-date-${grantId}-${idx}`}>
+                    {dayjs(entry.createdAt).isValid() ? dayjs(entry.createdAt).format("MM/DD/YYYY") : entry.createdAt}
+                  </td>
+                  <td className="px-4 py-3 text-sm" data-testid={`text-note-username-${grantId}-${idx}`}>
+                    {entry.userName}
+                  </td>
+                  <td className="px-4 py-3 text-sm" data-testid={`text-note-old-status-${grantId}-${idx}`}>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${entry.oldStatus === entry.newStatus ? "bg-[#2185d0]/10 text-[#2185d0]" : "bg-[#f7b84b]/10 text-[#f7b84b]"}`}>
+                      {entry.oldStatus}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-sm" data-testid={`text-note-new-status-${grantId}-${idx}`}>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${entry.oldStatus === entry.newStatus ? "bg-[#2185d0]/10 text-[#2185d0]" : "bg-[#0ab39c]/10 text-[#0ab39c]"}`}>
+                      {entry.newStatus}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-sm" data-testid={`text-note-note-${grantId}-${idx}`}>
+                    {entry.note}
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-sm text-muted-foreground text-center bg-white dark:bg-background">
+                  No notes available for this grant.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+const getStatusClasses = (status: string) => {
+  switch (status) {
+    case "Pending":
+      return "bg-[#f7b84b]/10 text-[#f7b84b]";
+    case "In Transit":
+      return "bg-[#2185d0]/10 text-[#2185d0]";
+    case "Received":
+      return "bg-[#0ab39c]/10 text-[#0ab39c]";
+    case "Rejected":
+      return "bg-[#f06548]/10 text-[#f06548]";
+    default:
+      return "bg-muted text-muted-foreground";
+  }
+};
+
+export default function AdminPendingGrants() {
+  const { user: authUser } = useAuth();
+  const queryClient = useQueryClient();
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(100);
+  const [expandedRow, setExpandedRow] = useState<number | null>(null);
+  const { sortField, sortDir, handleSort: originalHandleSort } = useSort<SortField>();
+
+  const handleSort = (field: SortField) => {
+    originalHandleSort(field);
+    setCurrentPage(1);
+  };
+  const { toast } = useToast();
+  const [isExporting, setIsExporting] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [rejectTarget, setRejectTarget] = useState<PendingGrantEntry | null>(null);
+  const [rejectNote, setRejectNote] = useState("");
+
+  const [transitDialogOpen, setTransitDialogOpen] = useState(false);
+  const [transitTarget, setTransitTarget] = useState<PendingGrantEntry | null>(null);
+  const [transitNote, setTransitNote] = useState("");
+
+  const [receivedDialogOpen, setReceivedDialogOpen] = useState(false);
+  const [receivedTarget, setReceivedTarget] = useState<PendingGrantEntry | null>(null);
+  const [receivedNote, setReceivedNote] = useState("");
+
+  const [followUpDialogOpen, setFollowUpDialogOpen] = useState(false);
+  const [followUpTarget, setFollowUpTarget] = useState<PendingGrantEntry | null>(null);
+  const [followUpNote, setFollowUpNote] = useState("");
+
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const openDeleteDialog = (id: number) => {
+    setDeleteTargetId(id);
+    setIsDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTargetId) return;
+    setIsDeleting(true);
+    try {
+      await deletePendingGrant(deleteTargetId);
+      setIsDeleteDialogOpen(false);
+      setDeleteTargetId(null);
+      queryClient.invalidateQueries({ queryKey: ["pendingGrants"] });
+      toast({
+        title: "Pending Grant Deleted",
+        description: "The pending grant has been deleted successfully.",
+        duration: 4000
+      });
+    } catch (error) {
+      console.error("Failed to delete pending grant", error);
+      toast({
+        title: "Delete Failed",
+        description: "Failed to delete the pending grant. Please try again.",
+        variant: "destructive",
+        duration: 4000
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const {
+    data: queryData,
+    isLoading,
+    error
+  } = useQuery({
+    queryKey: ["pendingGrants", currentPage, rowsPerPage, sortField, sortDir, statusFilter],
+    queryFn: () =>
+      fetchPendingGrants({
+        currentPage,
+        perPage: rowsPerPage,
+        sortField: sortField ?? undefined,
+        sortDirection: sortDir ?? undefined,
+        status: statusFilter
+      }),
+    staleTime: 0,
+    gcTime: 0
+  });
+
+  const paginatedData = queryData?.items ?? [];
+  const totalCount = queryData?.totalCount ?? 0;
+  const totalPages = Math.ceil(totalCount / rowsPerPage);
+  const startIdx = totalCount > 0 ? (currentPage - 1) * rowsPerPage + 1 : 0;
+  const endIdx = Math.min(currentPage * rowsPerPage, totalCount);
+
+  const onUpdateStatus = async (id: number, status: string, note: string) => {
+    setIsSubmitting(true);
+    try {
+      const res = await updatePendingGrant({ id, status, note, noteEmail: [] });
+      if (res.success) {
+        toast({
+          title: res.message || "Status updated successfully",
+          duration: 4000
+        });
+        queryClient.invalidateQueries({ queryKey: ["pendingGrants"] });
+        queryClient.invalidateQueries({ queryKey: ["pendingGrantNotes", id] });
+        setRejectDialogOpen(false);
+        setTransitDialogOpen(false);
+        setReceivedDialogOpen(false);
+        setFollowUpDialogOpen(false);
+        setRejectNote("");
+        setTransitNote("");
+        setReceivedNote("");
+        setFollowUpNote("");
+        setRejectTarget(null);
+        setTransitTarget(null);
+        setReceivedTarget(null);
+        setFollowUpTarget(null);
+      } else {
+        toast({
+          title: res.message || "Failed to update status",
+          variant: "destructive",
+          duration: 4000
+        });
+      }
+    } catch (err: any) {
+      toast({
+        title: err.message || "An error occurred",
+        variant: "destructive",
+        duration: 4000
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      await exportPendingGrants();
+      toast({
+        title: "The pending grants list has been exported.",
+        duration: 4000
+      });
+    } catch (err: any) {
+      toast({
+        title: "Failed to export pending grants",
+        variant: "destructive",
+        duration: 4000
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  return (
+    <AdminLayout>
+      <div className="space-y-6">
+        <h1 className="text-2xl font-semibold" data-testid="text-page-heading">
+          Pending Grants
+        </h1>
+
+        <Card>
+          <CardHeader className="flex flex-row items-end justify-between gap-4 flex-wrap border-b px-6 py-4">
+            <div className="flex items-end gap-3 flex-wrap flex-1">
+              <div className="flex flex-col gap-0.5">
+                <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">Filter By Status</Label>
+                <Select
+                  value={statusFilter}
+                  onValueChange={(val) => {
+                    setStatusFilter(val);
+                    setCurrentPage(1);
+                  }}
+                >
+                  <SelectTrigger className="w-[160px]" data-testid="select-status-filter">
+                    <SelectValue placeholder="All Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {STATUS_OPTIONS.map((opt) => (
+                      <SelectItem key={opt} value={opt}>
+                        {opt}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <Button size="sm" className="bg-[#405189] text-white" data-testid="button-export-all" onClick={handleExport} disabled={isExporting}>
+              <Download className="h-4 w-4 mr-1.5" />
+              {isExporting ? "Exporting..." : "Export All"}
+            </Button>
+          </CardHeader>
+
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full" data-testid="table-pending-grants">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <SortHeader field="fullName" sortField={sortField} sortDir={sortDir} handleSort={handleSort}>
+                      Full Name
+                    </SortHeader>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">Email</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+                      Original amount
+                      <br />
+                      Amount after fees
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+                      DAF Provider
+                      <br />
+                      DAF Name
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+                      Investment Name
+                      <br />
+                      Grant Source
+                    </th>
+                    <SortHeader field="status" sortField={sortField} sortDir={sortDir} handleSort={handleSort}>
+                      Status
+                    </SortHeader>
+                    <SortHeader field="daysCount" sortField={sortField} sortDir={sortDir} handleSort={handleSort}>
+                      Day Count
+                    </SortHeader>
+                    <SortHeader field="createdDate" sortField={sortField} sortDir={sortDir} handleSort={handleSort}>
+                      Date Created
+                    </SortHeader>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {isLoading && (
+                    <tr>
+                      <td colSpan={9} className="px-4 py-8 text-center text-sm text-muted-foreground whitespace-normal">
+                        Loading...
+                      </td>
+                    </tr>
+                  )}
+                  {!isLoading && error && (
+                    <tr>
+                      <td colSpan={9} className="px-4 py-8 text-center text-sm text-destructive whitespace-normal">
+                        {(error as Error).message || "Failed to load data"}
+                      </td>
+                    </tr>
+                  )}
+                  {!isLoading && !error && paginatedData.length === 0 && (
+                    <tr>
+                      <td colSpan={9} className="px-4 py-8 text-center text-sm text-muted-foreground whitespace-normal">
+                        No records found.
+                      </td>
+                    </tr>
+                  )}
+                  {!isLoading && !error && paginatedData.map((grant: PendingGrantEntry) => (
+                    <Fragment key={grant.id}>
+                      <tr className="border-b last:border-b-0 hover:bg-muted/20 transition-colors" data-testid={`row-grant-${grant.id}`}>
+                        <td className="px-4 py-3">
+                          <span className="text-sm" data-testid={`text-grant-name-${grant.id}`}>
+                            {grant.fullName}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-sm text-muted-foreground" data-testid={`text-grant-email-${grant.id}`}>
+                            {grant.email}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div data-testid={`text-grant-amount-${grant.id}`}>
+                            <span className="text-sm font-medium">{currency_format(Number(grant.amount || 0))}</span>
+                            <br />
+                            <span className="text-xs text-muted-foreground">{currency_format(grant.amountAfterFees || 0)}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div data-testid={`text-grant-daf-${grant.id}`}>
+                            <span className="text-sm">{grant.dafProvider}</span>
+                            {grant.dafName && (
+                              <>
+                                <br />
+                                <span className="text-xs text-muted-foreground">{grant.dafName}</span>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div data-testid={`text-grant-investment-${grant.id}`}>
+                            <span className="text-sm">{grant.investmentName || "-"}</span>
+                            {grant.reference && (
+                              <>
+                                <br />
+                                <span className="text-xs text-muted-foreground">{grant.reference}</span>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getStatusClasses(grant.status)}`} data-testid={`text-grant-status-${grant.id}`}>
+                            {grant.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-sm" data-testid={`text-grant-daycount-${grant.id}`}>
+                            {grant.daysCount}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-sm" data-testid={`text-grant-created-${grant.id}`}>
+                            {grant.createdDate ? dayjs(grant.createdDate).format("MM/DD/YYYY") : "-"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-start gap-1.5">
+                            {(grant.status === "Pending" || grant.status === "In Transit") && (
+                              <Button
+                                size="sm"
+                                className="bg-[#82b64b] hover:bg-[#72a341] text-white text-[11px] h-7 px-3 uppercase font-semibold"
+                                onClick={() => {
+                                  setRejectTarget(grant);
+                                  setRejectDialogOpen(true);
+                                }}
+                                disabled={isSubmitting}
+                                data-testid={`button-reject-grant-${grant.id}`}
+                              >
+                                Reject
+                              </Button>
+                            )}
+                            {grant.status === "Pending" && (
+                              <Button
+                                size="sm"
+                                className="bg-[#2185d0] hover:bg-[#1e77ba] text-white text-[11px] h-7 px-3 uppercase font-semibold"
+                                onClick={() => {
+                                  setTransitTarget(grant);
+                                  setTransitDialogOpen(true);
+                                }}
+                                disabled={isSubmitting}
+                                data-testid={`button-transit-grant-${grant.id}`}
+                              >
+                                Set in Transit
+                              </Button>
+                            )}
+                            {grant.status === "In Transit" && (
+                              <Button
+                                size="sm"
+                                className="bg-[#1b4370] hover:bg-[#16375c] text-white text-[11px] h-7 px-3 uppercase font-semibold"
+                                onClick={() => {
+                                  setReceivedTarget(grant);
+                                  setReceivedDialogOpen(true);
+                                }}
+                                disabled={isSubmitting}
+                                data-testid={`button-received-grant-${grant.id}`}
+                              >
+                                Received
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              className="bg-[#299cdb] hover:bg-[#258cc5] text-white text-[11px] h-7 px-3 uppercase font-semibold"
+                              onClick={() => {
+                                setFollowUpTarget(grant);
+                                setFollowUpDialogOpen(true);
+                              }}
+                              disabled={isSubmitting}
+                              data-testid={`button-follow-up-grant-${grant.id}`}
+                            >
+                              Add Note
+                            </Button>
+                            {(grant.hasNotes || authUser?.isSuperAdmin) && (
+                              <div className="inline-flex rounded-md shadow-sm ml-1">
+                                {grant.hasNotes && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        size="icon"
+                                        variant="outline"
+                                        className={cn(
+                                          "h-8 w-8 text-muted-foreground hover:text-[#405189] hover:bg-[#405189]/5",
+                                          authUser?.isSuperAdmin ? "rounded-r-none border-r-0" : "rounded-md"
+                                        )}
+                                        onClick={() => setExpandedRow(expandedRow === grant.id ? null : grant.id)}
+                                        data-testid={`button-notes-${grant.id}`}
+                                      >
+                                        <FileText className={`h-4 w-4 ${expandedRow === grant.id ? "text-[#405189]" : ""}`} />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>{expandedRow === grant.id ? "Hide notes" : "View notes"}</TooltipContent>
+                                  </Tooltip>
+                                )}
+                                {authUser?.isSuperAdmin && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        size="icon"
+                                        variant="outline"
+                                        className={cn(
+                                          "h-8 w-8 text-[#f06548] hover:text-[#f06548] hover:bg-[#f06548]/5",
+                                          grant.hasNotes ? "rounded-l-none" : "rounded-md"
+                                        )}
+                                        onClick={() => openDeleteDialog(grant.id)}
+                                        data-testid={`button-delete-${grant.id}`}
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Delete grant</TooltipContent>
+                                  </Tooltip>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                      {expandedRow === grant.id && (
+                        <tr className="border-b" data-testid={`row-notes-${grant.id}`}>
+                          <td colSpan={9} className="p-0">
+                            <PendingGrantNotes grantId={grant.id} />
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <PaginationControls
+              currentPage={currentPage}
+              totalCount={totalCount}
+              rowsPerPage={rowsPerPage}
+              onPageChange={setCurrentPage}
+              onRowsPerPageChange={(v) => {
+                setRowsPerPage(v);
+                setCurrentPage(1);
+              }}
+              dataTestId="pagination-pending-grants"
+            />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Reject Dialog */}
+      <ConfirmationDialog
+        open={rejectDialogOpen}
+        onOpenChange={(open) => {
+          setRejectDialogOpen(open);
+          if (!open) {
+            setRejectNote("");
+            setRejectTarget(null);
+          }
+        }}
+        title="Do you want to set this grant to rejected?"
+        noteLabel="Please include the reason for the rejection"
+        noteValue={rejectNote}
+        onNoteChange={setRejectNote}
+        onConfirm={() => onUpdateStatus(rejectTarget!.id, "Rejected", rejectNote)}
+        isSubmitting={isSubmitting}
+        confirmButtonClass="bg-[#82b64b] text-white"
+        dataTestId="dialog-reject"
+      />
+
+      {/* In Transit Dialog */}
+      <ConfirmationDialog
+        open={transitDialogOpen}
+        onOpenChange={(open) => {
+          setTransitDialogOpen(open);
+          if (!open) {
+            setTransitNote("");
+            setTransitTarget(null);
+          }
+        }}
+        title="Did you receive the check for this grant?"
+        noteLabel="Add a note"
+        noteValue={transitNote}
+        onNoteChange={setTransitNote}
+        onConfirm={() => onUpdateStatus(transitTarget!.id, "In Transit", transitNote)}
+        isSubmitting={isSubmitting}
+        confirmButtonClass="bg-[#2185d0] text-white"
+        dataTestId="dialog-transit"
+      />
+
+      {/* Received Dialog */}
+      <ConfirmationDialog
+        open={receivedDialogOpen}
+        onOpenChange={(open) => {
+          setReceivedDialogOpen(open);
+          if (!open) {
+            setReceivedNote("");
+            setReceivedTarget(null);
+          }
+        }}
+        title="Was the email confirmation for this grant received?"
+        noteLabel="Add a note"
+        noteValue={receivedNote}
+        onNoteChange={setReceivedNote}
+        onConfirm={() => onUpdateStatus(receivedTarget!.id, "Received", receivedNote)}
+        isSubmitting={isSubmitting}
+        confirmButtonClass="bg-[#1b4370] text-white"
+        dataTestId="dialog-received"
+      />
+
+      {/* Follow-up Dialog */}
+      <ConfirmationDialog
+        open={followUpDialogOpen}
+        onOpenChange={(open) => {
+          setFollowUpDialogOpen(open);
+          if (!open) {
+            setFollowUpNote("");
+            setFollowUpTarget(null);
+          }
+        }}
+        title="Add Note to this grant"
+        noteLabel="Add a note"
+        noteValue={followUpNote}
+        onNoteChange={setFollowUpNote}
+        onConfirm={() => onUpdateStatus(followUpTarget!.id, followUpTarget!.status, followUpNote)}
+        isSubmitting={isSubmitting}
+        confirmLabel="SAVE"
+        confirmButtonClass="bg-[#299cdb] text-white"
+        dataTestId="dialog-follow-up"
+      />
+
+      <ConfirmationDialog
+        open={isDeleteDialogOpen}
+        onOpenChange={(open) => {
+          setIsDeleteDialogOpen(open);
+          if (!open) setDeleteTargetId(null);
+        }}
+        title="Delete Pending Grant"
+        description="Are you sure you want to delete this pending grant? This action cannot be undone."
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        onConfirm={handleDeleteConfirm}
+        isSubmitting={isDeleting}
+        confirmButtonClass="bg-[#f06548] text-white hover:bg-[#d0543c]"
+        dataTestId="dialog-delete"
+      />
+    </AdminLayout>
+  );
+}

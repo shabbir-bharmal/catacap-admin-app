@@ -1,0 +1,191 @@
+Impactree Foundation Privacy Policy for CataCap
+This policy was last revised: 3/12/2024.
+Introduction
+The Impactree Foundation (“Impactree”, “we”, “us”, or “our”) has prepared this Privacy Policy to describe our practices regarding the Personal Information (as defined below) we collect from persons using:
+
+our CataCap application
+our user-facing interfaces, such as the Impactree Foundation platforms, embedded actions, donation forms, fundraising tools, widgets, browser plug-ins, or other front-end interfaces to our services, whether hosted on
+our sites or elsewhere
+our other online services, including searching impact investment opportunities, donation and payment processing
+online stores where the merchant has added our app their their e-commerce platform
+our public websites, including impactree.org and any other websites operated by us, and websites associated with the Impactree Foundation (the “Sites”), whether public or restricted
+our services for signing up for, sending, or receiving text (SMS) or multimedia (MMS) messages (the “Mobile Services”)
+users of our mobile application (“App”)
+users accessing any API connected to our back-end services
+Collectively, all of the above are the “Services,” and each individually is a “Service.”
+
+Impactree Foundation, a registered 501(c)(3) (the “Foundation”), is an independent, tax-exempt nonprofit.
+
+When we use the phrase “Personal Information” in this Privacy Policy, we mean information that allows someone to identify or contact you, including, for example, your name, address, telephone number, email address, as well as any other non-public information about you that is associated with or linked to any of the foregoing information.
+
+By using the Services and/or providing us with information, you acknowledge and agree that your Personal Information may be processed for the purposes identified in the Privacy Policy. You authorize us to use and disclose any new or modified information that you provide to us, provided that such disclosure is in accordance with this Privacy Policy.
+
+Information from Donations
+When you make a donation using any of the Services, we collect the following information:
+
+Your name and email address, donation amount, any optional note or memo, and IP address, and/or your regrant recommendation identifying a nonprofit or qualified organization.
+Other information described in “Information from Website Visitors” below
+Please note that we do not collect or have access to your payment card information – we use the services of Stripe for processing credit card transactions, and the card information that you submit is routed directly and securely to them. However, we do share your name and email address with Stripe to reduce fraud. See below.
+
+We use the information we collect to:
+
+Process investment recommendations to Impact Assets.
+Process the transaction, including screening for potential risks or fraud
+Distribute the funds to the organization you identified in your regrant recommendation
+Communicate with you about the transaction, including providing a receipt
+Provide donation information to organizations sponsoring or promoting the donation, provided that you have given us permission to do so
+Contact you in the event you have disputed a transaction
+We share your information with third parties for the following reasons:
+
+Commercial Sponsors. If a donation collection tool such as a widget or form is hosted on one of our commercial sponsor’s websites or other platforms, the commercial sponsor will have access to the same information as the recipient charity using the same rules above. They use this to data to analyze the success of their fundraising partnerships. The commercial sponsor’s use of the information is subject to their own privacy policy.
+Stripe. We provide Stripe, our payments processor, with your name (to increase anti-fraud protection) and email address (to assist with any possible disputed charges). Stripe separately obtains your location, via IP address, to detect fraudulent activity, and interacts with the financial institution that issued your card. Stripe’s Privacy Policy. Information that Stripe supplies about the GDPR is available here and here, respectively. Your card issuer will have their own privacy policy.
+Impactree Foundation. In order to execute a donation, we share your Information with Impactree Foundation, the charitable organization that receives and regrants your funds for donations. We require the Foundation to honor this Privacy Policy.
+We use Microsoft Azure to run our Services and store our data, including your name and email address in the donation transaction record. Microsoft Privacy Policy.
+Impact Assets to facilitate investment recommendations through the Impactree Foundation Services and CataCap.
+If we email you using our transactional email service, our internal email service, our support service, or our CRM tool, the email address from your donation is stored by them in order to send the message. See the section “Information from Communications Between Us.
+Information from Website Visitors
+In addition to any donations-related information, when you visit any of our websites, we collect the following:
+
+Any personal information such as name and email address that you provide on a form, forum post, chat window, or any other user interface feature.
+If you create an account, you need to provide your email address.
+Device and browser, IP address, network name, cookies. We may collect information about the computer or device you use to access our Services, including the hardware model, operating system and version, and MAC address or other unique device identifier. Our servers (which may be hosted by a third party such as Amazon Web Services) collect and store information from your device, including your browser type, operating system, Site pages requested and buttons clicked, any link you clicked to come to our site, exit pages, files you downloaded, domain name, Internet Protocol (“IP”) address (a number that is automatically assigned to your computer when you use the Internet, which may vary from session to session), Internet service provider (“ISP”), date/time stamps, and clickstream data.
+Other information about how our site is used. Our sites may have images or small “pixel tags” on webpages that allow us to gather data such as IP address of the device viewing the webpage, time spent viewing the page, and other similar data. This is not linked to your name or email address. We may also use our own or third party javascripts for the same purposes.
+Links. Links on our Sites may be in a format that allows us to count how many times a particular link has been followed.
+Cookies. “Cookies” are small pieces of information that a website sends to your computer’s storage device while you are viewing the Sites. Like many online services, we use cookies to collect information to make the Sites more useful to you and to tailor the experience with us to meet your special interests and needs. We may use both session Cookies (which expire once you close your web browser) and persistent Cookies (which stay on your computer until you delete them) to provide you with a more personal and interactive experience on our Sites. This tracking is anonymous and the cookies do not contain any personally identifiable information. Most web browsers automatically accept cookies, but if you no longer wish to accept cookies from our Service for any of the purposes described above, then you can instruct your browser, by changing its settings, to stop accepting cookies or to prompt you before accepting a cookie from the websites you visit (consult your browser’s technical information for how to do this). If you do not accept cookies, however, you may not be able to use all portions of the Service or all functionality of the Service. Third parties who display information on our Sites, such as advertisers, may place their own cookies on your computer. Those cookies are controlled by those third parties and are not covered by our Privacy Policy.
+Other front ends. If you use a Impactree widget or browser plugin, it may, in addition to the information above, send us data about its version number, host browser, other data necessary to function properly, the number of times it has been used, and other similar analytic information
+We use the information we collect to:
+
+Provide you information about our products and those of third parties that we believe may be of interest to you
+Verify your account, where applicable, and log you in
+Respond to support requests, sales inquiries, or other communications
+Ensure that our Services are performing as expected, alert us to problems, and help us troubleshoot.
+Better understand how visitors are using the Services and to improve their utility
+We share your information with third parties for the following reasons:
+
+We use Google Analytics to analyze information about how people use our sites. This is not linked to personal information such as name or email address. You can read more about how Google uses your Personal Information here: https://www.google.com/intl/en/policies/privacy/. You can also opt out of Google Analytics here: https://tools.google.com/dlpage/gaoptout.
+If you request assistance from us via our support web form, our 3rd party customer support tool will receive and store your name and email address as well as the rest of your support record. It also records which support articles you have viewed.
+Similarly, if you submit your name and email address via our sales web form and request that we contact you, that information is processed by our 3rd party CRM. That service stores sales prospects and active customer names and email addresses, and optionally other contact information such as phone numbers. It also records which web pages you have visited on our site.
+We use a third party service to convert IP address to the associated country, state / province / region, and city
+Information from API Services
+If a customer is using our APIs (application programming interfaces) to initiate a donation, they send us the same information described in “Information for Donations” and we use and share it the same way.
+
+Note: that customer may have access to your information before they transmitted it to us, so their use of that information is subject to their privacy policy.
+
+Information from Communications Between Us
+When we communicate with each other, we collect the following information:
+
+When we communicate with each other via email, text message, chat, form submission, or other form of written communication, we will collect and store any information that is contained in that message, which could include your name, email address, phone number, and address.
+Our third party providers collect and store “metadata” about the written communication depending on the communications medium used. In the case of email, this includes your email address , IP address, and host network.
+If you sign up for recurring reports, email newsletters, or notifications, you will provide your email address or other unique means of contacting you.
+For any phone calls between us, typically for support or sales, we collect your phone number and may link it to other personal information such as name and email address that we either ask for in the course of the call or that already exists in one of our systems. In certain cases our phone service may automatically generate a transcript of the call.
+In some cases, our email service MailChimp receives your name and email address when you submit this information to us on our Sites in order to sign up for newsletters. In some cases, Mailchimp will determine your location if you interact with emails that you receive from them on behalf of us. MailChimp’s Privacy Policy is available here.
+We use the information we collect to facilitate communication between us, answer questions, provide information about our company and products, and provide you with the Services.
+
+We share your information with our third party communications service providers in order to send email, place a phone call, send a text, chat, send newsletters, or otherwise communicate with you.
+
+Other Information Shared With Third Parties
+We also share your information with third parties for the following reasons:
+
+We may work with other third parties and service providers not identified above in order to provide you with the Services. These third parties include ‘cloud’ hosting services, telecomm networks and ISPs, payment processors other than Stripe, content delivery networks, mobile aggregators, mobile carriers, email providers, chat services, and more. We may share some of your personal information with them to provide the Services, process or deliver information to you, provide support, tailor the features and content of the Services to you, and verify your compliance with your obligations in our Terms of Use. Any third party transmitting, storing, or processing your information may in turn pass your information on to other third parties, such as your bank or credit card company. We expect these third parties to comply with a Privacy Policy equivalent to this one and to undertake appropriate confidentiality and security measures, but their policies are not under our control.
+When you use the Services, the Personal Information you provide will be shared with third parties that you authorize to receive such information. If you provided information, such as a mobile phone number or information you filled out on a web form, in order to receive communications from one of our clients, we may share that information with that specific client in order for them to deliver the specific information you requested. You may provide other information to us so that we can forward it on to our clients and charity partners; for instance, if we are hosting a donations page on our charity partners’ behalf and they ask for your date of birth. The use of that information is governed by the individual client’s Privacy Policy. You may opt out of this sharing at the time of donation.
+Social Network logins. We may create interfaces that allow you to connect with social networking services such as Facebook and LinkedIn (“SNS”) through our Sites and Services. We work with the SNS’s application protocol interface (API) in a way that allows you to authorize us to access your account on that SNS on your behalf. In order to provide this authorization, you do not provide us with your user name or password to the SNS, but you will need to log-in to that SNS directly through our Site. Once authorized by you, the SNS provides us a token that allows the SNS to recognize us when we ask, on your behalf, for access to your account information or to post information. For example, when you click “Connect” to grant us access to your Facebook account, we will import your name and other information from Facebook. You can revoke our access to any SNS at any time by amending the appropriate settings from within your account settings on the applicable SNS. The SNS’s own privacy policy covers how they use your data.
+Social Network content sharing. Some of our Services may enable you to post content to social networks (SNSs) (e.g., Facebook or Twitter). If you choose to do this, we will provide information to such SNSs in accordance with your elections. You acknowledge and agree that you are solely responsible for your use of those websites and that it is your responsibility to review the terms of use and privacy policy of the third party provider of such SNSs. We will not be responsible or liable for:
+the availability or accuracy of such SNSs;
+the content, products or services on or availability of such SNSs; or
+your use of any such SNSs.
+Other Affiliates. We may share some or all of your Personal Information with our parent company, subsidiaries, joint ventures, or other companies under a common control (“Affiliates”), in which case we will require our Affiliates to honor this Privacy Policy. As of the date of this Privacy Policy, there are no Affiliates.
+Corporate Restructuring. We may share some or all of your Personal Information in connection with or during negotiation of any merger, financing, acquisition or dissolution, transaction or proceeding involving sale, transfer, divestiture, or disclosure of all or a portion of our business or assets, solely for the purpose of evaluating and facilitating that transaction, and subject to the receiving party having a Privacy Policy equivalent to this one. In the event of an insolvency, bankruptcy, or receivership, Personal Information may also be transferred as a business asset. If another company acquires our company, business, or assets, that company will possess the Personal Information collected by us and will assume the rights and obligations regarding your Personal Information as described in this Privacy Policy.
+Other Disclosures. Regardless of any choices you make regarding your Personal Information, we may disclose your personal information if we have a good faith belief that access, use, preservation or disclosure of such information is reasonably necessary to:
+satisfy a request by a court, law enforcement or governmental authority, such as a court order, warrant, or subpoena;
+investigate, assist, or comply with preventing any suspected, actual or potential violation of an applicable law, regulation, or legal process;
+protect or defend the rights, property, or safety of Impactree, its employees, or other users of the Services;
+enforce the Terms of Service and this Privacy Policy for the Services, including any investigation of potential violations thereof,
+detect, prevent, or otherwise address fraud, security or technical issues associated with the Services.
+Sharing of Anonymous Information
+When we use the phrase “Anonymous Information” in this Privacy Policy, we mean information that is not associated with or linked to your Personal Information. Anonymous Information does not enable identification of or contact with individual persons.
+
+We may use your Personal Information to create Anonymous Information records by excluding information that makes the information personally identifiable to you.
+
+We use the Anonymous Information we collect to analyze how users interact with the Services. We use this information to optimize and improve the Services, track progress towards goals, administer the Services, and gather demographic and analytic information about our user base as a whole.
+
+We reserve the right to disclose Anonymous Information publicly without restriction. We may share aggregated, anonymous information with third parties such as clients, prospective clients, industry trade groups, and the press. This anonymous information may include, for example, usage, volume, trends, preferences, and other collective characteristics of our users. Disclosure of this information serves to help us and our partners evaluate and tailor our communications, advertisements, services and general business practices to the needs of users of the Services.
+
+Opting Out of Future Communications
+You may opt out of receiving future communications by doing one of the following:
+
+Follow the opt out directions included in the messages we send. This might mean clicking the unsubscribe link in a newsletter or submitting an unsubscribe web form. For text messages, simply reply STOP.
+Submit a support request by emailing support@catacap.org. Please detail which communications you no longer want to receive and which email address(se) or mobile phone number(s) the opt out applies to.
+Send a written request to the following mailing address: attn: Unsubscribe, Impactree Foundation, 3749 Buchanan Street, Unit 475207, San Francisco, CA 94147
+Despite your indicated email preferences, we may continue to send you service related communications, which you may not opt out of.
+We may choose not to fulfill any request that we determine is unreasonable, unduly burdensome or impractical or that constitutes a threat to the privacy or rights of others.
+
+Data Retention
+We will maintain your information in our records for as long as necessary to provide the Services and fulfill the transactions you have requested, or for other legitimate purposes such as complying with our tax and legal obligations, resolving disputes, and enforcing our agreements, except when we receive a valid erasure request. See the section “Reviewing, Changing, and Removing Your Information.”
+
+If Personal Information is removed, we will continue to store anonymous or anonymized information in order to improve our Services.
+
+Reviewing, Changing, and Removing Your Information
+You can review and/or change certain of your Personal Information by logging into the Sites and accessing your Account. You may also review, update, correct or delete the Personal Information in your Account by detailing your request by emailing support@catacap.org. Use this same procedure to request that we close your Account. Even if you request that we delete your Personal Information, certain data is necessary in order for us to provide the Services and maintain the integrity of our records and can not be deleted in its entirety. For instance, we may need to retain certain Personal Information to comply with laws, prevent fraud, resolve disputes, troubleshoot problems, assist with any investigations, enforce our Terms of Use, and take other actions otherwise permitted by law or for our legitimate business purposes. If for these or other reasons we can not delete all of your Personal Information, we will convert it to Anonymous Information where possible. If some or all of your Personal Information is deleted, then your account may become deactivated. If we have already disclosed some of your Personal Information to third parties, we cannot access that Personal Information any longer and cannot force the deletion or modification of any such information by the parties to whom we have made those disclosures, including Charities. See the section “This Policy Doesn’t Cover Third Parties” below.
+This Policy Doesn't Cover Third Parties
+This Privacy Policy addresses only our use and disclosure of information we collect from and/or about you on the Services. If you disclose information to others, or authorize us to do the same under this Privacy Policy, the use and disclosure restrictions contained in this Privacy Policy will not apply to any third party. We do not control the privacy policies of third parties, and you are subject to the privacy policies of those third parties where applicable.
+
+Please be aware that each charity has its own policies regarding privacy of donor information. please contact the charity you recommend directly to learn about their privacy policies. We are not responsible for any use of personal information by a charity. If you wish to stop receiving communications from a charity, please contact the charity directly.
+
+Similarly, if you made a donation on one of our commercial partner’s websites, please refer to their privacy policy, and contact them with any questions.
+
+The interfaces to the Services that you see may contain content or links to other websites that are not owned or controlled by us. We have no control over, do not review and are not responsible for the privacy policies of or content displayed on such other websites. When you click on such a link, you will leave our Sites and go to another site. During this process, another entity may collect Personal Information or Anonymous Information from you. The Sites may also contain links to other websites controlled by us but which operate under different privacy policies. Please review the privacy policy of any new site you visit.
+
+Information Security
+We take measures reasonably necessary to protect against unauthorized access, use, alteration, or deletion of personally identifiable information. The personal information that you provide to us is stored on servers which are located in secured collocation facilities with restricted physical and network access. Our hardware, applications, databases, and networks are protected by protocols and procedures designed to ensure the security of the information they contain. We restrict access to personal information under our control to our employees, independent contractors and agents who need to know this information in order to develop, operate and maintain the Services, all of whom are bound by agreements requiring them to keep all our data, including personal information, confidential. The consequences of a breach of this confidentiality obligation may include termination and criminal prosecution.
+
+As noted above, we never have access to any payment card information. That is handled by our third party processor Stripe. A description of their security policies is here: https://stripe.com/docs/security/stripe. 
+
+We endeavor to maintain the security of your information on our systems and those of our service providers. However, we can not protect user information all along the multi-party delivery chain. No server, computer or communications network or system, or data transmission over the Internet, can be guaranteed to be 100% secure. As a result, while we strive to protect user information, we cannot ensure or warrant the security of any information you provide to us through your use of the Services. By your use of the Services, you acknowledge and agree that you provide such information and engage in such transmissions at your own risk.
+
+Other Matters
+Children. Our Services are not directed to children and children are not eligible to use our Services. Protecting the privacy of children is very important to us. We do not collect or maintain Personal Information from people we actually know are under 16 years of age, and no part of our Services is designed to attract people under 16 years of age. If we later learn that a user is under 16 years of age, we will take steps to remove that user’s Personal Information from our databases and to prevent the user from utilizing the Services. If we learn we have collected or received personal information from a child under 16 without verification of parental consent, we will delete that information. If you believe we might have any information from or about a child under 16, please contact us at support@catacap.org Do Not Track / California Online Privacy Protection Act (CalOPPA). We do not track visitors over time and across third party websites to provide targeted advertising, so we do not respond to Do Not Track (DNT) signals. Some third party sites do track your browsing activities so that they can tailor what content they display to you. If you are visiting such sites, set the DNT signal on your browser so that third parties (particularly advertisers) know you do not want to be tracked. California Privacy Rights. California Civil Code Section 1798.83 permits our users who are California residents to request and obtain from us once a year, free of charge, information about the personal information (if any) we disclosed to third parties for direct marketing purposes in the preceding calendar year. However, companies that have a Privacy Policy that allows you to opt-in or opt-out of the sharing of your personal information do not need to provide you with disclosure about the categories of personal information that were shared and with whom. We believe that we fall into this category — so our obligation is to provide you with a copy of our opt-in or opt-out policy, which is this document. If you are a California resident and would like to make such a request, please submit it in writing to: attn: California Privacy Inquiry, Impactree, PO Box 304, San Geronimo CA 94963.
+Where We Store and Process Your Personal Information
+Personal data collected by us may be stored and processed in your region, in the United States, and in any other country where we or our service providers operate facilities. We take steps to ensure that the data we collect under this privacy statement is processed according to the provisions of this Privacy Policy and the requirements of applicable law wherever the data is located. By providing your information, you consent to such storage and transfer.
+
+We transfer personal data from the European Economic Area and Switzerland to other countries. The European Commission may have not determined that some of these countries provide an adequate level of data protection. For example, their laws may not guarantee you the same rights as residents of the European Union. When we engage in such transfers, we use a variety of legal mechanisms, including contracts, to help ensure your rights and protections travel with your data. To learn more about the European Commission’s decisions on the adequacy of the protection of personal data in the countries where we process personal information, please visit this European Commission page.
+
+Your Rights Under the GDPR
+If you are from the European Economic Area, the legal basis upon which we collect and use your Personal Information is determined by the nature of the Personal Information and the precise context in which we collect it. Typically, we will collect and use the Personal Information that we have from you if the processing is in our legitimate interests and such interests are not outweighed by your data-protection interests or fundamental rights and freedoms. Our legitimate interests include fulfilling the transactions that your request, enhancing and maintaining our Services and our Site, complying with applicable law, complying with agreements that we have with you and third parties.
+
+If you are from the European Economic Area, you have the right under the EU General Data Protection Regulation (Regulation (EU) 2016/679) (GDPR), the right to request from us access to and rectification or erasure of your personal data, the right of data portability, the right of restriction of processing of your personal data, the right to object to processing of your personal data, and the right to lodge a complaint with a supervisory authority. If you reside outside of the European Economic Area, you may have similar rights under your local laws.
+
+To request access to or rectification, portability or erasure of your personal data, or to delete your account with us, please make your request by emailing support@catacap.org, or write us at: Impactree, Attn: Data Controller, 3749 Buchanan Street, Unit 475207, San Francisco, CA 94147
+
+Whether you live in the European Union and you wish to exercise your right to restriction of processing or your right to object to processing or do not live in the European Union but you believe you have a right to restriction of processing or a right to object to processing under your local laws, please make your request by emailing support@catacap.org, or write us at: Impactree, Attn: Data Controller, 3749 Buchanan Street, Unit 475207, San Francisco, CA 94147
+
+Your Rights Under the California Consumer Privacy Act
+Under the California Consumer Privacy Act (CCPA), California consumers have a right to knowledge, access, and deletion of their personal information, as well as a right to opt out of the sale of their personal information. As stated elsewhere in this Privacy Policy, we do not sell consumer’s personal information – whether they are based in California or elsewhere.
+
+Elsewhere in this Privacy Policy we describe the data we collect. California consumers have the right to know, over the last 12 months, what categories of personal information we collected about them, the sources of that personal information, the categories of personal information we may have disclosed for business purposes, the categories of third parties with whom such personal information was shared, the business purpose for which the information was collected or shared, and the specific pieces of personal information we collected.
+
+California consumers who want to exercise their rights under the CCPA may make their request by:
+
+emailing support@catacap.org, or
+writing Impactree, Attn: Data Controller, 3749 Buchanan Street, Unit 475207, San Francisco, CA 94147
+ 
+In order to prevent fraud, we will first verify your identity, which may include asking for your name, email address, phone number, the last four digits of any payment card you used to transact with us, and / or your physical address. The exact information we request will vary depending on the nature of your previous interactions with us and the data linked to those interactions.
+
+If you request that we delete your data, we may elect not do so if we need the personal information to:
+
+complete the transaction for which we collected the personal information
+comply with data retention obligations mandated by statute or regulation, or other legal requirement, including recordkeeping required by tax agencies
+detect security incidents; protect against malicious, deceptive, fraudulent, or illegal activity; or prosecute those responsible for that activity
+resolve an error that impairs existing product functionality
+enable solely internal purposes that a California consumer might reasonably expect, based on our relationship
+If we are able to comply with a California consumer’s request that we delete their personal information, we will render their personal information some combination of permanently unrecoverable and de-identified. Such requests may be made no more often that twice in any twelve month period.
+
+California consumers have a right not to be discriminated against for exercising any of their California privacy rights.
+
+EU Data Controller and Processor Information
+Impactree makes decisions about how your information will be used. Our contact information is: Impactree, Attn: Data Controller/Processor, 3749 Buchanan Street, Unit 475207, San Francisco, CA 94147
+
+Changes to this Privacy Policy
+This Privacy Policy is effective as of the date set forth on this web page. We reserve the right, at any time, to add to, change, update or modify this Privacy Policy by placing the changes on this page and changing the “Last Updated” date above. We will provide no other notice to you. Any such change, update or modification will be effective immediately. It is your responsibility to review this page from time to time to ensure that you continue to agree with all of its terms.
+
+Questions?
+If you have any questions or concerns or complaints about our Privacy Policy or our information collection or processing practices, or if you want to report any security violations to us, please email support@catacap.org
