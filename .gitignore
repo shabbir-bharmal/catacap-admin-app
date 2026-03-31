@@ -6,3 +6,5 @@ vite.config.ts.*
 *.tar.gz
 CODE_REVIEW_GUIDELINES.md
 CHANGELOG.md
+.env
+.env.*
