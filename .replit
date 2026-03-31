@@ -41,3 +41,4 @@ externalPort = 3000
 deploymentTarget = "static"
 build = ["pnpm", "run", "build"]
 publicDir = "dist"
+run = ["sh", "-c", "npm run build"]
