@@ -38,3 +38,5 @@ React 18 + TypeScript + Vite admin panel for the CataCap platform. Handles inves
 
 ## Replit Setup Notes
 - Vite configured for `host: "0.0.0.0"`, `port: 5000`, `allowedHosts: true` to work behind Replit's proxy
+- **API Proxy:** Vite dev server proxies `/api` requests to the backend (`VITE_API_BASE_URL`) to avoid CORS issues. The axios base URL is set to `""` (empty) so all API calls go through the proxy.
+- For production deployment, a reverse proxy or CORS allowlist on the backend will be needed since the Vite proxy only works in dev mode.
