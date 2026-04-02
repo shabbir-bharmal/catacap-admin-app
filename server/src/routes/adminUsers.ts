@@ -258,6 +258,82 @@ router.post("/admin-users", async (req: Request, res: Response) => {
   }
 });
 
+router.put("/", async (req: Request, res: Response) => {
+  try {
+    const { token, email, firstName, lastName, userName } = req.body;
+    const jwtUser = (req as any).user;
+
+    if (!token && !jwtUser) {
+      res.json({ success: false, message: "User not found" });
+      return;
+    }
+
+    const userResult = await pool.query(
+      `SELECT id, email, user_name, first_name, last_name FROM users WHERE id = $1`,
+      [jwtUser?.id]
+    );
+
+    if (userResult.rows.length === 0) {
+      res.json({ success: false, message: "User not found" });
+      return;
+    }
+
+    const existingUser = userResult.rows[0];
+
+    if (email) {
+      const dupEmail = await pool.query(
+        `SELECT id FROM users WHERE LOWER(TRIM(email)) = LOWER(TRIM($1)) AND id != $2`,
+        [email, existingUser.id]
+      );
+      if (dupEmail.rows.length > 0) {
+        res.json({ success: false, message: "Duplicate email exists." });
+        return;
+      }
+    }
+
+    if (userName) {
+      const dupUsername = await pool.query(
+        `SELECT id FROM users WHERE LOWER(TRIM(user_name)) = LOWER(TRIM($1)) AND id != $2`,
+        [userName, existingUser.id]
+      );
+      if (dupUsername.rows.length > 0) {
+        res.json({ success: false, message: "Duplicate username exists." });
+        return;
+      }
+    }
+
+    if (email && email.toLowerCase().trim() !== (existingUser.email || "").toLowerCase().trim()) {
+      await pool.query(
+        `UPDATE recommendations SET user_email = $1 WHERE LOWER(TRIM(user_email)) = LOWER(TRIM($2))`,
+        [email, existingUser.email]
+      );
+    }
+
+    const fullName = `${firstName || ""} ${lastName || ""}`.trim();
+    await pool.query(
+      `UPDATE recommendations SET user_full_name = $1 WHERE LOWER(TRIM(user_email)) = LOWER(TRIM($2))`,
+      [fullName, existingUser.email]
+    );
+
+    if (userName && userName !== existingUser.user_name) {
+      await pool.query(
+        `UPDATE account_balance_change_logs SET user_name = $1 WHERE LOWER(TRIM(user_name)) = LOWER(TRIM($2))`,
+        [userName, existingUser.user_name]
+      );
+    }
+
+    await pool.query(
+      `UPDATE users SET first_name = $1, last_name = $2, user_name = COALESCE($3, user_name), email = COALESCE($4, email) WHERE id = $5`,
+      [firstName || null, lastName || null, userName || null, email || null, existingUser.id]
+    );
+
+    res.json({ success: true, message: "Profile details updated successfully." });
+  } catch (err) {
+    console.error("Update user profile error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
 router.patch("/:id/settings", async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
