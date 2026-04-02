@@ -25,7 +25,7 @@ React 18 + TypeScript + Vite admin panel for the CataCap platform. Handles inves
 - `server/src/` — Node.js Express backend
   - `server/src/index.ts` — Server entry point (port 8200)
   - `server/src/db.ts` — PostgreSQL pool (Supabase connection)
-  - `server/src/routes/` — API route handlers (auth, admin, dashboard, events, faqs, news, teams, testimonials, siteConfiguration)
+  - `server/src/routes/` — API route handlers (auth, admin, dashboard, events, faqs, news, teams, testimonials, siteConfiguration, formSubmission, adminFormSubmission)
   - `server/src/middleware/` — JWT auth and API access token middleware
   - `server/src/utils/` — JWT, ASP.NET Identity password hashing, 2FA, soft delete utilities
 - `attached_assets/` — Project assets (aliased as `@assets`)
@@ -38,6 +38,7 @@ React 18 + TypeScript + Vite admin panel for the CataCap platform. Handles inves
 - `VITE_FRONTEND_URL` — Frontend public URL
 - `SUPABASE_DB_URL` — Supabase PostgreSQL connection string (backend)
 - `JWT_SECRET` — Secret key for JWT token signing (backend)
+- `CAPTCHA_SECRET_KEY` — hCaptcha secret key for form submission verification (backend)
 
 ## Workflow
 - **Start application:** `pnpm run dev` — runs both Express server (port 8200) and Vite dev server (port 5000)
