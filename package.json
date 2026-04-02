@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx server/index.ts & vite",
+    "dev": "tsx server/src/index.ts & vite",
     "dev:frontend": "vite",
-    "dev:server": "tsx server/index.ts",
+    "dev:server": "tsx server/src/index.ts",
     "build": "vite build",
     "preview": "vite preview",
     "check": "tsc"

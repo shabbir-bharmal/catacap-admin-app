@@ -41,8 +41,16 @@ externalPort = 80
 localPort = 5001
 externalPort = 3000
 
+[[ports]]
+localPort = 8200
+externalPort = 3003
+
 [deployment]
 deploymentTarget = "static"
 build = ["pnpm", "run", "build"]
 publicDir = "dist"
 run = ["sh", "-c", "npm run build"]
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 180000
