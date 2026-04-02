@@ -11,6 +11,7 @@ import newsRoutes from "./routes/news.js";
 import teamRoutes from "./routes/teams.js";
 import testimonialRoutes from "./routes/testimonials.js";
 import siteConfigRoutes from "./routes/siteConfiguration.js";
+import publicEventRoutes from "./routes/publicEvents.js";
 import { jwtAuthMiddleware } from "./middleware/jwtAuth.js";
 
 const app = express();
@@ -26,6 +27,7 @@ app.get("/api/health", (_req, res) => {
 app.use("/api", apiAccessTokenMiddleware);
 
 app.use("/api/userauthentication", authRoutes);
+app.use("/api/event", publicEventRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin/home", jwtAuthMiddleware, dashboardRoutes);
 app.use("/api/admin/event", jwtAuthMiddleware, eventRoutes);
