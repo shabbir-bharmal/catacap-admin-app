@@ -17,6 +17,9 @@ import formSubmissionRoutes from "./routes/formSubmission.js";
 import adminFormSubmissionRoutes from "./routes/adminFormSubmission.js";
 import adminUserRoutes from "./routes/adminUsers.js";
 import moduleAccessPermissionRoutes from "./routes/moduleAccessPermission.js";
+import transactionHistoryRoutes from "./routes/transactionHistory.js";
+import accountHistoryRoutes from "./routes/accountHistory.js";
+import financeRoutes from "./routes/finance.js";
 import { jwtAuthMiddleware } from "./middleware/jwtAuth.js";
 
 const app = express();
@@ -46,6 +49,9 @@ app.use("/api/form-submission", formSubmissionRoutes);
 app.use("/api/admin/form-submission", jwtAuthMiddleware, adminFormSubmissionRoutes);
 app.use("/api/admin/user", jwtAuthMiddleware, adminUserRoutes);
 app.use("/api/module-access-permission", jwtAuthMiddleware, moduleAccessPermissionRoutes);
+app.use("/api/admin/transaction-history", jwtAuthMiddleware, transactionHistoryRoutes);
+app.use("/api/admin/finance", jwtAuthMiddleware, financeRoutes);
+app.use("/api/AccountBalanceHistory", accountHistoryRoutes);
 
 async function start() {
   try {
