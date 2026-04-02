@@ -12,6 +12,7 @@ import teamRoutes from "./routes/teams.js";
 import testimonialRoutes from "./routes/testimonials.js";
 import siteConfigRoutes from "./routes/siteConfiguration.js";
 import publicEventRoutes from "./routes/publicEvents.js";
+import publicSiteConfigRoutes from "./routes/publicSiteConfiguration.js";
 import { jwtAuthMiddleware } from "./middleware/jwtAuth.js";
 
 const app = express();
@@ -36,6 +37,7 @@ app.use("/api/admin/news", jwtAuthMiddleware, newsRoutes);
 app.use("/api/admin/team", jwtAuthMiddleware, teamRoutes);
 app.use("/api/admin/testimonial", jwtAuthMiddleware, testimonialRoutes);
 app.use("/api/admin/site-configuration", jwtAuthMiddleware, siteConfigRoutes);
+app.use("/api/SiteConfiguration", publicSiteConfigRoutes);
 
 async function start() {
   try {
