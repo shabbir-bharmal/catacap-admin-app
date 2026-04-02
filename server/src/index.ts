@@ -15,6 +15,8 @@ import publicEventRoutes from "./routes/publicEvents.js";
 import publicSiteConfigRoutes from "./routes/publicSiteConfiguration.js";
 import formSubmissionRoutes from "./routes/formSubmission.js";
 import adminFormSubmissionRoutes from "./routes/adminFormSubmission.js";
+import adminUserRoutes from "./routes/adminUsers.js";
+import moduleAccessPermissionRoutes from "./routes/moduleAccessPermission.js";
 import { jwtAuthMiddleware } from "./middleware/jwtAuth.js";
 
 const app = express();
@@ -42,6 +44,8 @@ app.use("/api/admin/site-configuration", jwtAuthMiddleware, siteConfigRoutes);
 app.use("/api/SiteConfiguration", publicSiteConfigRoutes);
 app.use("/api/form-submission", formSubmissionRoutes);
 app.use("/api/admin/form-submission", jwtAuthMiddleware, adminFormSubmissionRoutes);
+app.use("/api/admin/user", jwtAuthMiddleware, adminUserRoutes);
+app.use("/api/module-access-permission", jwtAuthMiddleware, moduleAccessPermissionRoutes);
 
 async function start() {
   try {

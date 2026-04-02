@@ -67,3 +67,24 @@ function verifyV2(password: string, hashBuffer: Buffer): boolean {
 
   return crypto.timingSafeEqual(derivedKey, storedSubkey);
 }
+
+export function hashAspNetIdentityV3(password: string): string {
+  const prf = 1;
+  const iterCount = 100000;
+  const algorithm = "sha256";
+  const saltLength = 16;
+  const keyLength = 32;
+
+  const salt = crypto.randomBytes(saltLength);
+  const derivedKey = crypto.pbkdf2Sync(password, salt, iterCount, keyLength, algorithm);
+
+  const outputBuffer = Buffer.alloc(13 + saltLength + keyLength);
+  outputBuffer[0] = 0x01;
+  outputBuffer.writeUInt32BE(prf, 1);
+  outputBuffer.writeUInt32BE(iterCount, 5);
+  outputBuffer.writeUInt32BE(saltLength, 9);
+  salt.copy(outputBuffer, 13);
+  derivedKey.copy(outputBuffer, 13 + saltLength);
+
+  return outputBuffer.toString("base64");
+}

@@ -4,6 +4,7 @@ import pool from "../db.js";
 import { verifyAspNetIdentityV3Hash } from "../utils/aspnetIdentityHash.js";
 import { generateToken } from "../utils/jwt.js";
 import { generateTwoFactorCode, verifyTwoFactorCode } from "../utils/twoFactor.js";
+import { jwtAuthMiddleware } from "../middleware/jwtAuth.js";
 
 const router = Router();
 
@@ -198,5 +199,38 @@ async function getPermissionClaims(
 
   return [...new Set(claims)];
 }
+
+router.post("/assign-role", jwtAuthMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { userId, roleId } = req.body;
+
+    const userResult = await pool.query("SELECT id FROM users WHERE id = $1", [userId]);
+    if (userResult.rows.length === 0) {
+      res.json({ success: false, message: "User not found" });
+      return;
+    }
+
+    const roleResult = await pool.query("SELECT id, name FROM roles WHERE id = $1", [roleId]);
+    if (roleResult.rows.length === 0) {
+      res.json({ success: false, message: "Role not found" });
+      return;
+    }
+
+    await pool.query(
+      "DELETE FROM user_roles WHERE user_id = $1",
+      [userId]
+    );
+
+    await pool.query(
+      "INSERT INTO user_roles (user_id, role_id, discriminator) VALUES ($1, $2, $3)",
+      [userId, roleId, "IdentityUserRole<string>"]
+    );
+
+    res.json({ success: true, message: "Role updated successfully." });
+  } catch (err) {
+    console.error("Assign role error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
 
 export default router;
