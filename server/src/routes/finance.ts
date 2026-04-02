@@ -275,7 +275,7 @@ async function getFinancesData(): Promise<FinancesData> {
             .map((t: string) => parseInt(t.trim(), 10))
             .filter((n: number) => !isNaN(n))
         : [];
-      campaignThemesMap.set(c.id, themeIds);
+      campaignThemesMap.set(Number(c.id), themeIds);
     }
 
     let relevantRecs: Array<{ campaign_id: number; amount: number; status: string }> = [];
@@ -297,7 +297,7 @@ async function getFinancesData(): Promise<FinancesData> {
 
       for (const rec of relevantRecs) {
         const themeIds = campaignThemesMap.get(rec.campaign_id) || [];
-        if (!themeIds.includes(theme.id)) continue;
+        if (!themeIds.includes(Number(theme.id))) continue;
         const splitAmount = themeIds.length > 0 ? (parseFloat(String(rec.amount)) || 0) / themeIds.length : 0;
         const status = (rec.status || "").toLowerCase().trim();
         if (status === PENDING) pendingTotal += splitAmount;
