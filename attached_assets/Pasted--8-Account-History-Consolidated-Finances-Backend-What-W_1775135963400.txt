@@ -1,0 +1,46 @@
+#8 - Account History & Consolidated Finances Backend
+What & Why
+Port the Account History (Transaction History) and Consolidated Finances endpoints from the .NET backend to the Node.js Express server. The frontend pages (AccountHistory.tsx, ConsolidatedFinances.tsx) and their API clients (accountHistoryApi.ts, financeApi.ts) are already built and expect these endpoints. The .NET backend has two sets of controllers: TransactionHistoryController.cs (admin transaction history CRUD + export) and FinancesController.cs (admin consolidated finances data + export). The Node.js version must maintain full feature parity.
+
+Done looks like
+GET /api/admin/transaction-history returns paginated account balance change logs with search, sort, soft-delete filtering, and user email resolution
+DELETE /api/admin/transaction-history/:id soft-deletes an account history record
+PUT /api/admin/transaction-history/restore restores soft-deleted records by IDs
+GET /api/admin/transaction-history/export exports all account balance history to an Excel (.xlsx) file with columns: User Name, Change Date, Investment Name, Payment Type, Old Value, New Value, Gross Amount, Fees, Net Amount, Zip Code, Comment
+GET /api/admin/finance returns the consolidated finances summary (users stats, groups stats, recommendations stats, investment stats, investment themes breakdown, grants totals, and to-balance calculations)
+GET /api/admin/finance/export exports the consolidated finances data as a formatted Excel (.xlsx) file with sections: Users, Groups, Recommendations, Investments, Investments by Theme, Grants, To Balance
+The Account History page loads, searches, sorts, paginates, deletes, and exports correctly
+The Consolidated Finances page loads data and exports correctly
+Out of scope
+The public (non-admin) AccountBalanceHistory endpoints (/api/AccountBalanceHistory/...) — those are a separate legacy controller
+The public (non-admin) Finances endpoints (/api/Finances/...)
+Group-specific transaction history endpoints (/api/admin/group/:id/transaction-history) — those belong to the groups module
+Tasks
+Transaction History route file — Create server/src/routes/transactionHistory.ts with all four endpoints. The GET / endpoint queries account_balance_change_logs joined with users (for email), supports pagination (CurrentPage, PerPage), search (across user_name, email, payment_type, investment_name), sorting (changedate, investmentname, default desc by change_date), and soft-delete filtering via IsDeleted param. Returns { items, totalCount } or { Success: false, Message: "Data not found." } when empty. The DELETE /:id performs a hard delete (matching .NET behavior). The PUT /restore accepts an array of IDs in the request body, finds those where is_deleted = true, clears is_deleted, deleted_at, deleted_by, and returns count restored. The GET /export generates an Excel file using exceljs (install it) with the exact column layout from the .NET controller.
+
+Consolidated Finances route file — Create server/src/routes/finance.ts with two endpoints. The GET / endpoint performs multiple aggregation queries across users, user_roles, roles, groups, requests, recommendations, campaigns, account_balance_change_logs, pending_grants, asset_based_payment_requests, completed_investment_details, and themes tables. It must replicate the exact business logic from the .NET Admin/FinancesController.cs: filter users by role name "User", compute active/inactive counts, account balances (excluding is_exclude_user_balance users for investments), group stats with leader count from JSON leaders column, recommendation sums by status, campaign investment totals with over-25K/50K counts, theme-based breakdowns splitting amounts proportionally across themes, grants totals, and to-balance difference calculations. Computed fields: investmentsPlusAccountBalances = accountBalances + investments, total = pending + approved (for recommendations and themes), difference = recommendations - activeAndClosed (for toBalance). The GET /export endpoint reuses the data from GET / and generates a formatted Excel file matching the .NET export layout with section headers, currency formatting, total rows with gray background, and balance rows with dark blue background.
+
+Register routes and install dependencies — Import both new route files in server/src/index.ts, register them as app.use("/api/admin/transaction-history", jwtAuthMiddleware, transactionHistoryRoutes) and app.use("/api/admin/finance", jwtAuthMiddleware, financeRoutes). Install exceljs package for Excel generation.
+
+Relevant files
+Back-End/Invest/Controllers/Admin/TransactionHistoryController.cs
+Back-End/Invest/Controllers/Admin/FinancesController.cs
+Back-End/Invest.Core/Dtos/FinancesDto.cs
+Back-End/Invest/Controllers/AccountBalanceHistory.cs
+src/api/account-history/accountHistoryApi.ts
+src/api/finance/financeApi.ts
+src/pages/AccountHistory.tsx
+src/pages/ConsolidatedFinances.tsx
+server/src/index.ts
+server/src/routes/events.ts
+server/src/utils/softDelete.ts
+schema.sql:1-29
+schema.sql:86-110
+schema.sql:225-247
+schema.sql:427-458
+schema.sql:613-663
+schema.sql:720-727
+schema.sql:803-814
+schema.sql:861-872
+schema.sql:905-944
+Dependencies
