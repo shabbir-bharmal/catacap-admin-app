@@ -1,0 +1,11 @@
+﻿namespace Invest.Core.Models;
+
+public class FollowingRequest : BaseEntity
+{
+    public int Id { get; set; }
+    public User? RequestOwner { get; set; }
+    public User? UserToFollow { get; set; }
+    public Group? GroupToFollow { get; set; }
+    public string? Status { get; set; }
+    public DateTime? CreatedAt { get; set; } = DateTime.Now;
+}
