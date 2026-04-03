@@ -38,7 +38,6 @@ React 18 + TypeScript + Vite admin panel for the CataCap platform. Handles inves
   - `server/src/middleware/` — JWT auth and API access token middleware
   - `server/src/utils/` — JWT, ASP.NET Identity password hashing, 2FA, soft delete, anonymous user registration, Supabase Storage Base64 image upload utilities
     - `uploadBase64Image.ts` — `uploadBase64Image(base64, folder)` uploads to Supabase Storage; `resolveFileUrl(path, defaultFolder)` resolves DB paths to public URLs (always pass defaultFolder); `ensureFolderPrefix(path, folder)` ensures folder prefix on bare filenames; `extractStoragePath(value)` extracts storage path from URLs/paths
-  - Startup migration `fixBareFilenamePaths()` in index.ts auto-fixes bare filenames across all file-bearing tables on boot
   - **Supabase Storage folders** (bucket: `production`): campaigns, catacap-teams, disbursal-requests, events, groups, investment-requests, news, site-configurations, themes, users
 - `attached_assets/` — Project assets (aliased as `@assets`)
 - `scripts/post-merge.sh` — Post-merge setup script (pnpm install)
