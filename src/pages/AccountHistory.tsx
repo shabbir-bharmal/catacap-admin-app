@@ -219,7 +219,7 @@ export default function AccountHistoryPage() {
                           <div className="flex flex-col gap-1.5" data-testid={`text-payment-${entry.id}`}>
                             <div className="flex items-center gap-2 flex-wrap">
                                 {(() => {
-                                  const lower = entry.paymentType.toLowerCase();
+                                  const lower = (entry.paymentType || "").toLowerCase();
                                   let badgeClass = "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"; // Default Blue
 
                                   if (lower.includes("revert") || lower.includes("rollback")) {
