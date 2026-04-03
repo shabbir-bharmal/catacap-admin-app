@@ -36,7 +36,7 @@ React 18 + TypeScript + Vite admin panel for the CataCap platform. Handles inves
     - `adminInvestment.ts` — Full investment CRUD: paginated list with search/stage/status/soft-delete filters (GET /), detail with balance/notes/tags (GET /:id), create with file uploads and anonymous user registration (POST /), update with slug management, tag mappings, audit notes, mention emails (PUT /:id), soft-delete with cascade (DELETE /:id), restore (PUT /restore), clone (POST /:id/clone), status toggle with email notification (PUT /:id/status), notes (GET /:id/notes), notes export (GET /:id/notes/export), recommendations export (GET /:id/recommendations/export), full export to Excel (GET /export), metadata (GET /data), countries (GET /countries), document URL (GET /document), investment types (GET /types), investment names (GET /names), investment requests list (GET /request), investment request detail (GET /request/:id)
     - `campaign.ts` — Campaign investment name list (GET /get-all-investment-name-list) with stage-based filtering; public disbursal endpoints: user-disbursal-investments (GET /user-disbursal-investments), save-disbursal with base64 PDF upload and email notification (POST /save-disbursal), get-disbursal-request (GET /get-disbursal-request), get-disbursal-request-list (GET /get-disbursal-request-list), export-disbursal-request-list (GET /export-disbursal-request-list), get-disbursal-request-notes (GET /get-disbursal-request-notes); QR code email (GET /send-investment-qr-code-email), investment notes export (GET /export-investment-notes), investment notes list (GET /get-investments-notes); raise money form (POST /raisemoney) with hCaptcha, anonymous user registration, file uploads, tag mappings, and 3 notification emails (categories 23, 21, 16); multi-step investment request (POST /investment-request) with anonymous user registration and file uploads
   - `server/src/middleware/` — JWT auth and API access token middleware
-  - `server/src/utils/` — JWT, ASP.NET Identity password hashing, 2FA, soft delete, anonymous user registration utilities
+  - `server/src/utils/` — JWT, ASP.NET Identity password hashing, 2FA, soft delete, anonymous user registration, Supabase Storage Base64 image upload utilities
 - `attached_assets/` — Project assets (aliased as `@assets`)
 - `scripts/post-merge.sh` — Post-merge setup script (pnpm install)
 
@@ -46,6 +46,9 @@ React 18 + TypeScript + Vite admin panel for the CataCap platform. Handles inves
 - `VITE_API_ACCESS_TOKEN` — API access token (shared between frontend and backend)
 - `VITE_FRONTEND_URL` — Frontend public URL
 - `SUPABASE_DB_URL` — Supabase PostgreSQL connection string (backend)
+- `SUPABASE_URL` — Supabase project URL, e.g. `https://<project-ref>.supabase.co` (backend, used for Storage API)
+- `SUPABASE_KEY` — Supabase service role key for Storage uploads (backend)
+- `SUPABASE_STORAGE_BUCKET` — Supabase Storage bucket name (backend)
 - `JWT_SECRET` — Secret key for JWT token signing (backend)
 - `CAPTCHA_SECRET_KEY` — hCaptcha secret key for form submission verification (backend)
 
