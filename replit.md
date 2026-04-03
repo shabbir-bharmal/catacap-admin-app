@@ -25,9 +25,13 @@ React 18 + TypeScript + Vite admin panel for the CataCap platform. Handles inves
 - `server/src/` — Node.js Express backend
   - `server/src/index.ts` — Server entry point (port 8200)
   - `server/src/db.ts` — PostgreSQL pool (Supabase connection)
-  - `server/src/routes/` — API route handlers (auth, admin, adminUsers, dashboard, events, faqs, news, teams, testimonials, siteConfiguration, formSubmission, adminFormSubmission, moduleAccessPermission, transactionHistory, accountHistory, finance, adminGroups, publicGroups)
+  - `server/src/routes/` — API route handlers (auth, admin, adminUsers, dashboard, events, faqs, news, teams, testimonials, siteConfiguration, formSubmission, adminFormSubmission, moduleAccessPermission, transactionHistory, accountHistory, finance, adminGroups, publicGroups, adminRecommendations, adminPendingGrants, adminOtherAssets, campaign)
     - `adminUsers.ts` — Full user CRUD: paginated list (GET /), by-token (GET /by-token), dropdown (GET /dropdown), admin-users-dropdown (GET /admin-users-dropdown), get-all-admin-users (GET /get-all-admin-users), export to Excel (GET /export), account balance update (PUT /account-balance), delete with cascade soft-delete (DELETE /:id), restore soft-deleted users (PUT /restore), admin user CRUD (GET/POST /admin-users), user profile update (PUT /), settings toggle (PATCH /:id/settings)
     - `auth.ts` — Auth endpoints including assign-group-admin (PUT /assign-group-admin) toggle and loginAdminToUser (POST /loginAdminToUser) impersonation
+    - `adminRecommendations.ts` — Recommendations admin: paginated list with stats (GET /), status update with balance revert on rejection (PUT /:id), hard delete (DELETE /:id), restore soft-deleted (PUT /restore), Excel export (GET /export)
+    - `adminPendingGrants.ts` — Pending grants admin: paginated list with day count (GET /), status transitions with balance/fee logic (PUT /:id), notes history (GET /:id/notes), DAF providers list (GET /daf-providers), hard delete with cascade (DELETE /:id), restore with cascade (PUT /restore), Excel export (GET /export)
+    - `adminOtherAssets.ts` — Other assets admin: paginated list (GET /), status transitions with balance updates (PUT /:id/status), notes history (GET /:id/notes), hard delete with cascade (DELETE /:id), restore with cascade (PUT /restore), Excel export (GET /export)
+    - `campaign.ts` — Campaign investment name list (GET /get-all-investment-name-list) with stage-based filtering
   - `server/src/middleware/` — JWT auth and API access token middleware
   - `server/src/utils/` — JWT, ASP.NET Identity password hashing, 2FA, soft delete utilities
 - `attached_assets/` — Project assets (aliased as `@assets`)

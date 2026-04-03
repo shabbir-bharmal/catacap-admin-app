@@ -23,6 +23,10 @@ import accountHistoryRoutes from "./routes/accountHistory.js";
 import financeRoutes from "./routes/finance.js";
 import adminGroupRoutes from "./routes/adminGroups.js";
 import publicGroupRoutes from "./routes/publicGroups.js";
+import adminRecommendationRoutes from "./routes/adminRecommendations.js";
+import adminPendingGrantRoutes from "./routes/adminPendingGrants.js";
+import adminOtherAssetRoutes from "./routes/adminOtherAssets.js";
+import campaignRoutes from "./routes/campaign.js";
 import { jwtAuthMiddleware } from "./middleware/jwtAuth.js";
 import { Router } from "express";
 
@@ -58,6 +62,10 @@ app.use("/api/module-access-permission", jwtAuthMiddleware, moduleAccessPermissi
 app.use("/api/admin/transaction-history", jwtAuthMiddleware, transactionHistoryRoutes);
 app.use("/api/admin/finance", jwtAuthMiddleware, financeRoutes);
 app.use("/api/admin/group", jwtAuthMiddleware, adminGroupRoutes);
+app.use("/api/admin/recommendation", jwtAuthMiddleware, adminRecommendationRoutes);
+app.use("/api/admin/pending-grant", jwtAuthMiddleware, adminPendingGrantRoutes);
+app.use("/api/admin/other-asset", jwtAuthMiddleware, adminOtherAssetRoutes);
+app.use("/api/Campaign", campaignRoutes);
 app.use("/api/Group", publicGroupRoutes);
 app.use("/api/AccountBalanceHistory", accountHistoryRoutes);
 const usersAliasRouter = Router();
