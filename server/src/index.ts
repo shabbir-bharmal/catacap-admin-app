@@ -31,6 +31,7 @@ import adminDisbursalRequestRoutes from "./routes/adminDisbursalRequests.js";
 import adminInvestmentReturnRoutes from "./routes/adminInvestmentReturns.js";
 import adminCompletedInvestmentRoutes from "./routes/adminCompletedInvestments.js";
 import adminInvestmentRoutes from "./routes/adminInvestment.js";
+import recycleBinRoutes from "./routes/recycleBin.js";
 import campaignRoutes from "./routes/campaign.js";
 import { jwtAuthMiddleware } from "./middleware/jwtAuth.js";
 import { Router } from "express";
@@ -75,6 +76,7 @@ app.use("/api/admin/disbursal-request", jwtAuthMiddleware, adminDisbursalRequest
 app.use("/api/admin/investment-return", jwtAuthMiddleware, adminInvestmentReturnRoutes);
 app.use("/api/admin/completed-investment", jwtAuthMiddleware, adminCompletedInvestmentRoutes);
 app.use("/api/admin/investment", jwtAuthMiddleware, adminInvestmentRoutes);
+app.use("/api/admin/recycle-bin", jwtAuthMiddleware, recycleBinRoutes);
 app.use("/api/Campaign", campaignRoutes);
 app.use("/api/Group", publicGroupRoutes);
 app.use("/api/AccountBalanceHistory", accountHistoryRoutes);

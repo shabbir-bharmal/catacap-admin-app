@@ -905,6 +905,33 @@ router.get("/:identifier", async (req: Request, res: Response) => {
   }
 });
 
+router.put("/restore", async (req: Request, res: Response) => {
+  try {
+    const ids: number[] = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      res.json({ success: false, message: "No IDs provided." });
+      return;
+    }
+
+    const result = await pool.query(
+      `UPDATE groups SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+       WHERE id = ANY($1) AND is_deleted = true
+       RETURNING id`,
+      [ids]
+    );
+
+    if (result.rowCount === 0) {
+      res.json({ success: false, message: "No deleted groups found to restore." });
+      return;
+    }
+
+    res.json({ success: true, message: `${result.rowCount} group(s) restored successfully.` });
+  } catch (err) {
+    console.error("Restore groups error:", err);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+});
+
 router.put("/:id", async (req: Request, res: Response) => {
   try {
     const id = parseInt(String(req.params.id), 10);
