@@ -2,7 +2,9 @@ import express from "express";
 import cors from "cors";
 import path from "path";
 import { testConnection } from "./db.js";
+import pool from "./db.js";
 import { apiAccessTokenMiddleware } from "./middleware/apiAccessToken.js";
+import { ensureFolderPrefix } from "./utils/uploadBase64Image.js";
 import authRoutes from "./routes/auth.js";
 import adminRoutes from "./routes/admin.js";
 import dashboardRoutes from "./routes/dashboard.js";
@@ -87,6 +89,47 @@ usersAliasRouter.get("/get-all-admin-users", jwtAuthMiddleware, (req, res, next)
 });
 app.use("/api/Users", usersAliasRouter);
 
+async function fixBareFilenamePaths() {
+  const migrations: Array<{ table: string; column: string; folder: string; condition?: string }> = [
+    { table: "catacap_teams", column: "image_file_name", folder: "catacap-teams" },
+    { table: "news", column: "image_file_name", folder: "news" },
+    { table: "events", column: "image_file_name", folder: "events" },
+    { table: "events", column: "image", folder: "events" },
+    { table: "themes", column: "image_file_name", folder: "themes" },
+    { table: "site_configurations", column: "image_name", folder: "site-configurations" },
+    { table: "site_configurations", column: "image", folder: "site-configurations" },
+    { table: "users", column: "picture_file_name", folder: "users" },
+    { table: "campaigns", column: "image_file_name", folder: "campaigns" },
+    { table: "campaigns", column: "tile_image_file_name", folder: "campaigns" },
+    { table: "campaigns", column: "logo_file_name", folder: "campaigns" },
+    { table: "campaigns", column: "pdf_file_name", folder: "campaigns" },
+  ];
+
+  let totalFixed = 0;
+
+  for (const { table, column, folder } of migrations) {
+    try {
+      const result = await pool.query(
+        `SELECT id, ${column} FROM ${table} WHERE ${column} IS NOT NULL AND ${column} != '' AND ${column} NOT LIKE '%/%' AND ${column} NOT LIKE 'http%' AND ${column} NOT LIKE 'data:%'`
+      );
+
+      for (const row of result.rows) {
+        const fixed = ensureFolderPrefix(row[column], folder);
+        if (fixed !== row[column]) {
+          await pool.query(`UPDATE ${table} SET ${column} = $1 WHERE id = $2`, [fixed, row.id]);
+          totalFixed++;
+        }
+      }
+    } catch (err) {
+      console.warn(`Migration warning: could not fix ${table}.${column}:`, err);
+    }
+  }
+
+  if (totalFixed > 0) {
+    console.log(`Fixed ${totalFixed} bare filename path(s) across database tables.`);
+  }
+}
+
 async function start() {
   try {
     await testConnection();
@@ -94,6 +137,12 @@ async function start() {
   } catch (err) {
     console.error("Failed to connect to database:", err);
     process.exit(1);
+  }
+
+  try {
+    await fixBareFilenamePaths();
+  } catch (err) {
+    console.warn("File path migration encountered an error:", err);
   }
 
   app.listen(PORT, "0.0.0.0", () => {

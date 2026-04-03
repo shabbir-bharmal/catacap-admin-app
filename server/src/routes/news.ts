@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter } from "../utils/softDelete.js";
-import { resolveFileUrl } from "../utils/uploadBase64Image.js";
+import { resolveFileUrl, uploadBase64Image, extractStoragePath, ensureFolderPrefix } from "../utils/uploadBase64Image.js";
 
 const router = Router();
 
@@ -91,7 +91,7 @@ router.get("/", async (req: Request, res: Response) => {
       audience: r.audience_name,
       themeId: r.theme_id,
       theme: r.theme_name,
-      imageFileName: resolveFileUrl(r.image_file_name),
+      imageFileName: resolveFileUrl(r.image_file_name, "news"),
       status: r.status ?? false,
       link: r.news_link,
       newsDate: r.formatted_date,
@@ -142,7 +142,7 @@ router.get("/:id", async (req: Request, res: Response) => {
       audience: r.audience_name,
       themeId: r.theme_id,
       theme: r.theme_name,
-      imageFileName: resolveFileUrl(r.image_file_name),
+      imageFileName: resolveFileUrl(r.image_file_name, "news"),
       link: r.news_link,
       status: r.status ?? false,
       newsDate: r.news_date,
@@ -163,14 +163,24 @@ router.post("/", async (req: Request, res: Response) => {
 
     const userId = req.user?.id || null;
 
+    let imageFileName: string | null = null;
+    const base64Data = [dto.image, dto.imageFileName].find((v) => v && typeof v === "string" && v.startsWith("data:"));
+    if (base64Data) {
+      const uploadResult = await uploadBase64Image(base64Data, "news");
+      imageFileName = uploadResult.filePath;
+    } else {
+      const existingPath = dto.imageFileName || dto.image || null;
+      if (existingPath) {
+        imageFileName = ensureFolderPrefix(extractStoragePath(existingPath) || existingPath, "news");
+      }
+    }
+
     if (dto.id && dto.id > 0) {
       const existing = await pool.query(`SELECT id, image_file_name FROM news WHERE id = $1`, [dto.id]);
       if (existing.rows.length === 0) {
         res.json({ success: false, message: "News not found." });
         return;
       }
-
-      const imageFileName = dto.imageFileName || null;
 
       await pool.query(
         `UPDATE news SET
@@ -196,7 +206,7 @@ router.post("/", async (req: Request, res: Response) => {
          RETURNING id`,
         [
           dto.title, dto.description, dto.newsTypeId, dto.audienceId,
-          dto.themeId, dto.imageFileName || null,
+          dto.themeId, imageFileName,
           dto.newsLink, dto.status, dto.newsDate, userId,
         ]
       );

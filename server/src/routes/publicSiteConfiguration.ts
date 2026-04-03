@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
-import { resolveFileUrl } from "../utils/uploadBase64Image.js";
+import { resolveFileUrl, uploadBase64Image, extractStoragePath, ensureFolderPrefix } from "../utils/uploadBase64Image.js";
 
 const router = Router();
 
@@ -43,7 +43,7 @@ router.get("/site-configuration", async (req: Request, res: Response) => {
            FROM themes
            ORDER BY name`
         );
-        res.json(result.rows.map((r: any) => ({ ...r, imageFileName: resolveFileUrl(r.imageFileName) })));
+        res.json(result.rows.map((r: any) => ({ ...r, imageFileName: resolveFileUrl(r.imageFileName, "themes") })));
         return;
       }
 
@@ -89,7 +89,11 @@ router.get("/site-configuration", async (req: Request, res: Response) => {
            ORDER BY key`,
           [`${SITE_CONFIG_TYPES.MetaInformation}%`]
         );
-        res.json(result.rows);
+        res.json(result.rows.map((r: any) => ({
+          ...r,
+          image: resolveFileUrl(r.image, "site-configurations"),
+          imageName: resolveFileUrl(r.imageName, "site-configurations"),
+        })));
         return;
       }
 
@@ -437,10 +441,20 @@ async function createByType(type: string, dto: any): Promise<{ success: boolean;
         [dto.value.trim()]
       );
       if (dup.rows.length > 0) return { success: false, message: "Entered theme value already exists." };
-      const fileName = dto.imageFileName || dto.image || null;
+      let themeFileName: string | null = null;
+      const base64ThemeData = [dto.image, dto.imageFileName].find((v: any) => v && typeof v === "string" && v.startsWith("data:"));
+      if (base64ThemeData) {
+        const uploadResult = await uploadBase64Image(base64ThemeData, "themes");
+        themeFileName = uploadResult.filePath;
+      } else {
+        const existingPath = dto.imageFileName || dto.image || null;
+        if (existingPath) {
+          themeFileName = ensureFolderPrefix(extractStoragePath(existingPath) || existingPath, "themes");
+        }
+      }
       await pool.query(
         `INSERT INTO themes (name, image_file_name) VALUES ($1, $2)`,
-        [dto.value.trim(), fileName]
+        [dto.value.trim(), themeFileName]
       );
       return { success: true, message: "Theme created successfully." };
     }
@@ -521,20 +535,30 @@ async function updateByType(type: string, dto: any): Promise<{ success: boolean;
         [dto.value.trim(), id]
       );
       if (dup.rows.length > 0) return { success: false, message: "Entered theme value already exists." };
-      let fileName: string | null = null;
-      if (dto.image) {
-        fileName = dto.imageFileName || dto.image;
-      }
-      if (fileName) {
+      const base64UpdTheme = [dto.image, dto.imageFileName].find((v: any) => v && typeof v === "string" && v.startsWith("data:"));
+      if (base64UpdTheme) {
+        const uploadResult = await uploadBase64Image(base64UpdTheme, "themes");
         await pool.query(
           `UPDATE themes SET name = $1, image_file_name = $2 WHERE id = $3`,
-          [dto.value.trim(), fileName, id]
+          [dto.value.trim(), uploadResult.filePath, id]
         );
       } else {
-        await pool.query(
-          `UPDATE themes SET name = $1 WHERE id = $2`,
-          [dto.value.trim(), id]
-        );
+        const existingPath = dto.imageFileName || dto.image || null;
+        if (existingPath) {
+          const normalized = ensureFolderPrefix(extractStoragePath(existingPath) || existingPath, "themes");
+          await pool.query(
+            `UPDATE themes SET name = $1, image_file_name = $2 WHERE id = $3`,
+            [dto.value.trim(), normalized, id]
+          );
+        } else {
+          const currentRow = await pool.query(`SELECT image_file_name FROM themes WHERE id = $1`, [id]);
+          const currentImg = currentRow.rows[0]?.image_file_name || null;
+          const normalizedCurrent = currentImg ? ensureFolderPrefix(currentImg, "themes") : null;
+          await pool.query(
+            `UPDATE themes SET name = $1, image_file_name = $2 WHERE id = $3`,
+            [dto.value.trim(), normalizedCurrent, id]
+          );
+        }
       }
       return { success: true, message: "Theme updated successfully." };
     }

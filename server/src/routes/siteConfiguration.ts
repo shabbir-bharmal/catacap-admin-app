@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { softDeleteFilter } from "../utils/softDelete.js";
-import { resolveFileUrl } from "../utils/uploadBase64Image.js";
+import { resolveFileUrl, uploadBase64Image, extractStoragePath, ensureFolderPrefix } from "../utils/uploadBase64Image.js";
 
 const router = Router();
 
@@ -85,7 +85,7 @@ router.get("/:type", async (req: Request, res: Response) => {
            WHERE ${softDelete}
            ORDER BY x.name`
         );
-        res.json(result.rows.map((r: any) => ({ ...r, imageFileName: resolveFileUrl(r.imageFileName) })));
+        res.json(result.rows.map((r: any) => ({ ...r, imageFileName: resolveFileUrl(r.imageFileName, "themes") })));
         return;
       }
 
@@ -154,7 +154,11 @@ router.get("/:type", async (req: Request, res: Response) => {
            ORDER BY x.key`,
           [`${SITE_CONFIG_TYPES.MetaInformation}%`]
         );
-        res.json(result.rows);
+        res.json(result.rows.map((r: any) => ({
+          ...r,
+          image: resolveFileUrl(r.image, "site-configurations"),
+          imageName: resolveFileUrl(r.imageName, "site-configurations"),
+        })));
         return;
       }
 
@@ -501,11 +505,27 @@ async function createByType(type: string, dto: any): Promise<{ success: boolean;
         [SITE_CONFIG_TYPES.MetaInformation, dto.key.trim()]
       );
       if (dup.rows.length > 0) return { success: false, message: "Entered key already exists." };
+
+      let metaImage: string | null = null;
+      let metaImageName: string | null = null;
+      const base64MetaData = [dto.image, dto.imageFileName].find((v: any) => v && typeof v === "string" && v.startsWith("data:"));
+      if (base64MetaData) {
+        const uploadResult = await uploadBase64Image(base64MetaData, "site-configurations");
+        metaImage = uploadResult.filePath;
+        metaImageName = uploadResult.filePath;
+      } else {
+        const existingMetaPath = dto.imageFileName || dto.image || null;
+        if (existingMetaPath) {
+          metaImageName = ensureFolderPrefix(extractStoragePath(existingMetaPath) || existingMetaPath, "site-configurations");
+          metaImage = dto.image ? metaImageName : null;
+        }
+      }
+
       await pool.query(
         `INSERT INTO site_configurations (key, value, type, additional_details, image, image_name)
          VALUES ($1, $2, $3, $4, $5, $6)`,
         [dto.key.trim(), dto.value.trim(), SITE_CONFIG_TYPES.MetaInformation,
-         dto.additionalDetails.trim(), dto.image || null, dto.imageFileName || null]
+         dto.additionalDetails.trim(), metaImage, metaImageName]
       );
       return { success: true, message: "Configuration created successfully." };
     }
@@ -544,9 +564,22 @@ async function createByType(type: string, dto: any): Promise<{ success: boolean;
         [dto.value.trim()]
       );
       if (dup.rows.length > 0) return { success: false, message: "Entered theme value already exists." };
+
+      let themeImageFileName: string | null = null;
+      const base64ThemeData = [dto.image, dto.imageFileName].find((v: any) => v && typeof v === "string" && v.startsWith("data:"));
+      if (base64ThemeData) {
+        const uploadResult = await uploadBase64Image(base64ThemeData, "themes");
+        themeImageFileName = uploadResult.filePath;
+      } else {
+        const existingThemePath = dto.imageFileName || dto.image || null;
+        if (existingThemePath) {
+          themeImageFileName = ensureFolderPrefix(extractStoragePath(existingThemePath) || existingThemePath, "themes");
+        }
+      }
+
       await pool.query(
         `INSERT INTO themes (name, image_file_name, description) VALUES ($1, $2, $3)`,
-        [dto.value.trim(), dto.imageFileName || dto.image || null, dto.description || null]
+        [dto.value.trim(), themeImageFileName, dto.description || null]
       );
       return { success: true, message: "Theme created successfully." };
     }
@@ -639,21 +672,27 @@ async function updateByType(type: string, dto: any): Promise<{ success: boolean;
       );
       if (dup.rows.length > 0) return { success: false, message: "Entered key already exists." };
 
-      if (dto.image && dto.imageFileName) {
+      const base64UpdMetaData = [dto.image, dto.imageFileName].find((v: any) => v && typeof v === "string" && v.startsWith("data:"));
+      if (base64UpdMetaData) {
+        const uploadResult = await uploadBase64Image(base64UpdMetaData, "site-configurations");
         await pool.query(
           `UPDATE site_configurations SET key = $1, value = $2, additional_details = $3, type = $4, image_name = $5, image = $6 WHERE id = $7`,
-          [dto.key.trim(), dto.value.trim(), dto.additionalDetails.trim(), SITE_CONFIG_TYPES.MetaInformation, dto.imageFileName, dto.image, id]
-        );
-      } else if (!dto.image && !dto.imageFileName) {
-        await pool.query(
-          `UPDATE site_configurations SET key = $1, value = $2, additional_details = $3, type = $4, image_name = NULL, image = NULL WHERE id = $5`,
-          [dto.key.trim(), dto.value.trim(), dto.additionalDetails.trim(), SITE_CONFIG_TYPES.MetaInformation, id]
+          [dto.key.trim(), dto.value.trim(), dto.additionalDetails.trim(), SITE_CONFIG_TYPES.MetaInformation, uploadResult.filePath, uploadResult.filePath, id]
         );
       } else {
-        await pool.query(
-          `UPDATE site_configurations SET key = $1, value = $2, additional_details = $3, type = $4 WHERE id = $5`,
-          [dto.key.trim(), dto.value.trim(), dto.additionalDetails.trim(), SITE_CONFIG_TYPES.MetaInformation, id]
-        );
+        const existingMetaPath = dto.imageFileName || dto.image || null;
+        if (existingMetaPath) {
+          const normalized = ensureFolderPrefix(extractStoragePath(existingMetaPath) || existingMetaPath, "site-configurations");
+          await pool.query(
+            `UPDATE site_configurations SET key = $1, value = $2, additional_details = $3, type = $4, image_name = $5, image = $6 WHERE id = $7`,
+            [dto.key.trim(), dto.value.trim(), dto.additionalDetails.trim(), SITE_CONFIG_TYPES.MetaInformation, normalized, normalized, id]
+          );
+        } else {
+          await pool.query(
+            `UPDATE site_configurations SET key = $1, value = $2, additional_details = $3, type = $4, image_name = NULL, image = NULL WHERE id = $5`,
+            [dto.key.trim(), dto.value.trim(), dto.additionalDetails.trim(), SITE_CONFIG_TYPES.MetaInformation, id]
+          );
+        }
       }
       return { success: true, message: "Configuration updated successfully." };
     }
@@ -696,21 +735,30 @@ async function updateByType(type: string, dto: any): Promise<{ success: boolean;
       );
       if (dup.rows.length > 0) return { success: false, message: "Entered theme value already exists." };
 
-      if (dto.image && dto.imageFileName) {
+      const base64UpdThemeData = [dto.image, dto.imageFileName].find((v: any) => v && typeof v === "string" && v.startsWith("data:"));
+      if (base64UpdThemeData) {
+        const uploadResult = await uploadBase64Image(base64UpdThemeData, "themes");
         await pool.query(
           `UPDATE themes SET name = $1, description = $2, image_file_name = $3 WHERE id = $4`,
-          [dto.value.trim(), dto.description || null, dto.imageFileName, id]
-        );
-      } else if (!dto.image && !dto.imageFileName) {
-        await pool.query(
-          `UPDATE themes SET name = $1, description = $2, image_file_name = NULL WHERE id = $3`,
-          [dto.value.trim(), dto.description || null, id]
+          [dto.value.trim(), dto.description || null, uploadResult.filePath, id]
         );
       } else {
-        await pool.query(
-          `UPDATE themes SET name = $1, description = $2 WHERE id = $3`,
-          [dto.value.trim(), dto.description || null, id]
-        );
+        const existingThemePath = dto.imageFileName || dto.image || null;
+        if (existingThemePath) {
+          const normalized = ensureFolderPrefix(extractStoragePath(existingThemePath) || existingThemePath, "themes");
+          await pool.query(
+            `UPDATE themes SET name = $1, description = $2, image_file_name = $3 WHERE id = $4`,
+            [dto.value.trim(), dto.description || null, normalized, id]
+          );
+        } else {
+          const currentRow = await pool.query(`SELECT image_file_name FROM themes WHERE id = $1`, [id]);
+          const currentImg = currentRow.rows[0]?.image_file_name || null;
+          const normalizedCurrent = currentImg ? ensureFolderPrefix(currentImg, "themes") : null;
+          await pool.query(
+            `UPDATE themes SET name = $1, description = $2, image_file_name = $3 WHERE id = $4`,
+            [dto.value.trim(), dto.description || null, normalizedCurrent, id]
+          );
+        }
       }
       return { success: true, message: "Theme updated successfully." };
     }

@@ -106,13 +106,14 @@ export async function uploadBase64Image(
 const VALID_STORAGE_PATH = /\.(png|jpe?g|gif|webp|bmp|tiff|pdf|svg)$/i;
 
 export function getPublicFileUrl(
-  path: string | null | undefined
+  path: string | null | undefined,
+  defaultFolder?: string
 ): { path: string; publicUrl: string } | null {
   if (!path || path.trim() === "") {
     return null;
   }
 
-  const trimmed = path.trim();
+  let trimmed = path.trim();
 
   if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
     return {
@@ -123,6 +124,10 @@ export function getPublicFileUrl(
 
   if (!VALID_STORAGE_PATH.test(trimmed)) {
     return null;
+  }
+
+  if (defaultFolder) {
+    trimmed = ensureFolderPrefix(trimmed, defaultFolder);
   }
 
   try {
@@ -146,7 +151,19 @@ export function getPublicFileUrl(
   }
 }
 
-export function resolveFileUrl(path: string | null | undefined): string | null {
+export function ensureFolderPrefix(path: string, defaultFolder: string): string {
+  if (!path || path.trim() === "") return path;
+  const trimmed = path.trim();
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
+  if (trimmed.startsWith("data:")) return trimmed;
+  const cleaned = trimmed.startsWith("/") ? trimmed.slice(1) : trimmed;
+  if (cleaned.includes("/")) {
+    return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  }
+  return `/${defaultFolder}/${cleaned}`;
+}
+
+export function resolveFileUrl(path: string | null | undefined, defaultFolder?: string): string | null {
   if (!path || path.trim() === "") {
     return null;
   }
@@ -156,7 +173,7 @@ export function resolveFileUrl(path: string | null | undefined): string | null {
     return trimmed;
   }
 
-  const result = getPublicFileUrl(trimmed);
+  const result = getPublicFileUrl(trimmed, defaultFolder);
   if (result) {
     return result.publicUrl;
   }

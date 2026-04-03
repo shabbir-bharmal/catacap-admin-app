@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter } from "../utils/softDelete.js";
-import { resolveFileUrl } from "../utils/uploadBase64Image.js";
+import { resolveFileUrl, uploadBase64Image, extractStoragePath, ensureFolderPrefix } from "../utils/uploadBase64Image.js";
 
 const router = Router();
 
@@ -80,7 +80,7 @@ router.get("/", async (req: Request, res: Response) => {
       lastName: r.last_name,
       designation: r.designation,
       description: r.description,
-      imageFileName: resolveFileUrl(r.image_file_name),
+      imageFileName: resolveFileUrl(r.image_file_name, "catacap-teams"),
       linkedInUrl: r.linkedin_url,
       isManagement: r.is_management ?? false,
       displayOrder: r.display_order,
@@ -119,7 +119,7 @@ router.get("/:id", async (req: Request, res: Response) => {
       lastName: r.last_name,
       designation: r.designation,
       description: r.description,
-      imageFileName: resolveFileUrl(r.image_file_name),
+      imageFileName: resolveFileUrl(r.image_file_name, "catacap-teams"),
       linkedInUrl: r.linkedin_url,
       isManagement: r.is_management ?? false,
       displayOrder: r.display_order,
@@ -137,14 +137,24 @@ router.post("/", async (req: Request, res: Response) => {
 
     const userId = req.user?.id || null;
 
+    let imageFileName: string | null = null;
+    const base64Data = [dto.image, dto.imageFileName].find((v) => v && typeof v === "string" && v.startsWith("data:"));
+    if (base64Data) {
+      const uploadResult = await uploadBase64Image(base64Data, "catacap-teams");
+      imageFileName = uploadResult.filePath;
+    } else {
+      const existingPath = dto.imageFileName || dto.image || null;
+      if (existingPath) {
+        imageFileName = ensureFolderPrefix(extractStoragePath(existingPath) || existingPath, "catacap-teams");
+      }
+    }
+
     if (dto.id && dto.id > 0) {
       const existing = await pool.query(`SELECT id FROM catacap_teams WHERE id = $1`, [dto.id]);
       if (existing.rows.length === 0) {
         res.status(404).json({ message: "Team member not found." });
         return;
       }
-
-      const imageFileName = dto.imageFileName || null;
 
       await pool.query(
         `UPDATE catacap_teams SET
@@ -177,7 +187,7 @@ router.post("/", async (req: Request, res: Response) => {
          RETURNING id`,
         [
           dto.firstName, dto.lastName, dto.designation, dto.description,
-          dto.imageFileName || dto.image || null,
+          imageFileName,
           dto.linkedInUrl, dto.isManagement ?? false, nextOrder, userId,
         ]
       );

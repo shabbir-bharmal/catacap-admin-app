@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter, buildSortClause } from "../utils/softDelete.js";
-import { resolveFileUrl } from "../utils/uploadBase64Image.js";
+import { resolveFileUrl, uploadBase64Image, extractStoragePath, ensureFolderPrefix } from "../utils/uploadBase64Image.js";
 
 const router = Router();
 
@@ -59,8 +59,8 @@ router.get("/", async (req: Request, res: Response) => {
       eventTime: r.event_time,
       registrationLink: r.registration_link,
       status: r.status ?? false,
-      imageFileName: resolveFileUrl(r.image_file_name),
-      image: r.image,
+      imageFileName: resolveFileUrl(r.image_file_name, "events"),
+      image: resolveFileUrl(r.image, "events") || resolveFileUrl(r.image_file_name, "events"),
       type: r.type,
       duration: r.duration,
       deletedAt: r.deleted_at,
@@ -100,8 +100,8 @@ router.get("/:id", async (req: Request, res: Response) => {
       eventTime: r.event_time,
       registrationLink: r.registration_link,
       status: r.status ?? false,
-      image: r.image,
-      imageFileName: resolveFileUrl(r.image_file_name),
+      image: resolveFileUrl(r.image, "events") || resolveFileUrl(r.image_file_name, "events"),
+      imageFileName: resolveFileUrl(r.image_file_name, "events"),
       type: r.type,
       duration: r.duration,
     });
@@ -117,8 +117,22 @@ router.post("/", async (req: Request, res: Response) => {
     if (!dto) { res.status(400).json({ message: "Invalid data." }); return; }
 
     const userId = req.user?.id || null;
-    const imageFileName = dto.imageFileName || null;
-    const image = dto.image || null;
+
+    let imageFileName: string | null = null;
+    let image: string | null = null;
+    const base64Data = [dto.image, dto.imageFileName].find((v) => v && typeof v === "string" && v.startsWith("data:"));
+    if (base64Data) {
+      const uploadResult = await uploadBase64Image(base64Data, "events");
+      imageFileName = uploadResult.filePath;
+      image = uploadResult.filePath;
+    } else {
+      const existingPath = dto.imageFileName || dto.image || null;
+      if (existingPath) {
+        const resolved = ensureFolderPrefix(extractStoragePath(existingPath) || existingPath, "events");
+        imageFileName = resolved;
+        image = resolved;
+      }
+    }
 
     if (dto.id && dto.id > 0) {
       const existing = await pool.query(`SELECT id, image, image_file_name FROM events WHERE id = $1`, [dto.id]);
@@ -127,7 +141,6 @@ router.post("/", async (req: Request, res: Response) => {
         return;
       }
 
-      const ex = existing.rows[0];
       await pool.query(
         `UPDATE events SET
            title = $1, description = $2, event_date = $3, event_time = $4,
