@@ -42,7 +42,7 @@ const STEPS = [
   { id: 1, label: "About the Investment", icon: Briefcase },
   { id: 2, label: "Media", icon: ImageIcon },
   { id: 3, label: "Admin Settings", icon: Settings },
-  { id: 4, label: "Miscellaneous", icon: Settings },
+  { id: 4, label: "Admin Details", icon: Settings },
 ];
 import { fetchCountries, fetchInvestmentById, fetchInvestmentData, updateInvestment, exportInvestmentRecommendations, fetchAllInvestmentNameList, sendInvestmentQrCodeEmail, fetchInvestmentNotes, exportInvestmentNotesApi, downloadInvestmentDocument } from "@/api/investment/investmentApi";
 import { fetchAllGroups, GroupUpdatePayload } from "@/api/group/groupApi";
@@ -2134,7 +2134,7 @@ export default function AdminInvestmentEdit() {
             </Card>
         )}
 
-        {/* ── STEP 4: MISCELLANEOUS ── */}
+        {/* ── STEP 4: ADMIN DETAILS ── */}
         {currentStep === 4 && (
           <Card className="rounded-t-none rounded-b-xl">
             <CardContent className="p-6 space-y-8">

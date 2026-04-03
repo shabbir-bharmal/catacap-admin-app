@@ -8,6 +8,7 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { sendTemplateEmail, sendTemplateEmailWithAttachments } from "../utils/emailService.js";
+import { findOrCreateAnonymousUser } from "../utils/anonymousUser.js";
 import QRCode from "qrcode";
 
 const router = Router();
@@ -774,6 +775,437 @@ router.get("/get-investments-notes", jwtUserAuthMiddleware, async (req: Request,
     }
   } catch (err: any) {
     console.error("Error fetching investment notes:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+const InvestmentStageEnum: Record<string, number> = {
+  Private: 1,
+  Public: 2,
+  ClosedInvested: 3,
+  ClosedNotInvested: 4,
+  New: 5,
+  ComplianceReview: 6,
+  CompletedOngoing: 7,
+  Vetting: 8,
+  CompletedOngoingPrivate: 9,
+};
+
+function handleBase64File(base64Data: string | null | undefined, extension: string): string {
+  if (!base64Data) return "";
+
+  let rawBase64 = base64Data;
+  if (base64Data.startsWith("data:")) {
+    const match = base64Data.match(/^data:[^;]+;base64,(.+)$/);
+    if (!match) return "";
+    rawBase64 = match[1];
+  }
+
+  const newFileName = crypto.randomUUID() + extension;
+
+  if (!fs.existsSync(UPLOADS_DIR)) {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  }
+
+  const filePath = path.join(UPLOADS_DIR, newFileName);
+  fs.writeFileSync(filePath, Buffer.from(rawBase64, "base64"));
+
+  return newFileName;
+}
+
+async function verifyCaptcha(token: string): Promise<boolean> {
+  const secret = process.env.HCAPTCHA_SECRET_KEY || "";
+  if (!secret) {
+    console.warn("[CAPTCHA] No HCAPTCHA_SECRET_KEY configured, skipping verification.");
+    return true;
+  }
+
+  try {
+    const params = new URLSearchParams();
+    params.append("secret", secret);
+    params.append("response", token);
+
+    const response = await fetch("https://hcaptcha.com/siteverify", {
+      method: "POST",
+      body: params,
+    });
+
+    const data = await response.json() as any;
+    return data.success === true;
+  } catch (err) {
+    console.error("[CAPTCHA] Verification request failed:", err);
+    return false;
+  }
+}
+
+async function handleTagMappings(campaignId: number, investmentTags: any[]): Promise<void> {
+  const tagNames = investmentTags
+    .map((t: any) => (typeof t === "string" ? t : t.tag || "").trim())
+    .filter((t: string) => t.length > 0);
+
+  if (tagNames.length === 0) {
+    await pool.query(`DELETE FROM investment_tag_mappings WHERE campaign_id = $1`, [campaignId]);
+    return;
+  }
+
+  for (const tagName of tagNames) {
+    const existing = await pool.query(
+      `SELECT id FROM investment_tags WHERE LOWER(TRIM(tag)) = $1 AND (is_deleted IS NULL OR is_deleted = false)`,
+      [tagName.toLowerCase()]
+    );
+    if (existing.rows.length === 0) {
+      await pool.query(`INSERT INTO investment_tags (tag) VALUES ($1)`, [tagName]);
+    }
+  }
+
+  const allTagsResult = await pool.query(
+    `SELECT id, tag FROM investment_tags WHERE (is_deleted IS NULL OR is_deleted = false)`
+  );
+  const allTags = allTagsResult.rows;
+
+  const tagNameLowerSet = new Set(tagNames.map((t: string) => t.toLowerCase()));
+  const matchingTagIds = allTags
+    .filter((t: any) => tagNameLowerSet.has(t.tag.trim().toLowerCase()))
+    .map((t: any) => Number(t.id));
+
+  await pool.query(`DELETE FROM investment_tag_mappings WHERE campaign_id = $1`, [campaignId]);
+
+  for (const tagId of matchingTagIds) {
+    await pool.query(
+      `INSERT INTO investment_tag_mappings (tag_id, campaign_id) VALUES ($1, $2)`,
+      [tagId, campaignId]
+    );
+  }
+}
+
+router.post("/raisemoney", async (req: Request, res: Response) => {
+  try {
+    const campaign = req.body;
+    if (!campaign) {
+      res.json({ success: false, message: "Campaign data is required." });
+      return;
+    }
+
+    if (!campaign.contactInfoEmailAddress) {
+      res.json({ success: false, message: "Email is required." });
+      return;
+    }
+
+    if (!campaign.firstName || !(campaign.firstName || "").trim()) {
+      res.json({ success: false, message: "First Name is required." });
+      return;
+    }
+
+    if (!campaign.lastName || !(campaign.lastName || "").trim()) {
+      res.json({ success: false, message: "Last Name is required." });
+      return;
+    }
+
+    if (campaign.captchaToken && typeof campaign.captchaToken === "string" && campaign.captchaToken.trim()) {
+      const captchaValid = await verifyCaptcha(campaign.captchaToken);
+      if (!captchaValid) {
+        res.status(400).json({ message: "CAPTCHA verification failed." });
+        return;
+      }
+    }
+
+    const userEmail = campaign.contactInfoEmailAddress.trim().toLowerCase();
+    const { id: userId } = await findOrCreateAnonymousUser(
+      userEmail,
+      campaign.firstName,
+      campaign.lastName
+    );
+
+    let pdfFileName = campaign.pdfFileName || null;
+    let imageFileName = campaign.imageFileName || null;
+    let tileImageFileName = campaign.tileImageFileName || null;
+    let logoFileName = campaign.logoFileName || null;
+
+    if (campaign.pdfPresentation || campaign.PDFPresentation) {
+      pdfFileName = handleBase64File(campaign.pdfPresentation || campaign.PDFPresentation, ".pdf");
+    }
+    if (campaign.image) {
+      imageFileName = handleBase64File(campaign.image, ".jpg");
+    }
+    if (campaign.tileImage) {
+      tileImageFileName = handleBase64File(campaign.tileImage, ".jpg");
+    }
+    if (campaign.logo) {
+      logoFileName = handleBase64File(campaign.logo, ".jpg");
+    }
+
+    const insertResult = await pool.query(
+      `INSERT INTO campaigns (
+        name, description, themes, approved_by, sdgs, investment_types, terms,
+        minimum_investment, website, network_description, contact_info_full_name,
+        contact_info_address, contact_info_address_2, contact_info_email_address,
+        investment_informational_email, contact_info_phone_number, country,
+        other_country_address, city, state, zip_code, impact_assets_funding_status,
+        investment_role, referred_to_catacap, target, status, stage, is_active,
+        pdf_file_name, original_pdf_file_name, image_file_name, tile_image_file_name,
+        logo_file_name, property, added_total_admin_raised, email_sends,
+        group_for_private_access_id, fundraising_close_date, mission_and_vision,
+        personalized_thank_you, has_existing_investors, expected_total,
+        is_part_of_fund, associated_fund_id, featured_investment,
+        investment_type_category, equity_valuation, equity_security_type,
+        fund_term, equity_target_return, debt_payment_frequency,
+        debt_maturity_date, debt_interest_rate, user_id,
+        meta_title, meta_description, created_date, modified_date
+      ) VALUES (
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
+        $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,
+        $39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,NOW(),NOW()
+      ) RETURNING id`,
+      [
+        campaign.name || null,
+        campaign.description || null,
+        campaign.themes || null,
+        campaign.approvedBy || null,
+        campaign.sdGs || campaign.sdgs || null,
+        campaign.investmentTypes || null,
+        campaign.terms || null,
+        campaign.minimumInvestment || null,
+        campaign.website || null,
+        campaign.networkDescription || null,
+        campaign.contactInfoFullName || null,
+        campaign.contactInfoAddress || null,
+        campaign.contactInfoAddress2 || null,
+        campaign.contactInfoEmailAddress || null,
+        campaign.investmentInformationalEmail || null,
+        campaign.contactInfoPhoneNumber || null,
+        campaign.country || null,
+        campaign.otherCountryAddress || null,
+        campaign.city || null,
+        campaign.state || null,
+        campaign.zipCode || null,
+        campaign.impactAssetsFundingStatus || null,
+        campaign.investmentRole || null,
+        campaign.referredToCataCap || null,
+        campaign.target || null,
+        "0",
+        InvestmentStageEnum.New,
+        false,
+        pdfFileName,
+        campaign.originalPdfFileName || pdfFileName,
+        imageFileName,
+        tileImageFileName,
+        logoFileName,
+        campaign.property || null,
+        0,
+        false,
+        campaign.groupForPrivateAccessDto?.id || null,
+        campaign.fundraisingCloseDate || null,
+        campaign.missionAndVision || null,
+        campaign.personalizedThankYou || null,
+        campaign.hasExistingInvestors || false,
+        campaign.expectedTotal || null,
+        campaign.isPartOfFund || false,
+        campaign.associatedFundId || null,
+        campaign.featuredInvestment || false,
+        campaign.investmentTypeCategory || null,
+        campaign.equityValuation || null,
+        campaign.equitySecurityType || null,
+        campaign.fundTerm || null,
+        campaign.equityTargetReturn || null,
+        campaign.debtPaymentFrequency || null,
+        campaign.debtMaturityDate || null,
+        campaign.debtInterestRate || null,
+        userId,
+        campaign.metaTitle || null,
+        campaign.metaDescription || null,
+      ]
+    );
+
+    const newCampaignId = insertResult.rows[0].id;
+
+    if (campaign.investmentTag && Array.isArray(campaign.investmentTag) && campaign.investmentTag.length > 0) {
+      await handleTagMappings(newCampaignId, campaign.investmentTag);
+    }
+
+    const logoUrl = process.env.LOGO_URL || "";
+    const requestOrigin = process.env.REQUEST_ORIGIN || process.env.VITE_FRONTEND_URL || "";
+
+    const parsIdSdgs = (campaign.sdGs || campaign.sdgs || "").split(",").map((s: string) => parseInt(s.trim(), 10)).filter((n: number) => !isNaN(n));
+    const parsIdInvestmentTypes = (campaign.investmentTypes || "").split(",").map((s: string) => parseInt(s.trim(), 10)).filter((n: number) => !isNaN(n));
+    const parsIdThemes = (campaign.themes || "").split(",").map((s: string) => parseInt(s.trim(), 10)).filter((n: number) => !isNaN(n));
+
+    let sdgNamesString = "";
+    let investmentTypeNamesString = "";
+    let themeNamesString = "";
+
+    if (parsIdSdgs.length > 0) {
+      const placeholders = parsIdSdgs.map((_: any, i: number) => `$${i + 1}`).join(", ");
+      const sdgResult = await pool.query(`SELECT name FROM sdgs WHERE id IN (${placeholders})`, parsIdSdgs);
+      sdgNamesString = sdgResult.rows.map((r: any) => r.name).join(", ");
+    }
+    if (parsIdInvestmentTypes.length > 0) {
+      const placeholders = parsIdInvestmentTypes.map((_: any, i: number) => `$${i + 1}`).join(", ");
+      const itResult = await pool.query(`SELECT name FROM investment_types WHERE id IN (${placeholders})`, parsIdInvestmentTypes);
+      investmentTypeNamesString = itResult.rows.map((r: any) => r.name).join(", ");
+    }
+    if (parsIdThemes.length > 0) {
+      const placeholders = parsIdThemes.map((_: any, i: number) => `$${i + 1}`).join(", ");
+      const thResult = await pool.query(`SELECT name FROM themes WHERE id IN (${placeholders})`, parsIdThemes);
+      themeNamesString = thResult.rows.map((r: any) => r.name).join(", ");
+    }
+
+    const campaignVariables: Record<string, string> = {
+      logoUrl,
+      userFullName: `${campaign.firstName} ${campaign.lastName}`,
+      ownerEmail: campaign.contactInfoEmailAddress || "",
+      informationalEmail: campaign.investmentInformationalEmail || "",
+      mobileNumber: campaign.contactInfoPhoneNumber || "",
+      addressLine1: campaign.contactInfoAddress || "",
+      investmentName: campaign.name || "",
+      investmentDescription: campaign.description || "",
+      website: campaign.website || "",
+      investmentTypes: investmentTypeNamesString,
+      terms: campaign.terms || "",
+      target: campaign.target?.toString() || "",
+      fundraisingCloseDate: campaign.fundraisingCloseDate?.toString() || "",
+      themes: themeNamesString,
+      sdgs: sdgNamesString,
+      impactAssetsFundingStatus: campaign.impactAssetsFundingStatus || "",
+      investmentRole: campaign.investmentRole || "",
+      addressLine2Section: !campaign.contactInfoAddress2 ? "" : `<p>Address Line 2: ${campaign.contactInfoAddress2}</p><br/>`,
+      citySection: !campaign.city ? "" : `<p>City: ${campaign.city}</p><br/>`,
+      stateSection: !campaign.state ? "" : `<p>State: ${campaign.state}</p><br/>`,
+      zipCodeSection: !campaign.zipCode ? "" : `<p>Zip Code: ${campaign.zipCode}</p><br/>`,
+    };
+
+    try {
+      await sendTemplateEmail(23, "ken@catacap.org", campaignVariables);
+    } catch (emailErr: any) {
+      console.error("Error sending InvestmentSubmissionNotification email:", emailErr);
+    }
+
+    const catacapAdminVariables: Record<string, string> = {
+      logoUrl,
+      date: new Date().toLocaleDateString("en-US"),
+      campaignName: campaign.name || "",
+    };
+
+    try {
+      await sendTemplateEmail(21, "catacap-admin@catacap.org", catacapAdminVariables);
+    } catch (emailErr: any) {
+      console.error("Error sending InvestmentPublished email:", emailErr);
+    }
+
+    const underReviewVariables: Record<string, string> = {
+      logoUrl,
+      fullName: `${campaign.firstName} ${campaign.lastName}`,
+      investmentName: campaign.name || "",
+      preLaunchToolkitUrl: "https://www.notion.so/Pre-Launch-23fc1b9e8945806796f4fa7cf38fa388?source=copy_link",
+      partnerBenefitsUrl: "https://docs.google.com/document/d/13LHN3uYCsG-dsaI3GPwbo-kK2NZ4rxY2UYp2B0ZEGjo/edit?tab=t.0",
+      faqPageUrl: "https://www.catacap.org/faqs/#investment",
+      unsubscribeUrl: `${requestOrigin}/settings`,
+    };
+
+    try {
+      await sendTemplateEmail(16, userEmail, underReviewVariables);
+    } catch (emailErr: any) {
+      console.error("Error sending InvestmentUnderReview email:", emailErr);
+    }
+
+    res.json({ success: true, message: "Investment has been created successfully." });
+  } catch (err: any) {
+    console.error("Error creating raise money campaign:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.post("/investment-request", async (req: Request, res: Response) => {
+  try {
+    const dto = req.body;
+
+    if (!dto.email || !(dto.email || "").trim()) {
+      res.json({ success: false, message: "Email is required." });
+      return;
+    }
+
+    const userEmail = dto.email.trim().toLowerCase();
+    const { id: userId } = await findOrCreateAnonymousUser(
+      userEmail,
+      dto.firstName || "",
+      dto.lastName || ""
+    );
+
+    const status = dto.isDraft ? 0 : 1;
+
+    let logoFileName = dto.logoFileName || null;
+    let heroImageFileName = dto.heroImageFileName || null;
+    let pitchDeckFileName = dto.pitchDeckFileName || null;
+
+    let logoPath: string | null = null;
+    let heroImagePath: string | null = null;
+    let pitchDeckPath: string | null = null;
+
+    if (dto.logo) {
+      logoPath = handleBase64File(dto.logo, ".jpg");
+    }
+    if (dto.heroImage) {
+      heroImagePath = handleBase64File(dto.heroImage, ".jpg");
+    }
+    if (dto.pitchDeck) {
+      pitchDeckPath = handleBase64File(dto.pitchDeck, ".pdf");
+    }
+
+    const investmentTypes = Array.isArray(dto.investmentTypes) ? dto.investmentTypes.join(",") : (dto.investmentTypes || null);
+    const investmentThemes = Array.isArray(dto.investmentThemes) ? dto.investmentThemes.join(",") : (dto.investmentThemes || null);
+
+    const insertResult = await pool.query(
+      `INSERT INTO investment_requests (
+        current_step, status, country, user_id, website, organization_name,
+        currently_raising, investment_types, investment_themes, t_he_me_description,
+        capital_raised, referenceable_investors, has_donor_commitment, soft_circled_amount,
+        time_li_n_e, campaign_goal, role, referral_source,
+        logo, logo_file_name, hero_image, hero_image_file_name,
+        pitch_deck, pitch_deck_file_name, investment_terms, why_back_your_investment,
+        created_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+        $11, $12, $13, $14, $15, $16, $17, $18,
+        $19, $20, $21, $22, $23, $24, $25, $26, NOW()
+      ) RETURNING id`,
+      [
+        dto.currentStep || 0,
+        status,
+        dto.country || null,
+        userId,
+        dto.website || null,
+        dto.organizationName || null,
+        dto.currentlyRaising || false,
+        investmentTypes,
+        investmentThemes,
+        dto.themeDescription || null,
+        dto.capitalRaised || null,
+        dto.referenceableInvestors || null,
+        dto.hasDonorCommitment || false,
+        dto.softCircledAmount || 0,
+        dto.timeline || null,
+        dto.campaignGoal || 0,
+        dto.role || null,
+        dto.referralSource || null,
+        logoPath,
+        logoFileName,
+        heroImagePath,
+        heroImageFileName,
+        pitchDeckPath,
+        pitchDeckFileName,
+        dto.investmentTerms || null,
+        dto.whyBackYourInvestment || null,
+      ]
+    );
+
+    const newId = insertResult.rows[0].id;
+
+    res.json({
+      success: true,
+      message: dto.isDraft ? "Draft saved successfully." : "Investment request submitted successfully.",
+      id: newId,
+    });
+  } catch (err: any) {
+    console.error("Error saving investment request:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });

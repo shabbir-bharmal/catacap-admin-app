@@ -41,7 +41,7 @@ import {
   ConfigItemInvestment
 } from "../api/site-configuration/siteConfigurationApi";
 
-const TABS = ["Sourced By", "Themes", "Special Filters", "Static Values", "Transaction Type", "News Type", "News Audience", "Statistics", "Meta Information"] as const;
+const TABS = ["Sourced By", "Themes", "Special Filters", "Configuration", "Transaction Type", "News Type", "News Audience", "Statistics", "Meta Information"] as const;
 
 type TabKey = (typeof TABS)[number];
 
@@ -185,8 +185,8 @@ export default function SiteConfiguration() {
         return "Add Theme";
       case "Special Filters":
         return "Add Special Filter";
-      case "Static Values":
-        return "Add Static Value";
+      case "Configuration":
+        return "Add Configuration";
       case "Transaction Type":
         return "Add Transaction Type";
       case "News Type":
@@ -230,7 +230,7 @@ export default function SiteConfiguration() {
         if (item) setEditingItem({ id, field1: item.tag, field2: "", field3: "", imagePreview: "", imageFileName: "" });
         break;
       }
-      case "Static Values": {
+      case "Configuration": {
         const item = staticValues.find((i) => i.id === id);
         if (item) setEditingItem({ id, field1: item.key, field2: item.value, field3: "", imagePreview: "", imageFileName: "" });
         break;
@@ -278,7 +278,7 @@ export default function SiteConfiguration() {
     const { id, field1 } = editingItem;
     if (!field1.trim() || isSaving) return;
 
-    const richTextValue = (activeTab === "Static Values" || activeTab === "Statistics") && editorRef.current ? editorRef.current.innerHTML : editingItem.field2;
+    const richTextValue = (activeTab === "Configuration" || activeTab === "Statistics") && editorRef.current ? editorRef.current.innerHTML : editingItem.field2;
 
     // Build the payload the API expects
     const type = getApiType(activeTab);
@@ -288,7 +288,7 @@ export default function SiteConfiguration() {
       key: field1.trim() // always sent (same as value for all types)
     };
     if (id) payload.id = id;
-    if (activeTab === "Static Values" || activeTab === "Statistics") {
+    if (activeTab === "Configuration" || activeTab === "Statistics") {
       payload.value = richTextValue.trim();
       payload.key = field1.trim();
       if (activeTab === "Statistics") {
@@ -323,7 +323,7 @@ export default function SiteConfiguration() {
         case "Special Filters":
           setSpecialFilters(await fetchSpecialFilters());
           break;
-        case "Static Values":
+        case "Configuration":
           setStaticValues(await fetchStaticValues());
           break;
         case "Transaction Type":
@@ -371,7 +371,7 @@ export default function SiteConfiguration() {
         return "themes";
       case "Special Filters":
         return "special-filters";
-      case "Static Values":
+      case "Configuration":
         return "investment-terms";
       case "Transaction Type":
         return "transaction-type";
@@ -404,7 +404,7 @@ export default function SiteConfiguration() {
         case "Special Filters":
           setSpecialFilters((prev) => prev.filter((i) => i.id !== id));
           break;
-        case "Static Values":
+        case "Configuration":
           setStaticValues((prev) => prev.filter((i) => i.id !== id));
           break;
         case "Transaction Type":
@@ -446,8 +446,8 @@ export default function SiteConfiguration() {
         return `${action} Theme`;
       case "Special Filters":
         return `${action} Special Filter`;
-      case "Static Values":
-        return `${action} Static Value`;
+      case "Configuration":
+        return `${action} Configuration`;
       case "Transaction Type":
         return `${action} Transaction Type`;
       case "News Type":
@@ -465,7 +465,7 @@ export default function SiteConfiguration() {
     switch (activeTab) {
       case "Special Filters":
         return "Tag";
-      case "Static Values":
+      case "Configuration":
         return "Key";
       case "Meta Information":
         return "Identifier";
@@ -539,7 +539,7 @@ export default function SiteConfiguration() {
                 </div>
 
                 <div className="overflow-x-auto">
-                  {activeTab === "Static Values" || activeTab === "Statistics" || activeTab === "Meta Information" ? (
+                  {activeTab === "Configuration" || activeTab === "Statistics" || activeTab === "Meta Information" ? (
                     <table className="w-full" data-testid="table-config">
                       <thead>
                         <tr className="border-b bg-muted/50">
@@ -551,7 +551,7 @@ export default function SiteConfiguration() {
                         </tr>
                       </thead>
                       <tbody>
-                        {activeTab === "Static Values" &&
+                        {activeTab === "Configuration" &&
                           staticValues.map((item) => (
                             <tr key={item.id} className="border-b last:border-b-0 hover:bg-muted/20 transition-colors" data-testid={`row-item-${item.id}`}>
                               <td className="px-4 py-3 align-top">
@@ -725,7 +725,7 @@ export default function SiteConfiguration() {
                               </td>
                             </tr>
                           ))}
-                        {activeTab === "Static Values" && staticValues.length === 0 && (
+                        {activeTab === "Configuration" && staticValues.length === 0 && (
                           <tr>
                             <td colSpan={3} className="px-4 py-8 text-center text-sm text-muted-foreground">
                               No items found
@@ -1172,7 +1172,7 @@ export default function SiteConfiguration() {
                 />
               </div>
             )}
-            {activeTab === "Static Values" && (
+            {activeTab === "Configuration" && (
               <div className="space-y-2">
                 <label className="text-sm font-medium">Value</label>
                 <div className="border rounded-md overflow-hidden">

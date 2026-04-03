@@ -1,0 +1,72 @@
+import pool from "../db.js";
+import crypto from "crypto";
+import { sendTemplateEmail } from "./emailService.js";
+
+export async function findOrCreateAnonymousUser(
+  email: string,
+  firstName: string,
+  lastName: string
+): Promise<{ id: string; isNew: boolean }> {
+  const userEmail = email.trim().toLowerCase();
+
+  const existing = await pool.query(
+    `SELECT id FROM users WHERE LOWER(email) = $1 LIMIT 1`,
+    [userEmail]
+  );
+
+  if (existing.rows.length > 0) {
+    return { id: existing.rows[0].id, isNew: false };
+  }
+
+  const trimmedFirst = (firstName || "").trim();
+  const trimmedLast = (lastName || "").trim();
+  let userName = `${trimmedFirst}${trimmedLast}`.replace(/\s/g, "").toLowerCase();
+
+  if (!userName) {
+    userName = userEmail.split("@")[0].replace(/[^a-z0-9]/g, "").toLowerCase() || "user";
+  }
+
+  let check = await pool.query(`SELECT id FROM users WHERE user_name = $1`, [userName]);
+  while (check.rows.length > 0) {
+    userName = `${userName}${Math.floor(Math.random() * 100)}`;
+    check = await pool.query(`SELECT id FROM users WHERE user_name = $1`, [userName]);
+  }
+
+  const userId = crypto.randomUUID();
+
+  try {
+    await pool.query(
+      `INSERT INTO users (id, first_name, last_name, user_name, email, is_free_user, email_confirmed)
+       VALUES ($1, $2, $3, $4, $5, true, false)`,
+      [userId, trimmedFirst, trimmedLast, userName, userEmail]
+    );
+  } catch (insertErr: any) {
+    if (insertErr.code === "23505") {
+      const retryCheck = await pool.query(
+        `SELECT id FROM users WHERE LOWER(email) = $1 LIMIT 1`,
+        [userEmail]
+      );
+      if (retryCheck.rows.length > 0) {
+        return { id: retryCheck.rows[0].id, isNew: false };
+      }
+    }
+    throw insertErr;
+  }
+
+  const requestOrigin = process.env.REQUEST_ORIGIN || process.env.VITE_FRONTEND_URL || "";
+  const logoUrl = process.env.LOGO_URL || "";
+
+  try {
+    await sendTemplateEmail(1, userEmail, {
+      firstName: trimmedFirst,
+      userName,
+      resetPasswordUrl: `${requestOrigin}/forgotpassword`,
+      logoUrl,
+      siteUrl: requestOrigin,
+    });
+  } catch (emailErr: any) {
+    console.error("Error sending welcome email to anonymous user:", emailErr);
+  }
+
+  return { id: userId, isNew: true };
+}
