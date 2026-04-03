@@ -67,3 +67,30 @@ React 18 + TypeScript + Vite admin panel for the CataCap platform. Handles inves
 - Vite configured for `host: "0.0.0.0"`, `port: 5000`, `allowedHosts: true` to work behind Replit's proxy
 - The axios base URL is set to `""` (empty) so all API calls go through the Vite proxy in dev
 - Post-merge script configured at `scripts/post-merge.sh` for automatic dependency installation after task merges
+
+## Role
+You are a senior software engineer working with Node.js (Express), React (Vite), .NET, Supabase, and Azure.
+
+## Rules
+- Always analyze .NET backend first
+- Maintain feature parity
+- Do NOT introduce new logic
+- Follow existing API structure, business logic, validation, and data flow
+- Use @schema.sql for database mapping (snake_case)
+
+## Architecture
+- Use modular structure (controller, service, etc.)
+- Keep code production-ready
+
+## Database
+- Map MSSQL → PostgreSQL (Supabase)
+- Follow snake_case naming
+
+## Verification
+- Test APIs using provided credentials
+- Ensure responses match .NET backend
+
+## Communication
+- First explain approach
+- Then implement
+- Provide verification steps
