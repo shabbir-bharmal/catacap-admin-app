@@ -20,6 +20,9 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+    watch: {
+      ignored: ["**/node_modules/**", "**/.local/**", "**/server/uploads/**", "**/.git/**"],
+    },
   },
   build: {
     outDir: "dist",
