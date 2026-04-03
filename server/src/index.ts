@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import path from "path";
 import { testConnection } from "./db.js";
 import { apiAccessTokenMiddleware } from "./middleware/apiAccessToken.js";
 import authRoutes from "./routes/auth.js";
@@ -20,6 +21,8 @@ import moduleAccessPermissionRoutes from "./routes/moduleAccessPermission.js";
 import transactionHistoryRoutes from "./routes/transactionHistory.js";
 import accountHistoryRoutes from "./routes/accountHistory.js";
 import financeRoutes from "./routes/finance.js";
+import adminGroupRoutes from "./routes/adminGroups.js";
+import publicGroupRoutes from "./routes/publicGroups.js";
 import { jwtAuthMiddleware } from "./middleware/jwtAuth.js";
 
 const app = express();
@@ -31,6 +34,8 @@ app.use(express.json({ limit: "50mb" }));
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
+
+app.use("/api/uploads", express.static(path.resolve(process.cwd(), "server", "uploads")));
 
 app.use("/api", apiAccessTokenMiddleware);
 
@@ -51,6 +56,8 @@ app.use("/api/admin/user", jwtAuthMiddleware, adminUserRoutes);
 app.use("/api/module-access-permission", jwtAuthMiddleware, moduleAccessPermissionRoutes);
 app.use("/api/admin/transaction-history", jwtAuthMiddleware, transactionHistoryRoutes);
 app.use("/api/admin/finance", jwtAuthMiddleware, financeRoutes);
+app.use("/api/admin/group", jwtAuthMiddleware, adminGroupRoutes);
+app.use("/api/Group", publicGroupRoutes);
 app.use("/api/AccountBalanceHistory", accountHistoryRoutes);
 
 async function start() {
