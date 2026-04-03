@@ -36,11 +36,7 @@ router.get("/daf-providers", async (_req: Request, res: Response) => {
       `SELECT id, provider_name AS "value", provider_url AS "link" FROM daf_providers`
     );
 
-    if (result.rows.length > 0) {
-      res.json(result.rows);
-    } else {
-      res.json({ success: false, message: "Data not found." });
-    }
+    res.json(result.rows);
   } catch (err: any) {
     console.error("Error fetching DAF providers:", err);
     res.status(500).json({ success: false, message: err.message });
@@ -171,9 +167,16 @@ router.get("/", async (req: Request, res: Response) => {
     }
 
     if (dafProvider) {
-      conditions.push(`LOWER(TRIM(pg.daf_provider)) = LOWER(TRIM($${paramIdx}))`);
-      values.push(dafProvider);
-      paramIdx++;
+      const dafProviderList = dafProvider.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+      if (dafProviderList.length === 1) {
+        conditions.push(`LOWER(TRIM(pg.daf_provider)) = LOWER(TRIM($${paramIdx}))`);
+        values.push(dafProviderList[0]);
+        paramIdx++;
+      } else if (dafProviderList.length > 1) {
+        conditions.push(`LOWER(TRIM(pg.daf_provider)) = ANY($${paramIdx})`);
+        values.push(dafProviderList);
+        paramIdx++;
+      }
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";

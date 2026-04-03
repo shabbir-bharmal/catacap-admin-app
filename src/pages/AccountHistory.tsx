@@ -202,37 +202,37 @@ export default function AccountHistoryPage() {
                       <tr key={entry.id} className="border-b last:border-b-0 hover:bg-muted/20 transition-colors" data-testid={`row-history-${entry.id}`}>
                         <td className="px-4 py-3">
                           <span className="text-sm font-medium" data-testid={`text-username-${entry.id}`}>
-                            {entry.userName}
+                            {entry.userName || "—"}
                           </span>
                         </td>
                         <td className="px-4 py-3">
                           <span className="text-sm" data-testid={`text-date-${entry.id}`}>
-                            {dayjs(entry.changeDate).isValid() ? dayjs(entry.changeDate).format("MM/DD/YYYY") : entry.changeDate}
+                            {entry.changeDate ? (dayjs(entry.changeDate).isValid() ? dayjs(entry.changeDate).format("MM/DD/YYYY") : entry.changeDate) : "—"}
                           </span>
                         </td>
                         <td className="px-4 py-3">
                           <span className="text-sm" data-testid={`text-investment-${entry.id}`}>
-                            {entry.investmentName}
+                            {entry.investmentName || "—"}
                           </span>
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex flex-col gap-1.5" data-testid={`text-payment-${entry.id}`}>
                             <div className="flex items-center gap-2 flex-wrap">
-                                {(() => {
-                                  const lower = (entry.paymentType || "").toLowerCase();
-                                  let badgeClass = "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"; // Default Blue
+                                {entry.paymentType ? (() => {
+                                  const lower = entry.paymentType.toLowerCase();
+                                  let badgeClass = "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300";
 
                                   if (lower.includes("revert") || lower.includes("rollback")) {
-                                    badgeClass = "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"; // Orange
+                                    badgeClass = "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300";
                                   } else if (lower.includes("return") || lower.includes("credit")) {
-                                    badgeClass = "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"; // Green
+                                    badgeClass = "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300";
                                   } else if (
                                     lower.includes("balance update") ||
                                     lower.includes("balance  updated") ||
                                     lower.includes("updated by admin") ||
                                     lower.includes("updated by group")
                                   ) {
-                                    badgeClass = "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300"; // Indigo/Purple
+                                    badgeClass = "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300";
                                   }
 
                                   return (
@@ -240,7 +240,7 @@ export default function AccountHistoryPage() {
                                       {entry.paymentType}
                                     </Badge>
                                   );
-                                })()}
+                                })() : <span className="text-muted-foreground">—</span>}
                             </div>
                             {entry.comment && (
                               <span className="text-xs text-muted-foreground whitespace-pre-wrap">

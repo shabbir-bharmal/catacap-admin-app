@@ -15,10 +15,10 @@ export interface AccountHistoryParams {
 
 export interface AccountHistoryEntry {
   id: number;
-  userName: string;
-  changeDate: string;
-  investmentName: string;
-  paymentType: string;
+  userName: string | null;
+  changeDate: string | null;
+  investmentName: string | null;
+  paymentType: string | null;
   oldValue: number;
   newValue: number;
   comment?: string;

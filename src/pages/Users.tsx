@@ -427,28 +427,33 @@ export default function UsersPage() {
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end">
                             <div className="inline-flex rounded-md shadow-sm">
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    size="icon"
-                                    variant="outline"
-                                    className="h-8 w-8 rounded-r-none border-r-0 text-[#405189] hover:text-[#405189] hover:bg-[#405189]/5"
-                                    onClick={() => handleLoginAsUser(user)}
-                                    disabled={impersonatingUserId !== null}
-                                    data-testid={`action-login-${user.id}`}
-                                  >
-                                    <LogIn className={cn("h-4 w-4", impersonatingUserId === user.id ? "animate-spin" : "")} />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>{impersonatingUserId === user.id ? "Logging in..." : "Login"}</TooltipContent>
-                              </Tooltip>
+                              {user.isActive && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      size="icon"
+                                      variant="outline"
+                                      className="h-8 w-8 rounded-r-none border-r-0 text-[#405189] hover:text-[#405189] hover:bg-[#405189]/5"
+                                      onClick={() => handleLoginAsUser(user)}
+                                      disabled={impersonatingUserId !== null}
+                                      data-testid={`action-login-${user.id}`}
+                                    >
+                                      <LogIn className={cn("h-4 w-4", impersonatingUserId === user.id ? "animate-spin" : "")} />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>{impersonatingUserId === user.id ? "Logging in..." : "Login"}</TooltipContent>
+                                </Tooltip>
+                              )}
 
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <Button
                                     size="icon"
                                     variant="outline"
-                                    className="h-8 w-8 rounded-none border-r-0 text-[#405189] hover:text-[#405189] hover:bg-[#405189]/5"
+                                    className={cn(
+                                      "h-8 w-8 border-r-0 text-[#405189] hover:text-[#405189] hover:bg-[#405189]/5",
+                                      user.isActive ? "rounded-none" : "rounded-r-none"
+                                    )}
                                     onClick={() => openAuditLog(user.id, user.fullName)}
                                     data-testid={`action-audit-${user.id}`}
                                   >

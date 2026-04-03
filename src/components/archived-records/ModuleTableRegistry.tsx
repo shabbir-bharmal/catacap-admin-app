@@ -186,7 +186,11 @@ export const MODULE_TABLE_REGISTRY: Record<string, ModuleTableConfig> = {
             <td className="px-4 py-3 text-sm">{dayjs(item.changeDate).format("MM/DD/YYYY")}</td>
             <td className="px-4 py-3 text-sm">{item.investmentName || "-"}</td>
             <td className="px-4 py-3">
-              <Badge className={cn("border-0 whitespace-nowrap", badgeClass)}>{item.paymentType}</Badge>
+              {item.paymentType ? (
+                <Badge className={cn("border-0 whitespace-nowrap", badgeClass)}>{item.paymentType}</Badge>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
             </td>
             <td className="px-4 py-3 text-sm">{currency_format(item.grossAmount, false, 2, "-")}</td>
             <td className="px-4 py-3 text-sm">{currency_format(item.fees, false, 2, "-")}</td>

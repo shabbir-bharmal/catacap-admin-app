@@ -7,11 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, Download, ChevronLeft, ChevronRight, ChevronDown, FileText, Ban, SendHorizonal, X, Loader2, Trash2 } from "lucide-react";
+import { Search, Download, ChevronLeft, ChevronRight, ChevronDown, FileText, Ban, SendHorizonal, X, Loader2, Trash2, ListFilter, Check } from "lucide-react";
 import { useSort } from "../hooks/useSort";
+import { useDebounce } from "../hooks/useDebounce";
 import { SortHeader } from "../components/ui/table-sort";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchPendingGrants, updatePendingGrant, exportPendingGrants, fetchPendingGrantNotes, deletePendingGrant, PendingGrantEntry, NoteEntry } from "../api/pending-grant/pendingGrantApi";
+import { fetchPendingGrants, updatePendingGrant, exportPendingGrants, fetchPendingGrantNotes, deletePendingGrant, fetchDafProviders, PendingGrantEntry, NoteEntry } from "../api/pending-grant/pendingGrantApi";
 import { currency_format } from "../helpers/format";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
@@ -20,10 +21,14 @@ import { ConfirmationDialog } from "../components/ConfirmationDialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { PaginationControls } from "@/components/ui/pagination-controls";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
+import { Badge } from "@/components/ui/badge";
 
 type SortField = "fullName" | "status" | "daysCount" | "createdDate";
 
-const STATUS_OPTIONS = ["All", "Pending", "In Transit", "Received", "Rejected"];
+const STATUS_OPTIONS = ["Pending", "In Transit", "Received", "Rejected"];
 
 function PendingGrantNotes({ grantId }: { grantId: number }) {
   const {
@@ -115,7 +120,18 @@ const getStatusClasses = (status: string) => {
 export default function AdminPendingGrants() {
   const { user: authUser } = useAuth();
   const queryClient = useQueryClient();
-  const [statusFilter, setStatusFilter] = useState("All");
+  const [tempSelectedStatuses, setTempSelectedStatuses] = useState<(string | "All")[]>(["All"]);
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
+  const [tempSelectedDafProviders, setTempSelectedDafProviders] = useState<(string | "All")[]>(["All"]);
+  const [selectedDafProviders, setSelectedDafProviders] = useState<string[]>([]);
+  const [dafProviderPopoverOpen, setDafProviderPopoverOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const { data: dafProviders = [] } = useQuery({
+    queryKey: ["daf-providers"],
+    queryFn: fetchDafProviders,
+  });
+  const debouncedSearch = useDebounce(searchQuery, 500);
+  const effectiveSearch = debouncedSearch.length >= 3 || debouncedSearch.length === 0 ? debouncedSearch : "";
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(100);
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
@@ -180,19 +196,94 @@ export default function AdminPendingGrants() {
     }
   };
 
+  const statusFilterValue = selectedStatuses.length === STATUS_OPTIONS.length || selectedStatuses.length === 0 ? "All" : selectedStatuses.join(",");
+
+  const toggleStatus = (value: string) => {
+    let newTempStatus: (string | "All")[];
+
+    if (value === "All") {
+      if (tempSelectedStatuses.includes("All")) {
+        return;
+      }
+      newTempStatus = ["All"];
+    } else {
+      const current = tempSelectedStatuses.filter((s) => s !== "All");
+      const isSelected = current.includes(value);
+      let parsed: string[];
+      if (isSelected) {
+        parsed = current.filter((s) => s !== value);
+      } else {
+        parsed = [...current, value];
+      }
+      newTempStatus = parsed.length === STATUS_OPTIONS.length ? ["All"] : parsed.length > 0 ? parsed : ["All"];
+    }
+
+    setTempSelectedStatuses(newTempStatus);
+
+    const newStatus = newTempStatus.includes("All") ? [] : (newTempStatus as string[]);
+
+    setSelectedStatuses(newStatus);
+    setCurrentPage(1);
+  };
+
+  const sortedDafProviders = useMemo(() => {
+    const filtered = [...dafProviders].filter((p) => p.value.toLowerCase() !== "other");
+    const sorted = filtered.sort((a, b) => a.value.localeCompare(b.value));
+    
+    const otherProvider = dafProviders.find((p) => p.value.toLowerCase() === "other") || {
+      id: -1,
+      value: "Other",
+      link: "",
+    };
+
+    return [...sorted, otherProvider];
+  }, [dafProviders]);
+
+  const dafProviderFilterValue = selectedDafProviders.length === sortedDafProviders.length || selectedDafProviders.length === 0 ? "All" : selectedDafProviders.join(",");
+
+  const toggleDafProvider = (value: string) => {
+    let newTempDaf: (string | "All")[];
+
+    if (value === "All") {
+      if (tempSelectedDafProviders.includes("All")) {
+        return;
+      }
+      newTempDaf = ["All"];
+    } else {
+      const current = tempSelectedDafProviders.filter((d) => d !== "All");
+      const isSelected = current.includes(value);
+      let parsed: string[];
+      if (isSelected) {
+        parsed = current.filter((d) => d !== value);
+      } else {
+        parsed = [...current, value];
+      }
+      newTempDaf = parsed.length === sortedDafProviders.length ? ["All"] : parsed.length > 0 ? parsed : ["All"];
+    }
+
+    setTempSelectedDafProviders(newTempDaf);
+
+    const newDaf = newTempDaf.includes("All") ? [] : (newTempDaf as string[]);
+
+    setSelectedDafProviders(newDaf);
+    setCurrentPage(1);
+  };
+
   const {
     data: queryData,
     isLoading,
     error
   } = useQuery({
-    queryKey: ["pendingGrants", currentPage, rowsPerPage, sortField, sortDir, statusFilter],
+    queryKey: ["pendingGrants", currentPage, rowsPerPage, sortField, sortDir, statusFilterValue, dafProviderFilterValue, effectiveSearch],
     queryFn: () =>
       fetchPendingGrants({
         currentPage,
         perPage: rowsPerPage,
         sortField: sortField ?? undefined,
         sortDirection: sortDir ?? undefined,
-        status: statusFilter
+        status: statusFilterValue,
+        dafProvider: dafProviderFilterValue,
+        searchValue: effectiveSearch.trim() || undefined
       }),
     staleTime: 0,
     gcTime: 0
@@ -275,25 +366,123 @@ export default function AdminPendingGrants() {
           <CardHeader className="flex flex-row items-end justify-between gap-4 flex-wrap border-b px-6 py-4">
             <div className="flex items-end gap-3 flex-wrap flex-1">
               <div className="flex flex-col gap-0.5">
+                <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">Search</Label>
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input
+                    placeholder="Name, Email"
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="pl-8 h-9 w-[300px]"
+                    data-testid="input-search-grants"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-0.5">
+                <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">DAF Provider</Label>
+                <Popover open={dafProviderPopoverOpen} onOpenChange={setDafProviderPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={dafProviderPopoverOpen}
+                      className={cn(
+                        "flex h-9 w-[300px] items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-normal",
+                        tempSelectedDafProviders.includes("All") && "text-muted-foreground"
+                      )}
+                      data-testid="select-daf-provider-filter"
+                    >
+                      <span className="truncate">
+                        {tempSelectedDafProviders.includes("All") ? "All Providers" : tempSelectedDafProviders.join(", ")}
+                      </span>
+                      <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[300px] p-0 bg-popover" align="start">
+                    <Command className="bg-transparent">
+                      <CommandInput placeholder="Search provider..." />
+                      <CommandList className="max-h-[264px]">
+                        <CommandEmpty>No provider found.</CommandEmpty>
+                        <CommandGroup>
+                          <CommandItem
+                            onSelect={() => {
+                              toggleDafProvider("All");
+                            }}
+                          >
+                            <Check className={`h-4 w-4 ${tempSelectedDafProviders.includes("All") ? "opacity-100" : "opacity-0"}`} />
+                            All Providers
+                          </CommandItem>
+                          {sortedDafProviders.map((provider) => (
+                            <CommandItem
+                              key={provider.id}
+                              onSelect={() => {
+                                toggleDafProvider(provider.value);
+                              }}
+                            >
+                              <Check
+                                className={`h-4 w-4 ${
+                                  tempSelectedDafProviders.includes("All") || tempSelectedDafProviders.includes(provider.value)
+                                    ? "opacity-100"
+                                    : "opacity-0"
+                                }`}
+                              />
+                              {provider.value}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              <div className="flex flex-col gap-0.5">
                 <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">Filter By Status</Label>
-                <Select
-                  value={statusFilter}
-                  onValueChange={(val) => {
-                    setStatusFilter(val);
-                    setCurrentPage(1);
-                  }}
-                >
-                  <SelectTrigger className="w-[160px]" data-testid="select-status-filter">
-                    <SelectValue placeholder="All Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {STATUS_OPTIONS.map((opt) => (
-                      <SelectItem key={opt} value={opt}>
-                        {opt}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      className={cn(
+                        "flex h-9 w-[250px] items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-normal"
+                      )}
+                      data-testid="select-status-filter"
+                    >
+                      <span className="truncate">{tempSelectedStatuses.includes("All") ? "All" : tempSelectedStatuses.join(", ")}</span>
+                      <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[200px] p-2 bg-popover" align="start">
+                    <div className="flex flex-col gap-0.5 bg-transparent">
+                      <div
+                        className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer text-sm"
+                        onClick={() => toggleStatus("All")}
+                      >
+                        <Check className={cn("h-4 w-4", tempSelectedStatuses.includes("All") ? "opacity-100" : "opacity-0")} />
+                        All
+                      </div>
+                      {STATUS_OPTIONS.map((status) => (
+                        <div
+                          key={status}
+                          className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer text-sm"
+                          onClick={() => toggleStatus(status)}
+                        >
+                          <Check
+                            className={cn(
+                              "h-4 w-4",
+                              tempSelectedStatuses.includes("All") || tempSelectedStatuses.includes(status) ? "opacity-100" : "opacity-0"
+                            )}
+                          />
+                          {status}
+                        </div>
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
             <Button size="sm" className="bg-[#405189] text-white" data-testid="button-export-all" onClick={handleExport} disabled={isExporting}>
@@ -546,7 +735,6 @@ export default function AdminPendingGrants() {
         </Card>
       </div>
 
-      {/* Reject Dialog */}
       <ConfirmationDialog
         open={rejectDialogOpen}
         onOpenChange={(open) => {
@@ -566,7 +754,6 @@ export default function AdminPendingGrants() {
         dataTestId="dialog-reject"
       />
 
-      {/* In Transit Dialog */}
       <ConfirmationDialog
         open={transitDialogOpen}
         onOpenChange={(open) => {
@@ -586,7 +773,6 @@ export default function AdminPendingGrants() {
         dataTestId="dialog-transit"
       />
 
-      {/* Received Dialog */}
       <ConfirmationDialog
         open={receivedDialogOpen}
         onOpenChange={(open) => {
@@ -606,7 +792,6 @@ export default function AdminPendingGrants() {
         dataTestId="dialog-received"
       />
 
-      {/* Follow-up Dialog */}
       <ConfirmationDialog
         open={followUpDialogOpen}
         onOpenChange={(open) => {

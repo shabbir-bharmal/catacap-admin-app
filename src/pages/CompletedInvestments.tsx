@@ -214,7 +214,7 @@ export default function AdminCompletedInvestments() {
   const [formAmount, setFormAmount] = useState<number | "">("");
   const [formTransactionTypeId, setFormTransactionTypeId] = useState<string>("");
   const [formNote, setFormNote] = useState("");
-  const [formInvestmentVehicle, setFormInvestmentVehicle] = useState("ImpactAssets");
+  const [formInvestmentVehicle, setFormInvestmentVehicle] = useState("");
   const [formOtherVehicle, setFormOtherVehicle] = useState("");
   const [pendingRecommendationsAmount, setPendingRecommendationsAmount] = useState(0);
   const [approvedRecommendationsAmount, setApprovedRecommendationsAmount] = useState(0);
@@ -350,6 +350,7 @@ export default function AdminCompletedInvestments() {
       return;
     }
     setSelectedInvestment(inv);
+    setFormInvestmentVehicle("ImpactAssets");
     setAfterInvestmentChosen(true);
     if (errors.investment) setErrors((prev) => ({ ...prev, investment: undefined }));
 
@@ -396,6 +397,7 @@ export default function AdminCompletedInvestments() {
     }
     if (!formTransactionTypeId) errs.transactionType = "Please select a transaction type";
     if (!formNote.trim()) errs.note = "Please enter a note";
+    if (!formInvestmentVehicle) errs.investmentVehicle = "Please select an investment vehicle";
     if (formInvestmentVehicle === "Other" && !formOtherVehicle.trim()) errs.investmentVehicle = "Please enter the investment vehicle details";
 
     setErrors(errs);
@@ -459,6 +461,7 @@ export default function AdminCompletedInvestments() {
     }
     if (!editTransactionTypeId) errs.changeType = "Please select a transaction type";
     if (!editNote.trim()) errs.note = "Please enter a note";
+    if (!editInvestmentVehicle) errs.editVehicle = "Please select an investment vehicle";
     if (editInvestmentVehicle === "Other" && !editOtherVehicle.trim()) errs.editVehicle = "Please enter the investment vehicle details";
 
     setEditErrors(errs);
@@ -560,7 +563,7 @@ export default function AdminCompletedInvestments() {
     setFormAmount("");
     setFormTransactionTypeId("");
     setFormNote("");
-    setFormInvestmentVehicle("ImpactAssets");
+    setFormInvestmentVehicle("");
     setFormOtherVehicle("");
     setErrors({});
     setAfterInvestmentChosen(false);
@@ -582,15 +585,16 @@ export default function AdminCompletedInvestments() {
     setEditNote("");
 
     if (item.investmentVehicle) {
-      if (item.investmentVehicle === "ImpactAssets") {
+      const vehicle = item.investmentVehicle.trim();
+      if (vehicle === "ImpactAssets" || vehicle === "Impact Assets") {
         setEditInvestmentVehicle("ImpactAssets");
         setEditOtherVehicle("");
       } else {
         setEditInvestmentVehicle("Other");
-        setEditOtherVehicle(item.investmentVehicle);
+        setEditOtherVehicle(vehicle);
       }
     } else {
-      setEditInvestmentVehicle("ImpactAssets");
+      setEditInvestmentVehicle("");
       setEditOtherVehicle("");
     }
 
@@ -699,14 +703,15 @@ export default function AdminCompletedInvestments() {
                       setFormInvestmentVehicle(v);
                       if (errors.investmentVehicle) setErrors(prev => ({ ...prev, investmentVehicle: undefined }));
                     }}>
-                      <SelectTrigger className="text-left" data-testid="select-vehicle">
-                        <SelectValue placeholder="Investment Vehicle" />
+                      <SelectTrigger className={cn("text-left", errors.investmentVehicle && "border-red-500")} data-testid="select-vehicle">
+                        <SelectValue placeholder="Select Investment Vehicle" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="ImpactAssets">Impact Assets</SelectItem>
                         <SelectItem value="Other">Other</SelectItem>
                       </SelectContent>
                     </Select>
+                    {errors.investmentVehicle && <p className="text-xs text-red-500 mt-0.5">{errors.investmentVehicle}</p>}
                   </div>
                   {formInvestmentVehicle === "Other" && (
                     <div className="w-[230px]">
@@ -1177,26 +1182,27 @@ export default function AdminCompletedInvestments() {
                 setEditInvestmentVehicle(v);
                 if (editErrors.editVehicle) setEditErrors(prev => ({ ...prev, editVehicle: undefined }));
               }}>
-                <SelectTrigger data-testid="edit-select-vehicle">
-                  <SelectValue placeholder="Select Vehicle" />
+                <SelectTrigger className={cn(editErrors.editVehicle && "border-red-500")} data-testid="edit-select-vehicle">
+                  <SelectValue placeholder="Select Investment Vehicle" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="ImpactAssets">ImpactAssets</SelectItem>
+                  <SelectItem value="ImpactAssets">Impact Assets</SelectItem>
                   <SelectItem value="Other">Other</SelectItem>
                 </SelectContent>
               </Select>
+              {editErrors.editVehicle && <p className="text-xs text-red-500 mt-0.5">{editErrors.editVehicle}</p>}
               {editInvestmentVehicle === "Other" && (
                 <div className="mt-2">
                   <Input
-                    placeholder="Enter Vehicle Details"
+                    placeholder="Provide Investment Vehicle"
                     value={editOtherVehicle}
                     onChange={(e) => {
                       setEditOtherVehicle(e.target.value);
                       if (editErrors.editVehicle && e.target.value.trim()) setEditErrors(prev => ({ ...prev, editVehicle: undefined }));
                     }}
+                    className={cn(editErrors.editVehicle && "border-red-500")}
                     data-testid="edit-input-other-vehicle"
                   />
-                  {editErrors.editVehicle && <p className="text-xs text-red-500 mt-0.5">{editErrors.editVehicle}</p>}
                 </div>
               )}
             </div>

@@ -8,6 +8,7 @@ export interface PendingGrantParams {
   searchValue?: string;
   status?: string;
   isDeleted?: boolean;
+  dafProvider?: string;
 }
 
 export interface NoteEntry {
@@ -59,6 +60,7 @@ export async function fetchPendingGrants(
     if (params.searchValue !== undefined && params.searchValue !== null && params.searchValue !== "") queryParams.SearchValue = params.searchValue;
     if (params.status && params.status !== "All") queryParams.Status = params.status;
     if (params.isDeleted !== undefined) queryParams.IsDeleted = params.isDeleted.toString();
+    if (params.dafProvider && params.dafProvider !== "All") queryParams.DafProvider = params.dafProvider;
   }
 
   const response = await axiosInstance.get<PaginatedPendingGrantResponse>(
@@ -123,5 +125,18 @@ export async function exportPendingGrants(): Promise<void> {
 
 export async function deletePendingGrant(id: number): Promise<any> {
   const response = await axiosInstance.delete(`/api/admin/pending-grant/${id}`);
+  return response.data;
+}
+
+export interface DafProviderEntry {
+  id: number;
+  value: string;
+  link: string;
+}
+
+export async function fetchDafProviders(): Promise<DafProviderEntry[]> {
+  const response = await axiosInstance.get<DafProviderEntry[]>(
+    "/api/admin/pending-grant/daf-providers"
+  );
   return response.data;
 }
