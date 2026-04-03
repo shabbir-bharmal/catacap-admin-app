@@ -33,6 +33,7 @@ const MIME_TO_EXT: Record<string, string> = {
   "image/webp": "webp",
   "image/bmp": "bmp",
   "image/tiff": "tiff",
+  "application/pdf": "pdf",
 };
 
 export async function uploadBase64Image(
@@ -46,11 +47,11 @@ export async function uploadBase64Image(
   }
 
   const match = base64String.match(
-    /^data:(image\/[a-zA-Z0-9+.-]+);base64,([A-Za-z0-9+/=]+)$/
+    /^data:([a-zA-Z0-9+.\/-]+);base64,([A-Za-z0-9+/=]+)$/
   );
   if (!match) {
     throw new Error(
-      "Invalid Base64 image string. Expected format: data:<mime>;base64,<data>"
+      "Invalid Base64 string. Expected format: data:<mime>;base64,<data>"
     );
   }
 
@@ -59,18 +60,18 @@ export async function uploadBase64Image(
 
   const ext = MIME_TO_EXT[mimeType];
   if (!ext) {
-    throw new Error(`Unsupported image MIME type: ${mimeType}`);
+    throw new Error(`Unsupported MIME type: ${mimeType}`);
   }
 
   const buffer = Buffer.from(base64Data, "base64");
 
   if (buffer.length === 0) {
-    throw new Error("Decoded image buffer is empty.");
+    throw new Error("Decoded file buffer is empty.");
   }
 
   if (buffer.length > MAX_FILE_SIZE_BYTES) {
     throw new Error(
-      `Image exceeds maximum allowed size of ${MAX_FILE_SIZE_BYTES / (1024 * 1024)}MB.`
+      `File exceeds maximum allowed size of ${MAX_FILE_SIZE_BYTES / (1024 * 1024)}MB.`
     );
   }
 
@@ -102,7 +103,7 @@ export async function uploadBase64Image(
   };
 }
 
-const FILE_PATH_PATTERN = /^\/[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*\/[a-zA-Z0-9_-]+\.[a-zA-Z0-9]+$/;
+const VALID_STORAGE_PATH = /\.(png|jpe?g|gif|webp|bmp|tiff|pdf|svg)$/i;
 
 export function getPublicFileUrl(
   path: string | null | undefined
@@ -113,20 +114,84 @@ export function getPublicFileUrl(
 
   const trimmed = path.trim();
 
-  if (!FILE_PATH_PATTERN.test(trimmed)) {
-    throw new Error(
-      `Invalid file path format: "${trimmed}". Expected format: /{folder}/{filename}.{ext}`
-    );
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return {
+      path: trimmed,
+      publicUrl: trimmed,
+    };
   }
 
-  const storagePath = trimmed.slice(1);
+  if (!VALID_STORAGE_PATH.test(trimmed)) {
+    return null;
+  }
 
-  const { client: supabase, bucket } = getSupabaseConfig();
+  try {
+    const { client: supabase, bucket } = getSupabaseConfig();
 
-  const { data } = supabase.storage.from(bucket).getPublicUrl(storagePath);
+    let storagePath: string;
+    if (trimmed.startsWith("/")) {
+      storagePath = trimmed.slice(1);
+    } else {
+      storagePath = trimmed;
+    }
 
-  return {
-    path: trimmed,
-    publicUrl: data.publicUrl,
-  };
+    const { data } = supabase.storage.from(bucket).getPublicUrl(storagePath);
+
+    return {
+      path: trimmed,
+      publicUrl: data.publicUrl,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function resolveFileUrl(path: string | null | undefined): string | null {
+  if (!path || path.trim() === "") {
+    return null;
+  }
+
+  const trimmed = path.trim();
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+
+  const result = getPublicFileUrl(trimmed);
+  if (result) {
+    return result.publicUrl;
+  }
+
+  return null;
+}
+
+export function extractStoragePath(value: string | null | undefined): string | null {
+  if (!value || value.trim() === "") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+
+  if (trimmed.startsWith("data:")) {
+    return null;
+  }
+
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    if (SUPABASE_STORAGE_BUCKET) {
+      try {
+        const url = new URL(trimmed);
+        const bucketPrefix = `/storage/v1/object/public/${SUPABASE_STORAGE_BUCKET}/`;
+        const idx = url.pathname.indexOf(bucketPrefix);
+        if (idx !== -1) {
+          return "/" + url.pathname.slice(idx + bucketPrefix.length);
+        }
+      } catch {}
+    }
+    return null;
+  }
+
+  if (trimmed.startsWith("/")) {
+    return trimmed;
+  }
+
+  return trimmed;
 }

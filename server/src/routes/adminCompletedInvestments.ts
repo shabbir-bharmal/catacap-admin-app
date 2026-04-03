@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination } from "../utils/softDelete.js";
 import ExcelJS from "exceljs";
+import { resolveFileUrl } from "../utils/uploadBase64Image.js";
 
 const router = Router();
 
@@ -248,7 +249,7 @@ router.get("/", async (req: Request, res: Response) => {
         dateOfLastInvestment: x.date_of_last_investment,
         name: x.campaign_name,
         cataCapFund: x.associated_fund_id ? (fundNameMap[x.associated_fund_id] || null) : null,
-        tileImageFileName: x.tile_image_file_name,
+        tileImageFileName: resolveFileUrl(x.tile_image_file_name),
         description: x.campaign_description,
         target: x.target,
         investmentDetail: x.investment_detail,
@@ -262,7 +263,7 @@ router.get("/", async (req: Request, res: Response) => {
         investmentVehicle: x.investment_vehicle,
         hasNotes: completedNoteIds.has(x.id),
         approvedRecommendationsAmount: approvedAmounts[x.campaign_id] || 0,
-        latestInvestorAvatars: avatarLookup[x.campaign_id] || [],
+        latestInvestorAvatars: (avatarLookup[x.campaign_id] || []).map((a: string) => resolveFileUrl(a)).filter(Boolean),
         deletedAt: x.deleted_at,
         deletedBy: x.deleted_by_first_name
           ? `${x.deleted_by_first_name} ${x.deleted_by_last_name || ""}`.trim()

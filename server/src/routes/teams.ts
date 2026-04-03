@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter } from "../utils/softDelete.js";
+import { resolveFileUrl } from "../utils/uploadBase64Image.js";
 
 const router = Router();
 
@@ -79,7 +80,7 @@ router.get("/", async (req: Request, res: Response) => {
       lastName: r.last_name,
       designation: r.designation,
       description: r.description,
-      imageFileName: r.image_file_name,
+      imageFileName: resolveFileUrl(r.image_file_name),
       linkedInUrl: r.linkedin_url,
       isManagement: r.is_management ?? false,
       displayOrder: r.display_order,
@@ -118,7 +119,7 @@ router.get("/:id", async (req: Request, res: Response) => {
       lastName: r.last_name,
       designation: r.designation,
       description: r.description,
-      imageFileName: r.image_file_name,
+      imageFileName: resolveFileUrl(r.image_file_name),
       linkedInUrl: r.linkedin_url,
       isManagement: r.is_management ?? false,
       displayOrder: r.display_order,

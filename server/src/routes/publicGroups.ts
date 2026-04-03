@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
+import { resolveFileUrl } from "../utils/uploadBase64Image.js";
 
 const router = Router();
 
@@ -54,11 +55,11 @@ router.get("/", async (_req: Request, res: Response) => {
       website: g.website,
       isApprouveRequired: g.is_approuve_required,
       isDeactivated: g.is_deactivated,
-      pictureFileName: g.picture_file_name,
+      pictureFileName: resolveFileUrl(g.picture_file_name),
       originalBalance: g.original_balance ? parseFloat(g.original_balance) : null,
       isCorporateGroup: g.is_corporate_group,
       isPrivateGroup: g.is_private_group,
-      backgroundPictureFileName: g.background_picture_file_name,
+      backgroundPictureFileName: resolveFileUrl(g.background_picture_file_name),
       ourWhyDescription: g.our_why_description,
       videoLink: g.video_link,
       didYouKnow: g.did_you_know,
@@ -71,7 +72,7 @@ router.get("/", async (_req: Request, res: Response) => {
         name: c.name,
         stage: c.stage,
         isActive: c.isActive,
-        imageFileName: c.imageFileName,
+        imageFileName: resolveFileUrl(c.imageFileName),
       })),
       privateCampaigns: [],
     }));

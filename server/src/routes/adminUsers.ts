@@ -5,6 +5,7 @@ import { hashAspNetIdentityV3 } from "../utils/aspnetIdentityHash.js";
 import { verifyToken } from "../utils/jwt.js";
 import crypto from "crypto";
 import ExcelJS from "exceljs";
+import { resolveFileUrl } from "../utils/uploadBase64Image.js";
 
 const router = Router();
 
@@ -327,7 +328,7 @@ router.get("/by-token", async (req: Request, res: Response) => {
       email: user.email,
       firstName: user.first_name || "",
       lastName: user.last_name || "",
-      pictureFileName: user.picture_file_name || "",
+      pictureFileName: resolveFileUrl(user.picture_file_name) || "",
       userName: user.user_name,
       roleName: userRole?.name || "",
       isSuperAdmin: userRole ? userRole.is_super_admin === true : false,

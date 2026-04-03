@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
+import { resolveFileUrl } from "../utils/uploadBase64Image.js";
 
 const router = Router();
 
@@ -42,7 +43,7 @@ router.get("/site-configuration", async (req: Request, res: Response) => {
            FROM themes
            ORDER BY name`
         );
-        res.json(result.rows);
+        res.json(result.rows.map((r: any) => ({ ...r, imageFileName: resolveFileUrl(r.imageFileName) })));
         return;
       }
 

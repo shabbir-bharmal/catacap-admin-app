@@ -1773,7 +1773,7 @@ export default function AdminInvestmentEdit() {
                               </div>
                             ) : pdfFileName ? (
                               <div className="flex flex-col items-center gap-3">
-                                <span className="text-[#0ab39c] font-medium text-center break-all px-4">{pdfFileName}</span>
+                                <span className="text-[#0ab39c] font-medium text-center break-all px-4">{(() => { try { const decoded = decodeURIComponent(pdfFileName); const parts = decoded.split('/'); return parts[parts.length - 1] || pdfFileName; } catch { return pdfFileName; } })()}</span>
                                 <Button
                                   type="button"
                                   size="sm"

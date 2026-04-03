@@ -27,7 +27,7 @@ export interface Theme {
   name: string;
 }
 
-const PLACEHOLDER_AVATAR = "https://catacapstorage.blob.core.windows.net/prodcontainer/914f8749-c162-4b3b-9250-8176b1737a1e.jpg";
+const PLACEHOLDER_AVATAR = "/defaultPictureImage.png";
 
 export function createSlug(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');

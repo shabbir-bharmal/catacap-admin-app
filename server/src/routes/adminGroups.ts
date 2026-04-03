@@ -4,10 +4,7 @@ import pool from "../db.js";
 import { parsePagination, softDeleteFilter, buildSortClause } from "../utils/softDelete.js";
 import crypto from "crypto";
 import ExcelJS from "exceljs";
-import fs from "fs";
-import path from "path";
-
-const UPLOADS_DIR = path.resolve(process.cwd(), "server", "uploads");
+import { uploadBase64Image, resolveFileUrl, extractStoragePath } from "../utils/uploadBase64Image.js";
 
 const STAGE_LABELS: Record<number, string> = {
   1: "Private",
@@ -437,7 +434,7 @@ router.get("/leaders-and-champions", async (req: Request, res: Response) => {
            AND LOWER(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) LIKE $3`,
         [groupAdminRoleId, groupOwnerId || null, `%${userName}%`]
       );
-      res.json(result.rows);
+      res.json(result.rows.map((r: any) => ({ ...r, pictureFileName: resolveFileUrl(r.pictureFileName) })));
     } else if (type === "champions") {
       const result = await pool.query(
         `SELECT DISTINCT u.id, COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '') as "fullName",
@@ -451,7 +448,7 @@ router.get("/leaders-and-champions", async (req: Request, res: Response) => {
            AND LOWER(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) LIKE $3`,
         [groupId, groupOwnerId || null, `%${userName}%`]
       );
-      res.json(result.rows);
+      res.json(result.rows.map((r: any) => ({ ...r, pictureFileName: resolveFileUrl(r.pictureFileName) })));
     } else {
       res.json({ success: false, message: "Invalid type specified. Please use 'leaders' or 'champions'." });
     }
@@ -858,8 +855,8 @@ router.get("/:identifier", async (req: Request, res: Response) => {
       isApprouveRequired: group.is_approuve_required,
       isPrivateGroup: group.is_private_group,
       isDeactivated: group.is_deactivated,
-      pictureFileName: group.picture_file_name,
-      backgroundPictureFileName: group.background_picture_file_name,
+      pictureFileName: resolveFileUrl(group.picture_file_name),
+      backgroundPictureFileName: resolveFileUrl(group.background_picture_file_name),
       originalBalance: group.original_balance ? parseFloat(group.original_balance) : null,
       currentBalance,
       isCorporateGroup: group.is_corporate_group,
@@ -874,19 +871,19 @@ router.get("/:identifier", async (req: Request, res: Response) => {
       activeCampaigns: activeCampaigns.map((c: any) => ({
         id: c.id,
         name: c.name,
-        imageFileName: c.image_file_name,
+        imageFileName: resolveFileUrl(c.image_file_name),
         stage: STAGE_LABELS[c.stage] || String(c.stage),
       })),
       completedCampaigns: completedCampaigns.map((c: any) => ({
         id: c.id,
         name: c.name,
-        imageFileName: c.image_file_name,
+        imageFileName: resolveFileUrl(c.image_file_name),
         stage: STAGE_LABELS[c.stage] || String(c.stage),
       })),
       campaigns: campaigns.map((c: any) => ({
         id: c.id,
         name: c.name,
-        imageFileName: c.image_file_name,
+        imageFileName: resolveFileUrl(c.image_file_name),
         stage: c.stage,
       })),
     };
@@ -976,12 +973,22 @@ router.put("/:id", async (req: Request, res: Response) => {
 
     let pictureFileName = existing.picture_file_name;
     if (groupData.pictureFileName !== undefined && groupData.pictureFileName !== existing.picture_file_name) {
-      pictureFileName = handleBase64Image(groupData.pictureFileName, existing.picture_file_name);
+      if (groupData.pictureFileName && groupData.pictureFileName.startsWith("data:")) {
+        const result = await uploadBase64Image(groupData.pictureFileName, "groups");
+        pictureFileName = result.filePath;
+      } else {
+        pictureFileName = extractStoragePath(groupData.pictureFileName) || "";
+      }
     }
 
     let backgroundPictureFileName = existing.background_picture_file_name;
     if (groupData.backgroundPictureFileName !== undefined && groupData.backgroundPictureFileName !== existing.background_picture_file_name) {
-      backgroundPictureFileName = handleBase64Image(groupData.backgroundPictureFileName, existing.background_picture_file_name);
+      if (groupData.backgroundPictureFileName && groupData.backgroundPictureFileName.startsWith("data:")) {
+        const result = await uploadBase64Image(groupData.backgroundPictureFileName, "groups");
+        backgroundPictureFileName = result.filePath;
+      } else {
+        backgroundPictureFileName = extractStoragePath(groupData.backgroundPictureFileName) || "";
+      }
     }
 
     await pool.query(
@@ -1486,7 +1493,7 @@ async function processGroupMembers(jsonData: string | null, ownerId?: string): P
       roleAndTitle: m.RoleAndTitle || m.roleAndTitle,
       description: m.Description || m.description,
       fullName: user?.full_name || null,
-      pictureFileName: user?.picture_file_name || null,
+      pictureFileName: resolveFileUrl(user?.picture_file_name) || null,
     };
 
     if (m.LinkedInUrl !== undefined || m.linkedInUrl !== undefined) {
@@ -1506,28 +1513,5 @@ async function enrichMembers(members: any[], ownerId?: string): Promise<any[]> {
   return processGroupMembers(JSON.stringify(members), ownerId);
 }
 
-function handleBase64Image(pictureFileName: string | null | undefined, oldFileName: string | null): string {
-  if (!pictureFileName) return "";
-
-  if (pictureFileName.startsWith("data:")) {
-    const matches = pictureFileName.match(/^data:image\/(\w+);base64,(.+)$/);
-    if (!matches) return oldFileName || "";
-
-    const ext = matches[1] === "jpeg" ? "jpg" : matches[1];
-    const base64Data = matches[2];
-    const newFileName = crypto.randomUUID() + "." + ext;
-
-    if (!fs.existsSync(UPLOADS_DIR)) {
-      fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-    }
-
-    const filePath = path.join(UPLOADS_DIR, newFileName);
-    fs.writeFileSync(filePath, Buffer.from(base64Data, "base64"));
-
-    return `/api/uploads/${newFileName}`;
-  }
-
-  return pictureFileName;
-}
 
 export default router;

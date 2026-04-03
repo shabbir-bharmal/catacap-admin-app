@@ -5,12 +5,9 @@ import { parsePagination, softDeleteFilter, buildSortClause } from "../utils/sof
 import { sendTemplateEmail } from "../utils/emailService.js";
 import ExcelJS from "exceljs";
 import crypto from "crypto";
-import fs from "fs";
-import path from "path";
+import { uploadBase64Image, resolveFileUrl, extractStoragePath } from "../utils/uploadBase64Image.js";
 
 const router = Router();
-
-const UPLOADS_DIR = path.resolve(process.cwd(), "server", "uploads");
 
 const InvestmentStageEnum: Record<string, number> = {
   Private: 1,
@@ -62,27 +59,6 @@ function convertHtmlNoteToPlainText(htmlNote: string | null | undefined): string
   return result.trim();
 }
 
-function handleBase64File(base64Data: string | null | undefined, extension: string): string {
-  if (!base64Data) return "";
-
-  let rawBase64 = base64Data;
-  if (base64Data.startsWith("data:")) {
-    const match = base64Data.match(/^data:[^;]+;base64,(.+)$/);
-    if (!match) return "";
-    rawBase64 = match[1];
-  }
-
-  const newFileName = crypto.randomUUID() + extension;
-
-  if (!fs.existsSync(UPLOADS_DIR)) {
-    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-  }
-
-  const filePath = path.join(UPLOADS_DIR, newFileName);
-  fs.writeFileSync(filePath, Buffer.from(rawBase64, "base64"));
-
-  return newFileName;
-}
 
 function normalizeMentionFormat(html: string): string {
   if (!html) return html;
@@ -234,26 +210,24 @@ router.get("/document", async (req: Request, res: Response) => {
   try {
     const action = String(req.query.action || "");
     const pdfFileName = String(req.query.pdfFileName || "");
-    const originalPdfFileName = String(req.query.originalPdfFileName || "");
 
     if (!action || !pdfFileName) {
       res.json({ success: false, message: "Parameters required." });
       return;
     }
 
-    const filePath = path.join(UPLOADS_DIR, path.basename(pdfFileName));
-    if (fs.existsSync(filePath)) {
-      const downloadUrl = `/api/uploads/${path.basename(pdfFileName)}`;
-      res.json({ success: true, message: downloadUrl });
-      return;
-    }
-
-    if (pdfFileName.startsWith("/api/uploads/")) {
+    if (pdfFileName.startsWith("http://") || pdfFileName.startsWith("https://")) {
       res.json({ success: true, message: pdfFileName });
       return;
     }
 
-    res.json({ success: true, message: `/api/uploads/${path.basename(pdfFileName)}` });
+    const resolved = resolveFileUrl(pdfFileName);
+    if (resolved) {
+      res.json({ success: true, message: resolved });
+      return;
+    }
+
+    res.json({ success: false, message: "Document not found." });
   } catch (err: any) {
     console.error("Error getting document:", err);
     res.status(500).json({ success: false, message: err.message });
@@ -607,9 +581,9 @@ router.get("/request/:id", async (req: Request, res: Response) => {
         referralSource: r.referral_source,
         investmentTerms: r.investment_terms,
         whyBackYourInvestment: r.why_back_your_investment,
-        logoFileName: r.logo_file_name,
-        heroImageFileName: r.hero_image_file_name,
-        pitchDeckFileName: r.pitch_deck_file_name,
+        logoFileName: resolveFileUrl(r.logo_file_name),
+        heroImageFileName: resolveFileUrl(r.hero_image_file_name),
+        pitchDeckFileName: resolveFileUrl(r.pitch_deck_file_name),
         logo: r.logo,
         heroImage: r.hero_image,
         pitchDeck: r.pitch_deck,
@@ -864,11 +838,11 @@ router.get("/:id", async (req: Request, res: Response) => {
       referredToCataCap: c.referred_to_catacap,
       target: c.target,
       status: c.status,
-      tileImageFileName: c.tile_image_file_name,
-      imageFileName: c.image_file_name,
-      pdfFileName: c.pdf_file_name,
-      originalPdfFileName: c.original_pdf_file_name,
-      logoFileName: c.logo_file_name,
+      tileImageFileName: resolveFileUrl(c.tile_image_file_name),
+      imageFileName: resolveFileUrl(c.image_file_name),
+      pdfFileName: resolveFileUrl(c.pdf_file_name),
+      originalPdfFileName: c.original_pdf_file_name || null,
+      logoFileName: resolveFileUrl(c.logo_file_name),
       isActive: c.is_active,
       isPartOfFund: c.is_part_of_fund || false,
       associatedFundId: c.associated_fund_id,
@@ -998,9 +972,9 @@ router.get("/", async (req: Request, res: Response) => {
           fundraisingCloseDate: c.fundraising_close_date,
           isActive: c.is_active,
           property: c.property,
-          originalPdfFileName: c.original_pdf_file_name,
-          imageFileName: c.image_file_name,
-          pdfFileName: c.pdf_file_name,
+          originalPdfFileName: c.original_pdf_file_name || null,
+          imageFileName: resolveFileUrl(c.image_file_name),
+          pdfFileName: resolveFileUrl(c.pdf_file_name),
           currentBalance: rec.currentBalance,
           numberOfInvestors: rec.numberOfInvestors,
           hasNotes: notesSet.has(cid),
@@ -1095,22 +1069,26 @@ router.post("/", async (req: Request, res: Response) => {
       userId = newUserResult.rows[0].id;
     }
 
-    let pdfFileName = campaign.pdfFileName || null;
-    let imageFileName = campaign.imageFileName || null;
-    let tileImageFileName = campaign.tileImageFileName || null;
-    let logoFileName = campaign.logoFileName || null;
+    let pdfFileName = extractStoragePath(campaign.pdfFileName) || null;
+    let imageFileName = extractStoragePath(campaign.imageFileName) || null;
+    let tileImageFileName = extractStoragePath(campaign.tileImageFileName) || null;
+    let logoFileName = extractStoragePath(campaign.logoFileName) || null;
 
     if (campaign.pdfPresentation || campaign.PDFPresentation) {
-      pdfFileName = handleBase64File(campaign.pdfPresentation || campaign.PDFPresentation, ".pdf");
+      const result = await uploadBase64Image(campaign.pdfPresentation || campaign.PDFPresentation, "campaigns");
+      pdfFileName = result.filePath;
     }
     if (campaign.image) {
-      imageFileName = handleBase64File(campaign.image, ".jpg");
+      const result = await uploadBase64Image(campaign.image, "campaigns");
+      imageFileName = result.filePath;
     }
     if (campaign.tileImage) {
-      tileImageFileName = handleBase64File(campaign.tileImage, ".jpg");
+      const result = await uploadBase64Image(campaign.tileImage, "campaigns");
+      tileImageFileName = result.filePath;
     }
     if (campaign.logo) {
-      logoFileName = handleBase64File(campaign.logo, ".jpg");
+      const result = await uploadBase64Image(campaign.logo, "campaigns");
+      logoFileName = result.filePath;
     }
 
     const insertResult = await pool.query(
@@ -1336,22 +1314,26 @@ router.put("/:id", async (req: Request, res: Response) => {
       }
     }
 
-    let pdfFileName = campaign.pdfFileName || null;
-    let imageFileName = campaign.imageFileName || null;
-    let tileImageFileName = campaign.tileImageFileName || null;
-    let logoFileName = campaign.logoFileName || null;
+    let pdfFileName = extractStoragePath(campaign.pdfFileName) || null;
+    let imageFileName = extractStoragePath(campaign.imageFileName) || null;
+    let tileImageFileName = extractStoragePath(campaign.tileImageFileName) || null;
+    let logoFileName = extractStoragePath(campaign.logoFileName) || null;
 
     if (campaign.pdfPresentation || campaign.PDFPresentation) {
-      pdfFileName = handleBase64File(campaign.pdfPresentation || campaign.PDFPresentation, ".pdf");
+      const result = await uploadBase64Image(campaign.pdfPresentation || campaign.PDFPresentation, "campaigns");
+      pdfFileName = result.filePath;
     }
     if (campaign.image) {
-      imageFileName = handleBase64File(campaign.image, ".jpg");
+      const result = await uploadBase64Image(campaign.image, "campaigns");
+      imageFileName = result.filePath;
     }
     if (campaign.tileImage) {
-      tileImageFileName = handleBase64File(campaign.tileImage, ".jpg");
+      const result = await uploadBase64Image(campaign.tileImage, "campaigns");
+      tileImageFileName = result.filePath;
     }
     if (campaign.logo) {
-      logoFileName = handleBase64File(campaign.logo, ".jpg");
+      const result = await uploadBase64Image(campaign.logo, "campaigns");
+      logoFileName = result.filePath;
     }
 
     const existingResult = await pool.query(`SELECT * FROM campaigns WHERE id = $1`, [id]);
@@ -1735,11 +1717,11 @@ function mapCampaignRow(c: any): any {
     referredToCataCap: c.referred_to_catacap,
     target: c.target,
     status: c.status,
-    tileImageFileName: c.tile_image_file_name,
-    imageFileName: c.image_file_name,
-    pdfFileName: c.pdf_file_name,
-    originalPdfFileName: c.original_pdf_file_name,
-    logoFileName: c.logo_file_name,
+    tileImageFileName: resolveFileUrl(c.tile_image_file_name),
+    imageFileName: resolveFileUrl(c.image_file_name),
+    pdfFileName: resolveFileUrl(c.pdf_file_name),
+    originalPdfFileName: c.original_pdf_file_name || null,
+    logoFileName: resolveFileUrl(c.logo_file_name),
     isActive: c.is_active,
     isPartOfFund: c.is_part_of_fund || false,
     associatedFundId: c.associated_fund_id,

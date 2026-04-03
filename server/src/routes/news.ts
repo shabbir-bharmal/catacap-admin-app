@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter } from "../utils/softDelete.js";
+import { resolveFileUrl } from "../utils/uploadBase64Image.js";
 
 const router = Router();
 
@@ -90,7 +91,7 @@ router.get("/", async (req: Request, res: Response) => {
       audience: r.audience_name,
       themeId: r.theme_id,
       theme: r.theme_name,
-      imageFileName: r.image_file_name,
+      imageFileName: resolveFileUrl(r.image_file_name),
       status: r.status ?? false,
       link: r.news_link,
       newsDate: r.formatted_date,
@@ -141,7 +142,7 @@ router.get("/:id", async (req: Request, res: Response) => {
       audience: r.audience_name,
       themeId: r.theme_id,
       theme: r.theme_name,
-      imageFileName: r.image_file_name,
+      imageFileName: resolveFileUrl(r.image_file_name),
       link: r.news_link,
       status: r.status ?? false,
       newsDate: r.news_date,

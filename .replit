@@ -54,3 +54,9 @@ run = ["sh", "-c", "npm run build"]
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 180000
+
+[userenv]
+
+[userenv.shared]
+VITE_SUPABASE_URL = "https://rbqtdruqcmikcowrqzoj.supabase.co"
+VITE_SUPABASE_STORAGE_BUCKET = "production"

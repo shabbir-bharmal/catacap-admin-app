@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
+import { resolveFileUrl } from "../utils/uploadBase64Image.js";
 
 interface EventRow {
   id: number;
@@ -37,7 +38,7 @@ router.get("/", async (_req: Request, res: Response) => {
       registrationLink: r.registration_link,
       status: r.status,
       image: r.image,
-      imageFileName: r.image_file_name,
+      imageFileName: resolveFileUrl(r.image_file_name),
       duration: r.duration,
       type: r.type,
     }));

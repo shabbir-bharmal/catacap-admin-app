@@ -42,7 +42,8 @@ React 18 + TypeScript + Vite admin panel for the CataCap platform. Handles inves
 
 ## Environment Variables
 - `VITE_API_BASE_URL` — Backend API base URL (used in production)
-- `VITE_API_IMAGE_CONTAINER` — Azure blob storage container name
+- `VITE_SUPABASE_URL` — Supabase project URL for frontend image URL resolution (matches `SUPABASE_URL`)
+- `VITE_SUPABASE_STORAGE_BUCKET` — Supabase Storage bucket name for frontend image URL resolution (matches `SUPABASE_STORAGE_BUCKET`)
 - `VITE_API_ACCESS_TOKEN` — API access token (shared between frontend and backend)
 - `VITE_FRONTEND_URL` — Frontend public URL
 - `SUPABASE_DB_URL` — Supabase PostgreSQL connection string (backend)

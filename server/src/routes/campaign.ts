@@ -5,18 +5,15 @@ import { jwtUserAuthMiddleware } from "../middleware/jwtUserAuth.js";
 import { parsePagination } from "../utils/softDelete.js";
 import ExcelJS from "exceljs";
 import crypto from "crypto";
-import fs from "fs";
-import path from "path";
 import { sendTemplateEmail, sendTemplateEmailWithAttachments } from "../utils/emailService.js";
 import { findOrCreateAnonymousUser } from "../utils/anonymousUser.js";
 import QRCode from "qrcode";
+import { uploadBase64Image, resolveFileUrl, extractStoragePath } from "../utils/uploadBase64Image.js";
 
 const router = Router();
 
 const STAGE_CLOSED_NOT_INVESTED = 4;
 const STAGE_CLOSED_INVESTED = 3;
-
-const UPLOADS_DIR = path.resolve(process.cwd(), "server", "uploads");
 
 const DisbursalRequestStatusMap: Record<number, string> = {
   1: "Pending",
@@ -89,27 +86,6 @@ function resolveInvestmentTypeString(investmentTypes: string | null | undefined,
     .join(", ");
 }
 
-function handleBase64Pdf(base64Data: string | null | undefined): string {
-  if (!base64Data) return "";
-
-  let rawBase64 = base64Data;
-  if (base64Data.startsWith("data:")) {
-    const match = base64Data.match(/^data:[^;]+;base64,(.+)$/);
-    if (!match) return "";
-    rawBase64 = match[1];
-  }
-
-  const newFileName = crypto.randomUUID() + ".pdf";
-
-  if (!fs.existsSync(UPLOADS_DIR)) {
-    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-  }
-
-  const filePath = path.join(UPLOADS_DIR, newFileName);
-  fs.writeFileSync(filePath, Buffer.from(rawBase64, "base64"));
-
-  return `/api/uploads/${newFileName}`;
-}
 
 router.get("/get-all-investment-name-list", async (req: Request, res: Response) => {
   try {
@@ -257,11 +233,13 @@ router.post("/save-disbursal", jwtUserAuthMiddleware, async (req: Request, res: 
     let investmentDocFile = "";
 
     if (dto.pitchDeck) {
-      pitchDeckFile = handleBase64Pdf(dto.pitchDeck);
+      const result = await uploadBase64Image(dto.pitchDeck, "investment-requests");
+      pitchDeckFile = result.filePath;
     }
 
     if (dto.investmentDocument) {
-      investmentDocFile = handleBase64Pdf(dto.investmentDocument);
+      const result = await uploadBase64Image(dto.investmentDocument, "investment-requests");
+      investmentDocFile = result.filePath;
     }
 
     const insertResult = await pool.query(
@@ -367,12 +345,12 @@ router.get("/get-disbursal-request", jwtUserAuthMiddleware, async (req: Request,
       property: row.property,
       investmentRemainOpen: row.investment_remain_open,
       receiveDate: formatDate(row.receive_date),
-      pitchDeck: row.pitch_deck,
+      pitchDeck: resolveFileUrl(row.pitch_deck),
       status: row.status,
       statusName: getStatusName(row.status),
       quote: row.quote,
       pitchDeckName: row.pitch_deck_name,
-      investmentDocument: row.investment_document,
+      investmentDocument: resolveFileUrl(row.investment_document),
       investmentDocumentName: row.investment_document_name,
       impactAssetsFundingPreviously: row.impact_assets_funding_previously,
       investmentTypeNames,
@@ -465,9 +443,9 @@ router.get("/get-disbursal-request-list", jwtUserAuthMiddleware, async (req: Req
       receiveDate: formatDate(x.receive_date),
       distributedAmount: parseFloat(x.distributed_amount) || 0,
       investmentType: resolveInvestmentTypeString(x.investment_types, typeMap),
-      pitchDeck: x.pitch_deck,
+      pitchDeck: resolveFileUrl(x.pitch_deck),
       pitchDeckName: x.pitch_deck_name,
-      investmentDocument: x.investment_document,
+      investmentDocument: resolveFileUrl(x.investment_document),
       investmentDocumentName: x.investment_document_name,
       hasNotes: notesSet.has(x.id),
     }));
@@ -791,27 +769,6 @@ const InvestmentStageEnum: Record<string, number> = {
   CompletedOngoingPrivate: 9,
 };
 
-function handleBase64File(base64Data: string | null | undefined, extension: string): string {
-  if (!base64Data) return "";
-
-  let rawBase64 = base64Data;
-  if (base64Data.startsWith("data:")) {
-    const match = base64Data.match(/^data:[^;]+;base64,(.+)$/);
-    if (!match) return "";
-    rawBase64 = match[1];
-  }
-
-  const newFileName = crypto.randomUUID() + extension;
-
-  if (!fs.existsSync(UPLOADS_DIR)) {
-    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-  }
-
-  const filePath = path.join(UPLOADS_DIR, newFileName);
-  fs.writeFileSync(filePath, Buffer.from(rawBase64, "base64"));
-
-  return newFileName;
-}
 
 async function verifyCaptcha(token: string): Promise<boolean> {
   const secret = process.env.HCAPTCHA_SECRET_KEY || "";
@@ -916,22 +873,26 @@ router.post("/raisemoney", async (req: Request, res: Response) => {
       campaign.lastName
     );
 
-    let pdfFileName = campaign.pdfFileName || null;
-    let imageFileName = campaign.imageFileName || null;
-    let tileImageFileName = campaign.tileImageFileName || null;
-    let logoFileName = campaign.logoFileName || null;
+    let pdfFileName = extractStoragePath(campaign.pdfFileName) || null;
+    let imageFileName = extractStoragePath(campaign.imageFileName) || null;
+    let tileImageFileName = extractStoragePath(campaign.tileImageFileName) || null;
+    let logoFileName = extractStoragePath(campaign.logoFileName) || null;
 
     if (campaign.pdfPresentation || campaign.PDFPresentation) {
-      pdfFileName = handleBase64File(campaign.pdfPresentation || campaign.PDFPresentation, ".pdf");
+      const result = await uploadBase64Image(campaign.pdfPresentation || campaign.PDFPresentation, "campaigns");
+      pdfFileName = result.filePath;
     }
     if (campaign.image) {
-      imageFileName = handleBase64File(campaign.image, ".jpg");
+      const result = await uploadBase64Image(campaign.image, "campaigns");
+      imageFileName = result.filePath;
     }
     if (campaign.tileImage) {
-      tileImageFileName = handleBase64File(campaign.tileImage, ".jpg");
+      const result = await uploadBase64Image(campaign.tileImage, "campaigns");
+      tileImageFileName = result.filePath;
     }
     if (campaign.logo) {
-      logoFileName = handleBase64File(campaign.logo, ".jpg");
+      const result = await uploadBase64Image(campaign.logo, "campaigns");
+      logoFileName = result.filePath;
     }
 
     const insertResult = await pool.query(
@@ -1141,13 +1102,16 @@ router.post("/investment-request", async (req: Request, res: Response) => {
     let pitchDeckPath: string | null = null;
 
     if (dto.logo) {
-      logoPath = handleBase64File(dto.logo, ".jpg");
+      const result = await uploadBase64Image(dto.logo, "investment-requests");
+      logoPath = result.filePath;
     }
     if (dto.heroImage) {
-      heroImagePath = handleBase64File(dto.heroImage, ".jpg");
+      const result = await uploadBase64Image(dto.heroImage, "investment-requests");
+      heroImagePath = result.filePath;
     }
     if (dto.pitchDeck) {
-      pitchDeckPath = handleBase64File(dto.pitchDeck, ".pdf");
+      const result = await uploadBase64Image(dto.pitchDeck, "investment-requests");
+      pitchDeckPath = result.filePath;
     }
 
     const investmentTypes = Array.isArray(dto.investmentTypes) ? dto.investmentTypes.join(",") : (dto.investmentTypes || null);
