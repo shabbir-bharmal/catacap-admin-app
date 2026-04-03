@@ -27,6 +27,7 @@ import adminRecommendationRoutes from "./routes/adminRecommendations.js";
 import adminPendingGrantRoutes from "./routes/adminPendingGrants.js";
 import adminOtherAssetRoutes from "./routes/adminOtherAssets.js";
 import adminEmailTemplateRoutes from "./routes/adminEmailTemplates.js";
+import adminDisbursalRequestRoutes from "./routes/adminDisbursalRequests.js";
 import campaignRoutes from "./routes/campaign.js";
 import { jwtAuthMiddleware } from "./middleware/jwtAuth.js";
 import { Router } from "express";
@@ -67,6 +68,7 @@ app.use("/api/admin/recommendation", jwtAuthMiddleware, adminRecommendationRoute
 app.use("/api/admin/pending-grant", jwtAuthMiddleware, adminPendingGrantRoutes);
 app.use("/api/admin/other-asset", jwtAuthMiddleware, adminOtherAssetRoutes);
 app.use("/api/admin/email-template", jwtAuthMiddleware, adminEmailTemplateRoutes);
+app.use("/api/admin/disbursal-request", jwtAuthMiddleware, adminDisbursalRequestRoutes);
 app.use("/api/Campaign", campaignRoutes);
 app.use("/api/Group", publicGroupRoutes);
 app.use("/api/AccountBalanceHistory", accountHistoryRoutes);
