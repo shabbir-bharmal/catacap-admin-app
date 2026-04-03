@@ -24,12 +24,13 @@ import financeRoutes from "./routes/finance.js";
 import adminGroupRoutes from "./routes/adminGroups.js";
 import publicGroupRoutes from "./routes/publicGroups.js";
 import { jwtAuthMiddleware } from "./middleware/jwtAuth.js";
+import { Router } from "express";
 
 const app = express();
 const PORT = parseInt(process.env.SERVER_PORT || "8200", 10);
 
 app.use(cors());
-app.use(express.json({ limit: "50mb" }));
+app.use(express.json({ limit: "50mb", strict: false }));
 
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
@@ -59,6 +60,12 @@ app.use("/api/admin/finance", jwtAuthMiddleware, financeRoutes);
 app.use("/api/admin/group", jwtAuthMiddleware, adminGroupRoutes);
 app.use("/api/Group", publicGroupRoutes);
 app.use("/api/AccountBalanceHistory", accountHistoryRoutes);
+const usersAliasRouter = Router();
+usersAliasRouter.get("/get-all-admin-users", jwtAuthMiddleware, (req, res, next) => {
+  req.url = "/get-all-admin-users";
+  adminUserRoutes(req, res, next);
+});
+app.use("/api/Users", usersAliasRouter);
 
 async function start() {
   try {

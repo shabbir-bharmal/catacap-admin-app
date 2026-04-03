@@ -26,6 +26,8 @@ React 18 + TypeScript + Vite admin panel for the CataCap platform. Handles inves
   - `server/src/index.ts` — Server entry point (port 8200)
   - `server/src/db.ts` — PostgreSQL pool (Supabase connection)
   - `server/src/routes/` — API route handlers (auth, admin, adminUsers, dashboard, events, faqs, news, teams, testimonials, siteConfiguration, formSubmission, adminFormSubmission, moduleAccessPermission, transactionHistory, accountHistory, finance, adminGroups, publicGroups)
+    - `adminUsers.ts` — Full user CRUD: paginated list (GET /), by-token (GET /by-token), dropdown (GET /dropdown), admin-users-dropdown (GET /admin-users-dropdown), get-all-admin-users (GET /get-all-admin-users), export to Excel (GET /export), account balance update (PUT /account-balance), delete with cascade soft-delete (DELETE /:id), restore soft-deleted users (PUT /restore), admin user CRUD (GET/POST /admin-users), user profile update (PUT /), settings toggle (PATCH /:id/settings)
+    - `auth.ts` — Auth endpoints including assign-group-admin (PUT /assign-group-admin) toggle and loginAdminToUser (POST /loginAdminToUser) impersonation
   - `server/src/middleware/` — JWT auth and API access token middleware
   - `server/src/utils/` — JWT, ASP.NET Identity password hashing, 2FA, soft delete utilities
 - `attached_assets/` — Project assets (aliased as `@assets`)

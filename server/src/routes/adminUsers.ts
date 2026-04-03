@@ -2,9 +2,982 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { hashAspNetIdentityV3 } from "../utils/aspnetIdentityHash.js";
+import { verifyToken } from "../utils/jwt.js";
 import crypto from "crypto";
+import ExcelJS from "exceljs";
 
 const router = Router();
+
+interface UserRow {
+  id: string;
+  first_name: string;
+  last_name: string;
+  user_name: string;
+  email: string;
+  account_balance: string | number | null;
+  is_active: boolean;
+  date_created: string;
+  is_exclude_user_balance: boolean;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+interface GroupInfo {
+  id: number | string;
+  name: string;
+  owner_id?: string;
+}
+
+interface PermissionItem {
+  moduleId: number;
+  moduleName: string;
+  isManage: boolean;
+  isDelete: boolean;
+}
+
+const INTERESTED_INVESTMENT_TYPES: Record<number, string> = {
+  0: "EquityFund",
+  1: "LoanFund",
+  2: "DirectEquity",
+  3: "DirectLoan",
+};
+
+router.get("/", async (req: Request, res: Response) => {
+  try {
+    const sortDirection = ((req.query.SortDirection as string) || "").toLowerCase();
+    const isAsc = sortDirection === "asc";
+    const page = parseInt((req.query.CurrentPage as string) || "1", 10);
+    const pageSize = parseInt((req.query.PerPage as string) || "50", 10);
+    const searchValue = ((req.query.SearchValue as string) || "").trim().toLowerCase();
+    const sortField = ((req.query.SortField as string) || "").toLowerCase();
+    const filterByGroup = (req.query.FilterByGroup as string) === "true";
+    const isDeletedParam = req.query.IsDeleted as string | undefined;
+
+    const groupAdminRoleResult = await pool.query(
+      `SELECT id FROM roles WHERE name = 'GroupAdmin' LIMIT 1`
+    );
+    const groupAdminRoleId = groupAdminRoleResult.rows[0]?.id;
+
+    let groupAdminUserIds: string[] = [];
+    if (groupAdminRoleId) {
+      const gaResult = await pool.query(
+        `SELECT user_id FROM user_roles WHERE role_id = $1`,
+        [groupAdminRoleId]
+      );
+      groupAdminUserIds = gaResult.rows.map((r: { user_id: string }) => r.user_id);
+    }
+
+    let softDeleteFilter: string;
+    if (isDeletedParam === "true") {
+      softDeleteFilter = `AND u.is_deleted = true`;
+    } else {
+      softDeleteFilter = `AND (u.is_deleted IS NULL OR u.is_deleted = false)`;
+    }
+
+    let baseQuery = `
+      FROM users u
+      JOIN user_roles ur ON u.id = ur.user_id
+      JOIN roles r ON ur.role_id = r.id
+      WHERE r.name = 'User'
+      ${softDeleteFilter}
+    `;
+    const params: (string | number)[] = [];
+
+    if (searchValue) {
+      params.push(`%${searchValue}%`);
+      const idx = params.length;
+      baseQuery += ` AND (
+        LOWER(TRIM(COALESCE(u.first_name, ''))) LIKE $${idx}
+        OR LOWER(TRIM(COALESCE(u.last_name, ''))) LIKE $${idx}
+        OR LOWER(TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, ''))) LIKE $${idx}
+        OR LOWER(TRIM(COALESCE(u.email, ''))) LIKE $${idx}
+      )`;
+    }
+
+    if (filterByGroup) {
+      baseQuery += ` AND EXISTS (
+        SELECT 1 FROM requests req
+        WHERE req.request_owner_id = u.id
+          AND req.group_to_follow_id IS NOT NULL
+          AND LOWER(TRIM(req.status)) = 'accepted'
+          AND (req.is_deleted IS NULL OR req.is_deleted = false)
+      )`;
+    }
+
+    const dir = isAsc ? "ASC" : "DESC";
+    let orderClause: string;
+    const isRecSorting = sortField === "recommendations";
+
+    switch (sortField) {
+      case "fullname":
+        orderClause = `ORDER BY u.first_name ${dir}, u.last_name ${dir}`;
+        break;
+      case "accountbalance":
+        orderClause = `ORDER BY u.account_balance ${dir}`;
+        break;
+      case "datecreated":
+        orderClause = `ORDER BY u.date_created ${dir}`;
+        break;
+      default:
+        orderClause = `ORDER BY u.first_name ASC, u.last_name ASC`;
+        break;
+    }
+
+    const countResult = await pool.query(
+      `SELECT COUNT(DISTINCT u.id) as total ${baseQuery}`,
+      params
+    );
+    const totalCount = parseInt(countResult.rows[0].total, 10);
+
+    let dataQuery: string;
+    let dataParams: (string | number)[];
+
+    if (isRecSorting) {
+      dataQuery = `SELECT DISTINCT u.id, u.first_name, u.last_name, u.user_name, u.account_balance,
+                    u.email, u.is_active, u.date_created, u.is_exclude_user_balance,
+                    u.deleted_at, u.deleted_by
+             ${baseQuery}
+             ORDER BY u.first_name ASC, u.last_name ASC`;
+      dataParams = [...params];
+    } else {
+      const offset = (page - 1) * pageSize;
+      dataParams = [...params, pageSize, offset];
+      dataQuery = `SELECT DISTINCT u.id, u.first_name, u.last_name, u.user_name, u.account_balance,
+                    u.email, u.is_active, u.date_created, u.is_exclude_user_balance,
+                    u.deleted_at, u.deleted_by
+             ${baseQuery}
+             ${orderClause}
+             LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`;
+    }
+
+    const dataResult = await pool.query(dataQuery, dataParams);
+    const users = dataResult.rows;
+
+    if (users.length === 0) {
+      res.json({ success: false, message: "Data not found." });
+      return;
+    }
+
+    const emails = [...new Set(users.map((u: UserRow) => (u.email || "").toLowerCase().trim()))];
+    const userIds = users.map((u: UserRow) => u.id);
+
+    const recCountResult = await pool.query(
+      `SELECT LOWER(TRIM(user_email)) as email, COUNT(*) as count
+       FROM recommendations
+       WHERE amount > 0
+         AND (status = 'pending' OR status = 'approved')
+         AND LOWER(TRIM(user_email)) = ANY($1)
+         AND (is_deleted IS NULL OR is_deleted = false)
+       GROUP BY LOWER(TRIM(user_email))`,
+      [emails]
+    );
+    const recCounts: Record<string, number> = {};
+    for (const r of recCountResult.rows) {
+      recCounts[r.email] = parseInt(r.count, 10);
+    }
+
+    const groupsResult = await pool.query(
+      `SELECT req.request_owner_id as user_id, g.id as group_id, g.name as group_name
+       FROM requests req
+       JOIN groups g ON req.group_to_follow_id = g.id
+       WHERE req.request_owner_id = ANY($1)
+         AND LOWER(TRIM(req.status)) = 'accepted'
+         AND req.group_to_follow_id IS NOT NULL
+         AND (req.is_deleted IS NULL OR req.is_deleted = false)`,
+      [userIds]
+    );
+    const userGroupsMap: Record<string, GroupInfo[]> = {};
+    for (const r of groupsResult.rows) {
+      if (!userGroupsMap[r.user_id]) userGroupsMap[r.user_id] = [];
+      const existing = userGroupsMap[r.user_id].find((g: GroupInfo) => g.id === r.group_id);
+      if (!existing) {
+        userGroupsMap[r.user_id].push({ id: r.group_id, name: r.group_name });
+      }
+    }
+
+    const gabResult = await pool.query(
+      `SELECT user_id, group_id, balance
+       FROM group_account_balances
+       WHERE user_id = ANY($1)
+         AND (is_deleted IS NULL OR is_deleted = false)`,
+      [userIds]
+    );
+    const gabMap: Record<string, Record<string, number>> = {};
+    for (const r of gabResult.rows) {
+      if (!gabMap[r.user_id]) gabMap[r.user_id] = {};
+      gabMap[r.user_id][r.group_id] = parseFloat(r.balance) || 0;
+    }
+
+    let deletedByNames: Record<string, string> = {};
+    const deletedByIds = [...new Set(users.filter((u: UserRow) => u.deleted_by).map((u: UserRow) => u.deleted_by))];
+    if (deletedByIds.length > 0) {
+      const dbResult = await pool.query(
+        `SELECT id, first_name, last_name FROM users WHERE id = ANY($1)`,
+        [deletedByIds]
+      );
+      for (const r of dbResult.rows) {
+        deletedByNames[r.id] = `${r.first_name || ""} ${r.last_name || ""}`.trim();
+      }
+    }
+
+    let result = users.map((u: UserRow) => {
+      const emailKey = (u.email || "").toLowerCase().trim();
+      const acceptedGroups: GroupInfo[] = userGroupsMap[u.id] || [];
+      const userGab = gabMap[u.id] || {};
+
+      return {
+        id: u.id,
+        firstName: u.first_name,
+        lastName: u.last_name,
+        fullName: `${u.first_name || ""} ${u.last_name || ""}`.trim(),
+        userName: u.user_name,
+        accountBalance: u.account_balance != null ? parseFloat(String(u.account_balance)) : null,
+        email: u.email,
+        isActive: u.is_active,
+        dateCreated: u.date_created,
+        isGroupAdmin: groupAdminUserIds.includes(u.id),
+        isExcludeUserBalance: u.is_exclude_user_balance || false,
+        recommendationsCount: recCounts[emailKey] || 0,
+        groupNames: acceptedGroups.map((g) => g.name).join(","),
+        groupBalances: acceptedGroups
+          .map((g) => {
+            const bal = userGab[g.id];
+            return bal != null ? bal.toFixed(2) : "0.00";
+          })
+          .join(","),
+        deletedAt: u.deleted_at || null,
+        deletedBy: u.deleted_by ? (deletedByNames[u.deleted_by] || null) : null,
+      };
+    });
+
+    if (isRecSorting) {
+      result.sort((a, b) => {
+        if (isAsc) return a.recommendationsCount - b.recommendationsCount;
+        return b.recommendationsCount - a.recommendationsCount;
+      });
+      result = result.slice((page - 1) * pageSize, page * pageSize);
+    }
+
+    res.json({ items: result, totalCount });
+  } catch (err) {
+    console.error("Get users error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+router.get("/by-token", async (req: Request, res: Response) => {
+  try {
+    const token = req.query.token as string;
+    if (!token) {
+      res.status(400).json({ message: "Token is required" });
+      return;
+    }
+
+    const decoded = verifyToken(token);
+    if (!decoded) {
+      res.status(401).json({ message: "Invalid or expired token" });
+      return;
+    }
+
+    const userResult = await pool.query(
+      `SELECT id, email, first_name, last_name, picture_file_name, user_name
+       FROM users WHERE id = $1`,
+      [decoded.id]
+    );
+
+    if (userResult.rows.length === 0) {
+      res.status(400).json({ message: "User not found" });
+      return;
+    }
+
+    const user = userResult.rows[0];
+
+    const userRoleResult = await pool.query(
+      `SELECT r.id, r.name, r.is_super_admin
+       FROM user_roles ur
+       JOIN roles r ON ur.role_id = r.id
+       WHERE ur.user_id = $1
+         AND (ur.is_deleted IS NULL OR ur.is_deleted = false)
+       LIMIT 1`,
+      [user.id]
+    );
+
+    const userRole = userRoleResult.rows[0] || null;
+
+    let permissions: PermissionItem[] = [];
+
+    if (userRole && !userRole.is_super_admin) {
+      const permResult = await pool.query(
+        `SELECT m.id as module_id, m.name as module_name, map.manage, map.delete
+         FROM module_access_permissions map
+         JOIN modules m ON map.module_id = m.id
+         WHERE map.role_id = $1`,
+        [userRole.id]
+      );
+
+      permissions = permResult.rows.map((p: { module_id: number; module_name: string; manage: boolean; delete: boolean }) => ({
+        moduleId: p.module_id,
+        moduleName: p.module_name,
+        isManage: p.manage || false,
+        isDelete: p.delete || false,
+      }));
+    }
+
+    res.json({
+      email: user.email,
+      firstName: user.first_name || "",
+      lastName: user.last_name || "",
+      pictureFileName: user.picture_file_name || "",
+      userName: user.user_name,
+      roleName: userRole?.name || "",
+      isSuperAdmin: userRole ? userRole.is_super_admin === true : false,
+      permissions: userRole?.is_super_admin === true ? [] : permissions,
+    });
+  } catch (err) {
+    console.error("Get user by token error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+router.get("/dropdown", async (_req: Request, res: Response) => {
+  try {
+    const result = await pool.query(
+      `SELECT DISTINCT u.id, u.email, COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '') as full_name
+       FROM users u
+       JOIN user_roles ur ON u.id = ur.user_id
+       JOIN roles r ON ur.role_id = r.id
+       WHERE r.name = 'User'
+         AND (ur.is_deleted IS NULL OR ur.is_deleted = false)
+         AND (u.is_deleted IS NULL OR u.is_deleted = false)`
+    );
+
+    const items = result.rows.map((r: { id: string; email: string; full_name: string }) => ({
+      id: r.id,
+      email: r.email,
+      fullName: r.full_name,
+    }));
+
+    res.json(items);
+  } catch (err) {
+    console.error("Get dropdown users error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+router.get("/admin-users-dropdown", async (req: Request, res: Response) => {
+  try {
+    const currentUserId = req.user?.id;
+
+    let query = `
+      SELECT DISTINCT u.id, u.email, u.alternate_email, u.first_name as full_name
+      FROM users u
+      JOIN user_roles ur ON u.id = ur.user_id
+      JOIN roles r ON ur.role_id = r.id
+      WHERE r.name = 'Admin'
+        AND u.user_name != 'admin2'
+        AND (ur.is_deleted IS NULL OR ur.is_deleted = false)
+        AND (u.is_deleted IS NULL OR u.is_deleted = false)
+    `;
+    const params: string[] = [];
+
+    if (currentUserId) {
+      params.push(currentUserId);
+      query += ` AND u.id != $${params.length}`;
+    }
+
+    const result = await pool.query(query, params);
+
+    const items = result.rows.map((r: { id: string; email: string; alternate_email: string; full_name: string }) => ({
+      id: r.id,
+      email: r.email,
+      alternateEmail: r.alternate_email,
+      fullName: r.full_name,
+    }));
+
+    res.json(items);
+  } catch (err) {
+    console.error("Get admin users dropdown error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+router.get("/get-all-admin-users", async (req: Request, res: Response) => {
+  try {
+    const currentUserId = req.user?.id;
+
+    let query = `
+      SELECT DISTINCT u.id, u.email, u.alternate_email, u.first_name as full_name
+      FROM users u
+      JOIN user_roles ur ON u.id = ur.user_id
+      JOIN roles r ON ur.role_id = r.id
+      WHERE r.name = 'Admin'
+        AND u.user_name != 'admin2'
+        AND (ur.is_deleted IS NULL OR ur.is_deleted = false)
+        AND (u.is_deleted IS NULL OR u.is_deleted = false)
+    `;
+    const params: string[] = [];
+
+    if (currentUserId) {
+      params.push(currentUserId);
+      query += ` AND u.id != $${params.length}`;
+    }
+
+    const result = await pool.query(query, params);
+
+    const items = result.rows.map((r: { id: string; email: string; alternate_email: string; full_name: string }) => ({
+      id: r.id,
+      email: r.email,
+      alternateEmail: r.alternate_email,
+      fullName: r.full_name,
+    }));
+
+    res.json(items);
+  } catch (err) {
+    console.error("Get all admin users error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+router.get("/export", async (_req: Request, res: Response) => {
+  try {
+    const groupAdminRoleResult = await pool.query(
+      `SELECT id FROM roles WHERE name = 'GroupAdmin' LIMIT 1`
+    );
+    const groupAdminRoleId = groupAdminRoleResult.rows[0]?.id;
+
+    let groupAdminUserIds: string[] = [];
+    if (groupAdminRoleId) {
+      const gaResult = await pool.query(
+        `SELECT user_id FROM user_roles WHERE role_id = $1`,
+        [groupAdminRoleId]
+      );
+      groupAdminUserIds = gaResult.rows.map((r: { user_id: string }) => r.user_id);
+    }
+
+    const usersResult = await pool.query(
+      `SELECT DISTINCT u.id, u.user_name, u.first_name, u.last_name, u.email,
+              u.is_exclude_user_balance,
+              LOWER(TRIM(u.email)) as normalized_email,
+              u.is_active, u.account_balance, u.zip_code, u.date_created
+       FROM users u
+       JOIN user_roles ur ON u.id = ur.user_id
+       JOIN roles r ON ur.role_id = r.id
+       WHERE r.name = 'User'
+         AND (u.is_deleted IS NULL OR u.is_deleted = false)
+         AND (ur.is_deleted IS NULL OR ur.is_deleted = false)`
+    );
+    const users = usersResult.rows;
+    const userIds = users.map((u: { id: string }) => u.id);
+    const userEmails = users.map((u: { email: string }) => u.email);
+
+    const groupsResult = await pool.query(
+      `SELECT id, name, owner_id FROM groups
+       WHERE owner_id IS NOT NULL
+         AND (is_deleted IS NULL OR is_deleted = false)`
+    );
+    const groups = groupsResult.rows as GroupInfo[];
+
+    const investmentsResult = await pool.query(
+      `SELECT LOWER(TRIM(user_email)) as email, SUM(amount) as amount
+       FROM recommendations
+       WHERE user_email = ANY($1)
+         AND (status = 'approved' OR status = 'pending')
+         AND (is_deleted IS NULL OR is_deleted = false)
+       GROUP BY LOWER(TRIM(user_email))`,
+      [userEmails]
+    );
+    const investmentsDict: Record<string, number> = {};
+    for (const r of investmentsResult.rows) {
+      investmentsDict[r.email] = parseFloat(r.amount) || 0;
+    }
+
+    const userGroupsResult = await pool.query(
+      `SELECT request_owner_id as user_id, array_agg(DISTINCT group_to_follow_id) as group_ids
+       FROM requests
+       WHERE request_owner_id = ANY($1)
+         AND group_to_follow_id IS NOT NULL
+         AND status = 'accepted'
+         AND (is_deleted IS NULL OR is_deleted = false)
+       GROUP BY request_owner_id`,
+      [userIds]
+    );
+    const userGroupsDict: Record<string, number[]> = {};
+    for (const r of userGroupsResult.rows) {
+      userGroupsDict[r.user_id] = r.group_ids;
+    }
+
+    const themesResult = await pool.query(
+      `SELECT id, name FROM themes WHERE (is_deleted IS NULL OR is_deleted = false)`
+    );
+    const allThemes = themesResult.rows;
+
+    const feedbackResult = await pool.query(
+      `SELECT DISTINCT ON (user_id) user_id, themes, additional_themes,
+              interested_investment_type, risk_tolerance
+       FROM investment_feedbacks
+       WHERE (is_deleted IS NULL OR is_deleted = false)
+       ORDER BY user_id, id DESC`
+    );
+    const feedbackDict: Record<string, any> = {};
+    for (const r of feedbackResult.rows) {
+      feedbackDict[r.user_id] = r;
+    }
+
+    const recCountResult = await pool.query(
+      `SELECT LOWER(TRIM(user_email)) as email, COUNT(*) as count
+       FROM recommendations
+       WHERE amount > 0
+         AND (status = 'pending' OR status = 'approved')
+         AND user_email = ANY($1)
+         AND (is_deleted IS NULL OR is_deleted = false)
+       GROUP BY LOWER(TRIM(user_email))`,
+      [userEmails]
+    );
+    const recCounts: Record<string, number> = {};
+    for (const r of recCountResult.rows) {
+      recCounts[r.email] = parseInt(r.count, 10);
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Users");
+
+    const headers = [
+      "UserName", "First Name", "Last Name", "Email", "Is Active", "Recommendations",
+      "Amount Invested", "Account Balance", "Following Groups",
+      "Owned Group Name", "Group Admin", "Exclude User Balance", "Survey Themes",
+      "Survey Additional Themes", "Survey Investment Interest", "Survey Risk Tolerance",
+      "Zip Code", "Date Created",
+    ];
+
+    const headerRow = worksheet.addRow(headers);
+    headerRow.font = { bold: true };
+
+    for (const user of users) {
+      const normalizedEmail = (user.email || "").toLowerCase().trim();
+      const feedback = feedbackDict[user.id];
+      const recCount = recCounts[normalizedEmail] || 0;
+      const investedAmount = investmentsDict[normalizedEmail] || 0;
+      const groupAdmin = groupAdminUserIds.includes(user.id) ? "Yes" : null;
+
+      const followingGroupIds = userGroupsDict[user.id] || [];
+      const followingNames = groups
+        .filter((g) => followingGroupIds.includes(Number(g.id)))
+        .map((g) => g.name)
+        .join(", ");
+
+      const ownedNames = groups
+        .filter((g) => g.owner_id === user.id)
+        .map((g) => g.name)
+        .join(", ");
+
+      let themeNames = "";
+      if (feedback?.themes) {
+        const themeIds = feedback.themes
+          .split(",")
+          .filter((s: string) => s.trim())
+          .map((s: string) => parseInt(s.trim(), 10))
+          .filter((n: number) => !isNaN(n));
+        const uniqueIds = [...new Set(themeIds)];
+        themeNames = allThemes
+          .filter((t: { id: number; name: string }) => uniqueIds.includes(Number(t.id)))
+          .map((t: { id: number; name: string }) => t.name)
+          .join(", ");
+      }
+
+      let typeNames = "";
+      if (feedback?.interested_investment_type) {
+        const typeIds = feedback.interested_investment_type
+          .split(",")
+          .filter((s: string) => s.trim())
+          .map((s: string) => parseInt(s.trim(), 10))
+          .filter((n: number) => !isNaN(n));
+        const uniqueTypeIds = [...new Set(typeIds)] as number[];
+        typeNames = uniqueTypeIds
+          .map((id) => INTERESTED_INVESTMENT_TYPES[id] || "")
+          .filter(Boolean)
+          .join(", ");
+      }
+
+      const row = worksheet.addRow([
+        user.user_name,
+        user.first_name,
+        user.last_name,
+        user.email,
+        user.is_active === true ? "Active" : "Inactive",
+        recCount,
+        investedAmount,
+        parseFloat(user.account_balance) || 0,
+        followingNames,
+        ownedNames,
+        groupAdmin,
+        user.is_exclude_user_balance ? "Yes" : null,
+        themeNames,
+        feedback?.additional_themes || null,
+        typeNames,
+        feedback?.risk_tolerance != null ? String(feedback.risk_tolerance) : "",
+        user.zip_code,
+        user.date_created,
+      ]);
+
+      const amountInvestedCell = row.getCell(7);
+      amountInvestedCell.numFmt = "$#,##0.00";
+
+      const amountInAccountCell = row.getCell(8);
+      amountInAccountCell.numFmt = "$#,##0.00";
+
+      const dateCreatedCell = row.getCell(18);
+      dateCreatedCell.numFmt = "MM/DD/YYYY";
+      dateCreatedCell.alignment = { horizontal: "left" };
+    }
+
+    worksheet.columns.forEach((column) => {
+      let maxLength = 10;
+      column.eachCell?.({ includeEmpty: false }, (cell) => {
+        const length = cell.value ? cell.value.toString().length : 0;
+        if (length > maxLength) maxLength = length;
+      });
+      column.width = maxLength + 10;
+    });
+
+    const contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Content-Disposition", 'attachment; filename="users.xlsx"');
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error("Export users error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+router.put("/account-balance", async (req: Request, res: Response) => {
+  try {
+    const email = req.query.email as string;
+    const accountBalance = parseFloat(req.query.accountBalance as string);
+    const comment = (req.query.comment as string) || null;
+
+    if (!email) {
+      res.json({ success: false, message: "User email required." });
+      return;
+    }
+
+    if (isNaN(accountBalance)) {
+      res.json({ success: false, message: "Invalid account balance value." });
+      return;
+    }
+
+    const userResult = await pool.query(
+      `SELECT id, email, user_name, account_balance, is_free_user FROM users WHERE email = $1`,
+      [email]
+    );
+
+    if (userResult.rows.length === 0) {
+      res.status(404).json({ success: false, message: "User not found." });
+      return;
+    }
+
+    const user = userResult.rows[0];
+    const currentBalance = parseFloat(user.account_balance) || 0;
+
+    if (currentBalance + accountBalance < 0) {
+      res.json({ success: false, message: "Insufficient balance in user account." });
+      return;
+    }
+
+    const loginUser = req.user;
+    const loginUserResult = await pool.query(
+      `SELECT user_name FROM users WHERE id = $1`,
+      [loginUser?.id]
+    );
+    const loginUserName = loginUserResult.rows[0]?.user_name || "unknown";
+
+    const newBalance = currentBalance + accountBalance;
+    const trimmedComment = comment?.trim() || null;
+
+    await pool.query(
+      `INSERT INTO account_balance_change_logs
+        (user_id, payment_type, old_value, user_name, new_value, comment, change_date)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+      [
+        user.id,
+        `Balance updated by admin user, ${loginUserName.trim().toLowerCase()}`,
+        currentBalance,
+        user.user_name,
+        newBalance,
+        trimmedComment,
+      ]
+    );
+
+    let updateQuery = `UPDATE users SET account_balance = $1`;
+    const updateParams: (string | number | boolean)[] = [newBalance];
+
+    if (user.is_free_user === true) {
+      updateQuery += `, is_free_user = false`;
+    }
+
+    updateParams.push(user.id);
+    updateQuery += ` WHERE id = $${updateParams.length}`;
+
+    await pool.query(updateQuery, updateParams);
+
+    res.json({ success: true, message: "Account balance has been updated successfully!" });
+  } catch (err) {
+    console.error("Update account balance error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+router.put("/restore", async (req: Request, res: Response) => {
+  try {
+    const ids: string[] = req.body;
+
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      res.json({ success: false, message: "No IDs provided." });
+      return;
+    }
+
+    const usersResult = await pool.query(
+      `SELECT id, email FROM users WHERE id = ANY($1) AND is_deleted = true`,
+      [ids]
+    );
+
+    if (usersResult.rows.length === 0) {
+      res.json({ success: false, message: "No deleted users found." });
+      return;
+    }
+
+    const deletedUsers = usersResult.rows as { id: string; email: string }[];
+    const userIds = deletedUsers.map((u) => u.id);
+    const emails = deletedUsers.map((u) => (u.email || "").trim().toLowerCase());
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const campaignsResult = await client.query(
+        `SELECT id FROM campaigns WHERE user_id = ANY($1) AND is_deleted = true`,
+        [userIds]
+      );
+      const campaignIds = campaignsResult.rows.map((r: { id: string }) => r.id);
+
+      if (campaignIds.length > 0) {
+        const pgResult = await client.query(
+          `SELECT id FROM pending_grants WHERE campaign_id = ANY($1) AND is_deleted = true`,
+          [campaignIds]
+        );
+        const pendingGrantIds = pgResult.rows.map((r: { id: string }) => r.id);
+
+        const assetResult = await client.query(
+          `SELECT id FROM asset_based_payment_requests WHERE campaign_id = ANY($1) AND is_deleted = true`,
+          [campaignIds]
+        );
+        const assetIds = assetResult.rows.map((r: { id: string }) => r.id);
+
+        await client.query(
+          `UPDATE disbursal_requests SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+           WHERE campaign_id = ANY($1) AND is_deleted = true`,
+          [campaignIds]
+        );
+
+        await client.query(
+          `UPDATE completed_investment_details SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+           WHERE campaign_id = ANY($1) AND is_deleted = true`,
+          [campaignIds]
+        );
+
+        const rmResult = await client.query(
+          `SELECT id FROM return_masters WHERE campaign_id = ANY($1)`,
+          [campaignIds]
+        );
+        const returnMasterIds = rmResult.rows.map((r: { id: string }) => r.id);
+
+        if (returnMasterIds.length > 0) {
+          await client.query(
+            `UPDATE return_details SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+             WHERE return_ma_st_er_id = ANY($1) AND is_deleted = true`,
+            [returnMasterIds]
+          );
+        }
+
+        const logConditions: string[] = [];
+        const logParams: (string | string[])[] = [];
+        let paramIdx = 1;
+
+        logParams.push(campaignIds);
+        logConditions.push(`campaign_id = ANY($${paramIdx++})`);
+
+        if (assetIds.length > 0) {
+          logParams.push(assetIds);
+          logConditions.push(`asset_based_payment_request_id = ANY($${paramIdx++})`);
+        }
+
+        if (pendingGrantIds.length > 0) {
+          logParams.push(pendingGrantIds);
+          logConditions.push(`pending_grants_id = ANY($${paramIdx++})`);
+        }
+
+        await client.query(
+          `UPDATE account_balance_change_logs SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+           WHERE (${logConditions.join(" OR ")}) AND is_deleted = true`,
+          logParams
+        );
+
+        if (pendingGrantIds.length > 0) {
+          await client.query(
+            `UPDATE pending_grants SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+             WHERE id = ANY($1) AND is_deleted = true`,
+            [pendingGrantIds]
+          );
+        }
+
+        if (assetIds.length > 0) {
+          await client.query(
+            `UPDATE asset_based_payment_requests SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+             WHERE id = ANY($1) AND is_deleted = true`,
+            [assetIds]
+          );
+        }
+
+        await client.query(
+          `UPDATE campaigns SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+           WHERE id = ANY($1) AND is_deleted = true`,
+          [campaignIds]
+        );
+      }
+
+      const ownedGroupsResult = await client.query(
+        `SELECT id FROM groups WHERE owner_id = ANY($1) AND is_deleted = true`,
+        [userIds]
+      );
+      const groupIds = ownedGroupsResult.rows.map((r: { id: string }) => r.id);
+
+      if (groupIds.length > 0) {
+        await client.query(
+          `UPDATE requests SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+           WHERE group_to_follow_id = ANY($1) AND is_deleted = true`,
+          [groupIds]
+        );
+
+        await client.query(
+          `UPDATE group_account_balances SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+           WHERE group_id = ANY($1) AND is_deleted = true`,
+          [groupIds]
+        );
+
+        await client.query(
+          `UPDATE leader_groups SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+           WHERE group_id = ANY($1) AND is_deleted = true`,
+          [groupIds]
+        );
+
+        await client.query(
+          `UPDATE groups SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+           WHERE id = ANY($1) AND is_deleted = true`,
+          [groupIds]
+        );
+      }
+
+      await client.query(
+        `UPDATE user_investments SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE user_id = ANY($1) AND is_deleted = true`,
+        [userIds]
+      );
+
+      await client.query(
+        `UPDATE user_notifications SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE target_user_id = ANY($1) AND is_deleted = true`,
+        [userIds]
+      );
+
+      if (emails.length > 0) {
+        await client.query(
+          `UPDATE form_submissions SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+           WHERE LOWER(TRIM(email)) = ANY($1) AND is_deleted = true`,
+          [emails]
+        );
+      }
+
+      await client.query(
+        `UPDATE investment_requests SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE user_id = ANY($1) AND is_deleted = true`,
+        [userIds]
+      );
+
+      await client.query(
+        `UPDATE investment_feedbacks SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE user_id = ANY($1) AND is_deleted = true`,
+        [userIds]
+      );
+
+      await client.query(
+        `UPDATE scheduled_email_logs SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE user_id = ANY($1) AND is_deleted = true`,
+        [userIds]
+      );
+
+      await client.query(
+        `UPDATE pending_grants SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE user_id = ANY($1) AND is_deleted = true`,
+        [userIds]
+      );
+
+      await client.query(
+        `UPDATE disbursal_requests SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE user_id = ANY($1) AND is_deleted = true`,
+        [userIds]
+      );
+
+      await client.query(
+        `UPDATE asset_based_payment_requests SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE user_id = ANY($1) AND is_deleted = true`,
+        [userIds]
+      );
+
+      await client.query(
+        `UPDATE return_details SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE user_id = ANY($1) AND is_deleted = true`,
+        [userIds]
+      );
+
+      await client.query(
+        `UPDATE testimonials SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE user_id = ANY($1) AND is_deleted = true`,
+        [userIds]
+      );
+
+      await client.query(
+        `UPDATE events SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE (created_by = ANY($1) OR modified_by = ANY($1)) AND is_deleted = true`,
+        [userIds]
+      );
+
+      await client.query(
+        `UPDATE catacap_teams SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE (created_by = ANY($1) OR modified_by = ANY($1)) AND is_deleted = true`,
+        [userIds]
+      );
+
+      await client.query(
+        `UPDATE users SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE id = ANY($1) AND is_deleted = true`,
+        [userIds]
+      );
+
+      await client.query("COMMIT");
+
+      res.json({ success: true, message: `${deletedUsers.length} user(s) restored successfully.` });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error("Restore users error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
 
 router.get("/admin-users", async (req: Request, res: Response) => {
   try {
@@ -74,7 +1047,7 @@ router.get("/admin-users", async (req: Request, res: Response) => {
       dataParams
     );
 
-    const items = dataResult.rows.map((row) => ({
+    const items = dataResult.rows.map((row: { id: string; first_name: string; last_name: string; full_name: string; user_name: string; email: string; is_active: boolean; date_created: string; role_id: string; role_name: string }) => ({
       id: row.id,
       firstName: row.first_name,
       lastName: row.last_name,
@@ -261,7 +1234,7 @@ router.post("/admin-users", async (req: Request, res: Response) => {
 router.put("/", async (req: Request, res: Response) => {
   try {
     const { token, email, firstName, lastName, userName } = req.body;
-    const jwtUser = (req as any).user;
+    const jwtUser = req.user;
 
     if (!token && !jwtUser) {
       res.json({ success: false, message: "User not found" });
@@ -383,6 +1356,318 @@ router.patch("/:id/settings", async (req: Request, res: Response) => {
     }
   } catch (err) {
     console.error("Update settings error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+router.delete("/:id", async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const currentUserId = req.user?.id;
+
+    const userResult = await pool.query(
+      `SELECT id, email FROM users WHERE id = $1 AND (is_deleted IS NULL OR is_deleted = false)`,
+      [id]
+    );
+
+    if (userResult.rows.length === 0) {
+      res.status(404).json({ success: false, message: "User not found." });
+      return;
+    }
+
+    const user = userResult.rows[0];
+    const email = (user.email || "").trim().toLowerCase();
+    const now = new Date().toISOString();
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const campaignsResult = await client.query(
+        `SELECT id FROM campaigns WHERE user_id = $1 AND (is_deleted IS NULL OR is_deleted = false)`,
+        [id]
+      );
+      const campaignIds = campaignsResult.rows.map((r: { id: string }) => r.id);
+
+      if (campaignIds.length > 0) {
+        const pgResult = await client.query(
+          `SELECT id FROM pending_grants WHERE campaign_id = ANY($1) AND (is_deleted IS NULL OR is_deleted = false)`,
+          [campaignIds]
+        );
+        const pendingGrantIds = pgResult.rows.map((r: { id: string }) => r.id);
+
+        const assetResult = await client.query(
+          `SELECT id FROM asset_based_payment_requests WHERE campaign_id = ANY($1) AND (is_deleted IS NULL OR is_deleted = false)`,
+          [campaignIds]
+        );
+        const assetIds = assetResult.rows.map((r: { id: string }) => r.id);
+
+        const disbursalResult = await client.query(
+          `SELECT id FROM disbursal_requests WHERE campaign_id = ANY($1) AND (is_deleted IS NULL OR is_deleted = false)`,
+          [campaignIds]
+        );
+
+        const completedResult = await client.query(
+          `SELECT id FROM completed_investment_details WHERE campaign_id = ANY($1) AND (is_deleted IS NULL OR is_deleted = false)`,
+          [campaignIds]
+        );
+
+        const rmResult = await client.query(
+          `SELECT id FROM return_masters WHERE campaign_id = ANY($1)`,
+          [campaignIds]
+        );
+        const returnMasterIds = rmResult.rows.map((r: { id: string }) => r.id);
+
+        const logConditions: string[] = [];
+        const logParams: (string | string[] | undefined)[] = [now, currentUserId];
+        let pIdx = 3;
+
+        logParams.push(campaignIds);
+        logConditions.push(`campaign_id = ANY($${pIdx++})`);
+
+        if (assetIds.length > 0) {
+          logParams.push(assetIds);
+          logConditions.push(`asset_based_payment_request_id = ANY($${pIdx++})`);
+        }
+        if (pendingGrantIds.length > 0) {
+          logParams.push(pendingGrantIds);
+          logConditions.push(`pending_grants_id = ANY($${pIdx++})`);
+        }
+
+        await client.query(
+          `UPDATE account_balance_change_logs SET is_deleted = true, deleted_at = $1, deleted_by = $2
+           WHERE (${logConditions.join(" OR ")}) AND (is_deleted IS NULL OR is_deleted = false)`,
+          logParams
+        );
+
+        if (pendingGrantIds.length > 0) {
+          await client.query(
+            `UPDATE scheduled_email_logs SET is_deleted = true, deleted_at = $1, deleted_by = $2
+             WHERE pending_grant_id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
+            [now, currentUserId, pendingGrantIds]
+          );
+
+          await client.query(
+            `UPDATE recommendations SET is_deleted = true, deleted_at = $1, deleted_by = $2
+             WHERE pending_grants_id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
+            [now, currentUserId, pendingGrantIds]
+          );
+        }
+
+        if (returnMasterIds.length > 0) {
+          await client.query(
+            `UPDATE return_details SET is_deleted = true, deleted_at = $1, deleted_by = $2
+             WHERE return_ma_st_er_id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
+            [now, currentUserId, returnMasterIds]
+          );
+        }
+
+        if (pendingGrantIds.length > 0) {
+          await client.query(
+            `UPDATE pending_grants SET is_deleted = true, deleted_at = $1, deleted_by = $2
+             WHERE id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
+            [now, currentUserId, pendingGrantIds]
+          );
+        }
+
+        if (assetIds.length > 0) {
+          await client.query(
+            `UPDATE asset_based_payment_requests SET is_deleted = true, deleted_at = $1, deleted_by = $2
+             WHERE id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
+            [now, currentUserId, assetIds]
+          );
+        }
+
+        await client.query(
+          `UPDATE disbursal_requests SET is_deleted = true, deleted_at = $1, deleted_by = $2
+           WHERE campaign_id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
+          [now, currentUserId, campaignIds]
+        );
+
+        await client.query(
+          `UPDATE completed_investment_details SET is_deleted = true, deleted_at = $1, deleted_by = $2
+           WHERE campaign_id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
+          [now, currentUserId, campaignIds]
+        );
+
+        await client.query(
+          `DELETE FROM ach_payment_requests WHERE campaign_id = ANY($1)`,
+          [campaignIds]
+        );
+
+        await client.query(
+          `DELETE FROM investment_tag_mappings WHERE campaign_id = ANY($1)`,
+          [campaignIds]
+        );
+
+        await client.query(
+          `UPDATE user_investments SET is_deleted = true, deleted_at = $1, deleted_by = $2
+           WHERE campaign_id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
+          [now, currentUserId, campaignIds]
+        );
+
+        await client.query(
+          `UPDATE recommendations SET is_deleted = true, deleted_at = $1, deleted_by = $2
+           WHERE campaign_id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
+          [now, currentUserId, campaignIds]
+        );
+
+        await client.query(
+          `UPDATE campaigns SET is_deleted = true, deleted_at = $1, deleted_by = $2
+           WHERE id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
+          [now, currentUserId, campaignIds]
+        );
+      }
+
+      const ownedGroupsResult = await client.query(
+        `SELECT id FROM groups WHERE owner_id = $1 AND (is_deleted IS NULL OR is_deleted = false)`,
+        [id]
+      );
+      const groupIds = ownedGroupsResult.rows.map((r: { id: string }) => r.id);
+
+      if (groupIds.length > 0) {
+        await client.query(
+          `UPDATE requests SET is_deleted = true, deleted_at = $1, deleted_by = $2
+           WHERE group_to_follow_id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
+          [now, currentUserId, groupIds]
+        );
+
+        await client.query(
+          `UPDATE group_account_balances SET is_deleted = true, deleted_at = $1, deleted_by = $2
+           WHERE group_id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
+          [now, currentUserId, groupIds]
+        );
+
+        await client.query(
+          `UPDATE leader_groups SET is_deleted = true, deleted_at = $1, deleted_by = $2
+           WHERE group_id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
+          [now, currentUserId, groupIds]
+        );
+
+        await client.query(
+          `UPDATE groups SET is_deleted = true, deleted_at = $1, deleted_by = $2
+           WHERE id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
+          [now, currentUserId, groupIds]
+        );
+      }
+
+      await client.query(
+        `UPDATE user_investments SET is_deleted = true, deleted_at = $1, deleted_by = $2
+         WHERE user_id = $3 AND (is_deleted IS NULL OR is_deleted = false)`,
+        [now, currentUserId, id]
+      );
+
+      await client.query(
+        `UPDATE user_notifications SET is_deleted = true, deleted_at = $1, deleted_by = $2
+         WHERE target_user_id = $3 AND (is_deleted IS NULL OR is_deleted = false)`,
+        [now, currentUserId, id]
+      );
+
+      await client.query(
+        `UPDATE investment_requests SET is_deleted = true, deleted_at = $1, deleted_by = $2
+         WHERE user_id = $3 AND (is_deleted IS NULL OR is_deleted = false)`,
+        [now, currentUserId, id]
+      );
+
+      await client.query(
+        `UPDATE investment_feedbacks SET is_deleted = true, deleted_at = $1, deleted_by = $2
+         WHERE user_id = $3 AND (is_deleted IS NULL OR is_deleted = false)`,
+        [now, currentUserId, id]
+      );
+
+      await client.query(
+        `UPDATE form_submissions SET is_deleted = true, deleted_at = $1, deleted_by = $2
+         WHERE LOWER(TRIM(email)) = $3 AND (is_deleted IS NULL OR is_deleted = false)`,
+        [now, currentUserId, email]
+      );
+
+      await client.query(
+        `UPDATE scheduled_email_logs SET is_deleted = true, deleted_at = $1, deleted_by = $2
+         WHERE user_id = $3 AND (is_deleted IS NULL OR is_deleted = false)`,
+        [now, currentUserId, id]
+      );
+
+      await client.query(
+        `UPDATE pending_grants SET is_deleted = true, deleted_at = $1, deleted_by = $2
+         WHERE user_id = $3 AND (is_deleted IS NULL OR is_deleted = false)`,
+        [now, currentUserId, id]
+      );
+
+      await client.query(
+        `UPDATE disbursal_requests SET is_deleted = true, deleted_at = $1, deleted_by = $2
+         WHERE user_id = $3 AND (is_deleted IS NULL OR is_deleted = false)`,
+        [now, currentUserId, id]
+      );
+
+      await client.query(
+        `UPDATE asset_based_payment_requests SET is_deleted = true, deleted_at = $1, deleted_by = $2
+         WHERE user_id = $3 AND (is_deleted IS NULL OR is_deleted = false)`,
+        [now, currentUserId, id]
+      );
+
+      await client.query(
+        `DELETE FROM return_masters WHERE created_by = $1`,
+        [id]
+      );
+
+      await client.query(
+        `UPDATE return_details SET is_deleted = true, deleted_at = $1, deleted_by = $2
+         WHERE user_id = $3 AND (is_deleted IS NULL OR is_deleted = false)`,
+        [now, currentUserId, id]
+      );
+
+      await client.query(
+        `DELETE FROM module_access_permissions WHERE updated_by = $1`,
+        [id]
+      );
+
+      const userRoleIds = await client.query(
+        `SELECT role_id FROM user_roles WHERE user_id = $1`,
+        [id]
+      );
+      const roleIds = userRoleIds.rows.map((r: { role_id: string }) => r.role_id);
+      if (roleIds.length > 0) {
+        await client.query(
+          `DELETE FROM module_access_permissions WHERE role_id = ANY($1)`,
+          [roleIds]
+        );
+      }
+
+      await client.query(
+        `UPDATE testimonials SET is_deleted = true, deleted_at = $1, deleted_by = $2
+         WHERE user_id = $3 AND (is_deleted IS NULL OR is_deleted = false)`,
+        [now, currentUserId, id]
+      );
+
+      await client.query(
+        `UPDATE events SET is_deleted = true, deleted_at = $1, deleted_by = $2
+         WHERE (created_by = $3 OR modified_by = $3) AND (is_deleted IS NULL OR is_deleted = false)`,
+        [now, currentUserId, id]
+      );
+
+      await client.query(
+        `UPDATE catacap_teams SET is_deleted = true, deleted_at = $1, deleted_by = $2
+         WHERE (created_by = $3 OR modified_by = $3) AND (is_deleted IS NULL OR is_deleted = false)`,
+        [now, currentUserId, id]
+      );
+
+      await client.query(
+        `UPDATE users SET is_deleted = true, deleted_at = $1, deleted_by = $2
+         WHERE id = $3`,
+        [now, currentUserId, id]
+      );
+
+      await client.query("COMMIT");
+
+      res.json({ success: true, message: "User deleted successfully." });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error("Delete user error:", err);
     res.status(500).json({ message: "Internal server error" });
   }
 });

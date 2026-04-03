@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { verifyAspNetIdentityV3Hash } from "../utils/aspnetIdentityHash.js";
-import { generateToken } from "../utils/jwt.js";
+import { generateToken, verifyToken } from "../utils/jwt.js";
 import { generateTwoFactorCode, verifyTwoFactorCode } from "../utils/twoFactor.js";
 import { jwtAuthMiddleware } from "../middleware/jwtAuth.js";
 
@@ -199,6 +199,151 @@ async function getPermissionClaims(
 
   return [...new Set(claims)];
 }
+
+router.put("/assign-group-admin", jwtAuthMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = req.query.userId as string;
+
+    if (!userId || !userId.trim()) {
+      res.status(400).json({ success: false, message: "User Id is required" });
+      return;
+    }
+
+    const userResult = await pool.query("SELECT id FROM users WHERE id = $1", [userId]);
+    if (userResult.rows.length === 0) {
+      res.status(400).json({ success: false, message: "User not found" });
+      return;
+    }
+
+    const groupAdminRoleResult = await pool.query(
+      "SELECT id FROM roles WHERE name = 'GroupAdmin' LIMIT 1"
+    );
+
+    let groupAdminRoleId: string;
+    if (groupAdminRoleResult.rows.length === 0) {
+      groupAdminRoleId = (await import("crypto")).randomUUID();
+      await pool.query(
+        "INSERT INTO roles (id, name, normalized_name, concurrency_stamp, is_super_admin) VALUES ($1, $2, $3, $4, $5)",
+        [groupAdminRoleId, "GroupAdmin", "GROUPADMIN", (await import("crypto")).randomUUID(), false]
+      );
+    } else {
+      groupAdminRoleId = groupAdminRoleResult.rows[0].id;
+    }
+
+    const existingRole = await pool.query(
+      "SELECT user_id, role_id FROM user_roles WHERE user_id = $1 AND role_id = $2",
+      [userId, groupAdminRoleId]
+    );
+
+    let message: string;
+    if (existingRole.rows.length > 0) {
+      await pool.query(
+        "DELETE FROM user_roles WHERE user_id = $1 AND role_id = $2",
+        [userId, groupAdminRoleId]
+      );
+      message = "Group admin role removed successfully.";
+    } else {
+      await pool.query(
+        "INSERT INTO user_roles (user_id, role_id, discriminator) VALUES ($1, $2, $3)",
+        [userId, groupAdminRoleId, "IdentityUserRole<string>"]
+      );
+      message = "Group admin role assigned successfully.";
+    }
+
+    res.json({ success: true, message });
+  } catch (err) {
+    console.error("Assign group admin error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+router.post("/loginAdminToUser", jwtAuthMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { userToken, email } = req.body;
+
+    if (!userToken || !email) {
+      res.status(400).json({ message: "Token and email are required" });
+      return;
+    }
+
+    const decoded = verifyToken(userToken);
+    if (!decoded) {
+      res.status(400).json({ message: "Invalid admin token" });
+      return;
+    }
+
+    if (decoded.id !== req.user?.id) {
+      res.status(400).json({ message: "Token does not match authenticated caller" });
+      return;
+    }
+
+    const adminResult = await pool.query(
+      "SELECT id FROM users WHERE id = $1",
+      [decoded.id]
+    );
+    if (adminResult.rows.length === 0) {
+      res.status(400).json({ message: "Admin user not found" });
+      return;
+    }
+
+    const targetResult = await pool.query(
+      "SELECT id, email, user_name, first_name, last_name, is_active FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1",
+      [email]
+    );
+
+    if (targetResult.rows.length === 0 || targetResult.rows[0].is_active !== true) {
+      res.status(400).json({ message: "Target user not found or inactive" });
+      return;
+    }
+
+    const targetUser = targetResult.rows[0];
+
+    const roleResult = await pool.query(
+      `SELECT r.id as role_id, r.name as role_name, r.is_super_admin
+       FROM user_roles ur
+       JOIN roles r ON ur.role_id = r.id
+       WHERE ur.user_id = $1 AND (ur.is_deleted IS NULL OR ur.is_deleted = false)
+       LIMIT 1`,
+      [targetUser.id]
+    );
+
+    const role = roleResult.rows[0];
+    const roleName = role?.role_name || "User";
+    const isSuperAdmin = role?.is_super_admin === true;
+
+    let permissionClaims: string[] = [];
+    if (role && !isSuperAdmin) {
+      const permResult = await pool.query(
+        `SELECT m.name as module_name, map.manage, map.delete
+         FROM module_access_permissions map
+         JOIN modules m ON map.module_id = m.id
+         WHERE map.role_id = $1`,
+        [role.role_id]
+      );
+      const claims: string[] = [];
+      for (const p of permResult.rows) {
+        const moduleName = (p.module_name || "").toLowerCase();
+        if (p.manage) claims.push(`${moduleName}.Manage`);
+        if (p.delete) claims.push(`${moduleName}.Delete`);
+      }
+      permissionClaims = [...new Set(claims)];
+    }
+
+    const token = generateToken({
+      id: targetUser.id,
+      email: targetUser.email,
+      name: `${targetUser.first_name || ""} ${targetUser.last_name || ""}`.trim(),
+      role: roleName,
+      isSuperAdmin,
+      permissions: permissionClaims,
+    });
+
+    res.json({ token });
+  } catch (err) {
+    console.error("Login admin to user error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
 
 router.post("/assign-role", jwtAuthMiddleware, async (req: Request, res: Response) => {
   try {
