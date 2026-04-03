@@ -103,6 +103,13 @@ async function fixBareFilenamePaths() {
     { table: "campaigns", column: "tile_image_file_name", folder: "campaigns" },
     { table: "campaigns", column: "logo_file_name", folder: "campaigns" },
     { table: "campaigns", column: "pdf_file_name", folder: "campaigns" },
+    { table: "groups", column: "picture_file_name", folder: "groups" },
+    { table: "groups", column: "background_picture_file_name", folder: "groups" },
+    { table: "disbursal_requests", column: "pitch_deck", folder: "disbursal-requests" },
+    { table: "disbursal_requests", column: "investment_document", folder: "disbursal-requests" },
+    { table: "investment_requests", column: "logo_file_name", folder: "investment-requests" },
+    { table: "investment_requests", column: "hero_image_file_name", folder: "investment-requests" },
+    { table: "investment_requests", column: "pitch_deck_file_name", folder: "investment-requests" },
   ];
 
   let totalFixed = 0;

@@ -233,12 +233,12 @@ router.post("/save-disbursal", jwtUserAuthMiddleware, async (req: Request, res: 
     let investmentDocFile = "";
 
     if (dto.pitchDeck) {
-      const result = await uploadBase64Image(dto.pitchDeck, "investment-requests");
+      const result = await uploadBase64Image(dto.pitchDeck, "disbursal-requests");
       pitchDeckFile = result.filePath;
     }
 
     if (dto.investmentDocument) {
-      const result = await uploadBase64Image(dto.investmentDocument, "investment-requests");
+      const result = await uploadBase64Image(dto.investmentDocument, "disbursal-requests");
       investmentDocFile = result.filePath;
     }
 
@@ -345,12 +345,12 @@ router.get("/get-disbursal-request", jwtUserAuthMiddleware, async (req: Request,
       property: row.property,
       investmentRemainOpen: row.investment_remain_open,
       receiveDate: formatDate(row.receive_date),
-      pitchDeck: resolveFileUrl(row.pitch_deck),
+      pitchDeck: resolveFileUrl(row.pitch_deck, "disbursal-requests"),
       status: row.status,
       statusName: getStatusName(row.status),
       quote: row.quote,
       pitchDeckName: row.pitch_deck_name,
-      investmentDocument: resolveFileUrl(row.investment_document),
+      investmentDocument: resolveFileUrl(row.investment_document, "disbursal-requests"),
       investmentDocumentName: row.investment_document_name,
       impactAssetsFundingPreviously: row.impact_assets_funding_previously,
       investmentTypeNames,
@@ -443,9 +443,9 @@ router.get("/get-disbursal-request-list", jwtUserAuthMiddleware, async (req: Req
       receiveDate: formatDate(x.receive_date),
       distributedAmount: parseFloat(x.distributed_amount) || 0,
       investmentType: resolveInvestmentTypeString(x.investment_types, typeMap),
-      pitchDeck: resolveFileUrl(x.pitch_deck),
+      pitchDeck: resolveFileUrl(x.pitch_deck, "disbursal-requests"),
       pitchDeckName: x.pitch_deck_name,
-      investmentDocument: resolveFileUrl(x.investment_document),
+      investmentDocument: resolveFileUrl(x.investment_document, "disbursal-requests"),
       investmentDocumentName: x.investment_document_name,
       hasNotes: notesSet.has(x.id),
     }));

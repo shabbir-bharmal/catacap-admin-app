@@ -221,7 +221,7 @@ router.get("/document", async (req: Request, res: Response) => {
       return;
     }
 
-    const resolved = resolveFileUrl(pdfFileName);
+    const resolved = resolveFileUrl(pdfFileName, "campaigns");
     if (resolved) {
       res.json({ success: true, message: resolved });
       return;
@@ -581,9 +581,9 @@ router.get("/request/:id", async (req: Request, res: Response) => {
         referralSource: r.referral_source,
         investmentTerms: r.investment_terms,
         whyBackYourInvestment: r.why_back_your_investment,
-        logoFileName: resolveFileUrl(r.logo_file_name),
-        heroImageFileName: resolveFileUrl(r.hero_image_file_name),
-        pitchDeckFileName: resolveFileUrl(r.pitch_deck_file_name),
+        logoFileName: resolveFileUrl(r.logo_file_name, "investment-requests"),
+        heroImageFileName: resolveFileUrl(r.hero_image_file_name, "investment-requests"),
+        pitchDeckFileName: resolveFileUrl(r.pitch_deck_file_name, "investment-requests"),
         logo: r.logo,
         heroImage: r.hero_image,
         pitchDeck: r.pitch_deck,
@@ -838,11 +838,11 @@ router.get("/:id", async (req: Request, res: Response) => {
       referredToCataCap: c.referred_to_catacap,
       target: c.target,
       status: c.status,
-      tileImageFileName: resolveFileUrl(c.tile_image_file_name),
-      imageFileName: resolveFileUrl(c.image_file_name),
-      pdfFileName: resolveFileUrl(c.pdf_file_name),
+      tileImageFileName: resolveFileUrl(c.tile_image_file_name, "campaigns"),
+      imageFileName: resolveFileUrl(c.image_file_name, "campaigns"),
+      pdfFileName: resolveFileUrl(c.pdf_file_name, "campaigns"),
       originalPdfFileName: c.original_pdf_file_name || null,
-      logoFileName: resolveFileUrl(c.logo_file_name),
+      logoFileName: resolveFileUrl(c.logo_file_name, "campaigns"),
       isActive: c.is_active,
       isPartOfFund: c.is_part_of_fund || false,
       associatedFundId: c.associated_fund_id,
@@ -973,8 +973,8 @@ router.get("/", async (req: Request, res: Response) => {
           isActive: c.is_active,
           property: c.property,
           originalPdfFileName: c.original_pdf_file_name || null,
-          imageFileName: resolveFileUrl(c.image_file_name),
-          pdfFileName: resolveFileUrl(c.pdf_file_name),
+          imageFileName: resolveFileUrl(c.image_file_name, "campaigns"),
+          pdfFileName: resolveFileUrl(c.pdf_file_name, "campaigns"),
           currentBalance: rec.currentBalance,
           numberOfInvestors: rec.numberOfInvestors,
           hasNotes: notesSet.has(cid),
@@ -1717,11 +1717,11 @@ function mapCampaignRow(c: any): any {
     referredToCataCap: c.referred_to_catacap,
     target: c.target,
     status: c.status,
-    tileImageFileName: resolveFileUrl(c.tile_image_file_name),
-    imageFileName: resolveFileUrl(c.image_file_name),
-    pdfFileName: resolveFileUrl(c.pdf_file_name),
+    tileImageFileName: resolveFileUrl(c.tile_image_file_name, "campaigns"),
+    imageFileName: resolveFileUrl(c.image_file_name, "campaigns"),
+    pdfFileName: resolveFileUrl(c.pdf_file_name, "campaigns"),
     originalPdfFileName: c.original_pdf_file_name || null,
-    logoFileName: resolveFileUrl(c.logo_file_name),
+    logoFileName: resolveFileUrl(c.logo_file_name, "campaigns"),
     isActive: c.is_active,
     isPartOfFund: c.is_part_of_fund || false,
     associatedFundId: c.associated_fund_id,

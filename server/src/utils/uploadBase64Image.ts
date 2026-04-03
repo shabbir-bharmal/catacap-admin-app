@@ -38,20 +38,20 @@ const MIME_TO_EXT: Record<string, string> = {
 
 export async function uploadBase64Image(
   base64String: string,
-  folder: string
+  folder: string,
 ): Promise<{ filePath: string; publicUrl: string }> {
   if (!folder || !FOLDER_PATTERN.test(folder)) {
     throw new Error(
-      "Invalid folder name. Must be non-empty, must not start or end with '/', and must contain only alphanumeric characters, underscores, and hyphens between slashes."
+      "Invalid folder name. Must be non-empty, must not start or end with '/', and must contain only alphanumeric characters, underscores, and hyphens between slashes.",
     );
   }
 
   const match = base64String.match(
-    /^data:([a-zA-Z0-9+.\/-]+);base64,([A-Za-z0-9+/=]+)$/
+    /^data:([a-zA-Z0-9+.\/-]+);base64,([A-Za-z0-9+/=]+)$/,
   );
   if (!match) {
     throw new Error(
-      "Invalid Base64 string. Expected format: data:<mime>;base64,<data>"
+      "Invalid Base64 string. Expected format: data:<mime>;base64,<data>",
     );
   }
 
@@ -71,7 +71,7 @@ export async function uploadBase64Image(
 
   if (buffer.length > MAX_FILE_SIZE_BYTES) {
     throw new Error(
-      `File exceeds maximum allowed size of ${MAX_FILE_SIZE_BYTES / (1024 * 1024)}MB.`
+      `File exceeds maximum allowed size of ${MAX_FILE_SIZE_BYTES / (1024 * 1024)}MB.`,
     );
   }
 
@@ -107,7 +107,7 @@ const VALID_STORAGE_PATH = /\.(png|jpe?g|gif|webp|bmp|tiff|pdf|svg)$/i;
 
 export function getPublicFileUrl(
   path: string | null | undefined,
-  defaultFolder?: string
+  defaultFolder?: string,
 ): { path: string; publicUrl: string } | null {
   if (!path || path.trim() === "") {
     return null;
@@ -151,10 +151,14 @@ export function getPublicFileUrl(
   }
 }
 
-export function ensureFolderPrefix(path: string, defaultFolder: string): string {
+export function ensureFolderPrefix(
+  path: string,
+  defaultFolder: string,
+): string {
   if (!path || path.trim() === "") return path;
   const trimmed = path.trim();
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://"))
+    return trimmed;
   if (trimmed.startsWith("data:")) return trimmed;
   const cleaned = trimmed.startsWith("/") ? trimmed.slice(1) : trimmed;
   if (cleaned.includes("/")) {
@@ -163,7 +167,10 @@ export function ensureFolderPrefix(path: string, defaultFolder: string): string 
   return `/${defaultFolder}/${cleaned}`;
 }
 
-export function resolveFileUrl(path: string | null | undefined, defaultFolder?: string): string | null {
+export function resolveFileUrl(
+  path: string | null | undefined,
+  defaultFolder?: string,
+): string | null {
   if (!path || path.trim() === "") {
     return null;
   }
@@ -181,7 +188,9 @@ export function resolveFileUrl(path: string | null | undefined, defaultFolder?: 
   return null;
 }
 
-export function extractStoragePath(value: string | null | undefined): string | null {
+export function extractStoragePath(
+  value: string | null | undefined,
+): string | null {
   if (!value || value.trim() === "") {
     return null;
   }

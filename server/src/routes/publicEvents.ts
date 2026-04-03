@@ -38,7 +38,7 @@ router.get("/", async (_req: Request, res: Response) => {
       registrationLink: r.registration_link,
       status: r.status,
       image: r.image,
-      imageFileName: resolveFileUrl(r.image_file_name),
+      imageFileName: resolveFileUrl(r.image_file_name, "events"),
       duration: r.duration,
       type: r.type,
     }));

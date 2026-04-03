@@ -94,7 +94,7 @@ router.get("/", async (req: Request, res: Response) => {
         organizationName: r.organization_name,
         userFullName: `${r.first_name || ""} ${r.last_name || ""}`.trim(),
         userId: r.user_id,
-        profilePicture: resolveFileUrl(r.picture_file_name),
+        profilePicture: resolveFileUrl(r.picture_file_name, "users"),
         deletedAt: r.deleted_at,
         deletedBy: r.del_fn ? `${r.del_fn} ${r.del_ln}` : null,
       };
@@ -150,7 +150,7 @@ router.get("/:id", async (req: Request, res: Response) => {
       organizationName: r.organization_name,
       userFullName: `${r.first_name || ""} ${r.last_name || ""}`.trim(),
       userId: r.user_id,
-      profilePicture: resolveFileUrl(r.picture_file_name),
+      profilePicture: resolveFileUrl(r.picture_file_name, "users"),
     });
   } catch (err) {
     console.error("Testimonials GetById error:", err);

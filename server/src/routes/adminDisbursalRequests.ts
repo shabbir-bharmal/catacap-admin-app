@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter, buildSortClause } from "../utils/softDelete.js";
+import { resolveFileUrl } from "../utils/uploadBase64Image.js";
 import ExcelJS from "exceljs";
 
 const router = Router();
@@ -198,9 +199,9 @@ router.get("/", async (req: Request, res: Response) => {
       receiveDate: formatDate(x.receive_date),
       distributedAmount: parseFloat(x.distributed_amount) || 0,
       investmentType: resolveInvestmentTypeString(x.investment_types, typeMap),
-      pitchDeck: x.pitch_deck,
+      pitchDeck: resolveFileUrl(x.pitch_deck, "disbursal-requests"),
       pitchDeckName: x.pitch_deck_name,
-      investmentDocument: x.investment_document,
+      investmentDocument: resolveFileUrl(x.investment_document, "disbursal-requests"),
       investmentDocumentName: x.investment_document_name,
       hasNotes: notesSet.has(x.id),
       deletedAt: x.deleted_at,
@@ -364,9 +365,9 @@ router.get("/:id", async (req: Request, res: Response) => {
       property: row.property,
       investmentRemainOpen: row.investment_remain_open,
       receiveDate: formatDate(row.receive_date),
-      pitchDeck: row.pitch_deck,
+      pitchDeck: resolveFileUrl(row.pitch_deck, "disbursal-requests"),
       pitchDeckName: row.pitch_deck_name,
-      investmentDocument: row.investment_document,
+      investmentDocument: resolveFileUrl(row.investment_document, "disbursal-requests"),
       investmentDocumentName: row.investment_document_name,
       impactAssetsFundingPreviously: row.impact_assets_funding_previously,
       investmentTypeNames,

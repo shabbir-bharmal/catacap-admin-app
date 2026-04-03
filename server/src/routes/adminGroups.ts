@@ -434,7 +434,7 @@ router.get("/leaders-and-champions", async (req: Request, res: Response) => {
            AND LOWER(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) LIKE $3`,
         [groupAdminRoleId, groupOwnerId || null, `%${userName}%`]
       );
-      res.json(result.rows.map((r: any) => ({ ...r, pictureFileName: resolveFileUrl(r.pictureFileName) })));
+      res.json(result.rows.map((r: any) => ({ ...r, pictureFileName: resolveFileUrl(r.pictureFileName, "users") })));
     } else if (type === "champions") {
       const result = await pool.query(
         `SELECT DISTINCT u.id, COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '') as "fullName",
@@ -448,7 +448,7 @@ router.get("/leaders-and-champions", async (req: Request, res: Response) => {
            AND LOWER(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) LIKE $3`,
         [groupId, groupOwnerId || null, `%${userName}%`]
       );
-      res.json(result.rows.map((r: any) => ({ ...r, pictureFileName: resolveFileUrl(r.pictureFileName) })));
+      res.json(result.rows.map((r: any) => ({ ...r, pictureFileName: resolveFileUrl(r.pictureFileName, "users") })));
     } else {
       res.json({ success: false, message: "Invalid type specified. Please use 'leaders' or 'champions'." });
     }
@@ -855,8 +855,8 @@ router.get("/:identifier", async (req: Request, res: Response) => {
       isApprouveRequired: group.is_approuve_required,
       isPrivateGroup: group.is_private_group,
       isDeactivated: group.is_deactivated,
-      pictureFileName: resolveFileUrl(group.picture_file_name),
-      backgroundPictureFileName: resolveFileUrl(group.background_picture_file_name),
+      pictureFileName: resolveFileUrl(group.picture_file_name, "groups"),
+      backgroundPictureFileName: resolveFileUrl(group.background_picture_file_name, "groups"),
       originalBalance: group.original_balance ? parseFloat(group.original_balance) : null,
       currentBalance,
       isCorporateGroup: group.is_corporate_group,
@@ -871,19 +871,19 @@ router.get("/:identifier", async (req: Request, res: Response) => {
       activeCampaigns: activeCampaigns.map((c: any) => ({
         id: c.id,
         name: c.name,
-        imageFileName: resolveFileUrl(c.image_file_name),
+        imageFileName: resolveFileUrl(c.image_file_name, "campaigns"),
         stage: STAGE_LABELS[c.stage] || String(c.stage),
       })),
       completedCampaigns: completedCampaigns.map((c: any) => ({
         id: c.id,
         name: c.name,
-        imageFileName: resolveFileUrl(c.image_file_name),
+        imageFileName: resolveFileUrl(c.image_file_name, "campaigns"),
         stage: STAGE_LABELS[c.stage] || String(c.stage),
       })),
       campaigns: campaigns.map((c: any) => ({
         id: c.id,
         name: c.name,
-        imageFileName: resolveFileUrl(c.image_file_name),
+        imageFileName: resolveFileUrl(c.image_file_name, "campaigns"),
         stage: c.stage,
       })),
     };
@@ -1493,7 +1493,7 @@ async function processGroupMembers(jsonData: string | null, ownerId?: string): P
       roleAndTitle: m.RoleAndTitle || m.roleAndTitle,
       description: m.Description || m.description,
       fullName: user?.full_name || null,
-      pictureFileName: resolveFileUrl(user?.picture_file_name) || null,
+      pictureFileName: resolveFileUrl(user?.picture_file_name, "users") || null,
     };
 
     if (m.LinkedInUrl !== undefined || m.linkedInUrl !== undefined) {

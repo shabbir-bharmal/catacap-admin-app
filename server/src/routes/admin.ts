@@ -80,7 +80,7 @@ router.get("/user/by-token", async (req: Request, res: Response) => {
       email: user.email,
       firstName: user.first_name || "",
       lastName: user.last_name || "",
-      pictureFileName: resolveFileUrl(user.picture_file_name) || "",
+      pictureFileName: resolveFileUrl(user.picture_file_name, "users") || "",
       userName: user.user_name || "",
       roleName,
       isSuperAdmin,
