@@ -154,8 +154,11 @@ export default function InvestmentsPage() {
   const [auditTarget, setAuditTarget] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
+    if (searchQuery !== debouncedSearch) {
+      return;
+    }
     loadInvestments();
-  }, [effectiveSearch, stageFilter, statusFilter, sortField, sortDir, currentPage, rowsPerPage]);
+  }, [effectiveSearch, stageFilter, statusFilter, sortField, sortDir, currentPage, rowsPerPage, searchQuery, debouncedSearch]);
 
   const loadInvestments = async (setLoader: boolean = true) => {
     setLoader && setIsLoading(true);
@@ -407,7 +410,13 @@ export default function InvestmentsPage() {
                     placeholder="Search..."
                     value={searchQuery}
                     onChange={(e) => {
-                      setSearchQuery(e.target.value);
+                      const value = e.target.value;
+                      setSearchQuery(value);
+                      if (value.trim()) {
+                        setStatusFilter("All");
+                      } else {
+                        setStatusFilter("Active");
+                      }
                       setCurrentPage(1);
                     }}
                     className="pl-9"
