@@ -80,3 +80,71 @@ export async function sendTemplateEmail(
     return false;
   }
 }
+
+export interface EmailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType: string;
+}
+
+export async function sendTemplateEmailWithAttachments(
+  category: number,
+  toEmail: string,
+  variables: Record<string, string>,
+  attachments: EmailAttachment[]
+): Promise<boolean> {
+  try {
+    const templateResult = await pool.query(
+      `SELECT id, name, subject, body_html, receiver
+       FROM email_templates
+       WHERE category = $1 AND status = 2 AND (is_deleted IS NULL OR is_deleted = false)
+       LIMIT 1`,
+      [category]
+    );
+
+    if (templateResult.rows.length === 0) {
+      console.warn(`[EMAIL] No active email template found for category ${category}`);
+      return false;
+    }
+
+    const template = templateResult.rows[0];
+    let bodyHtml = template.body_html || "";
+    let subject = template.subject || "";
+
+    for (const [key, value] of Object.entries(variables)) {
+      const regex = new RegExp(`\\{\\{${key}\\}\\}`, "g");
+      bodyHtml = bodyHtml.replace(regex, value);
+      subject = subject.replace(regex, value);
+    }
+
+    const recipient = toEmail || template.receiver;
+
+    const mailer = getTransporter();
+    if (!mailer) {
+      console.log(`[EMAIL] SMTP not configured. Template email for category ${category} would be sent to: ${recipient}`);
+      console.log(`  Subject: ${subject}`);
+      console.log(`  Attachments: ${attachments.map(a => a.filename).join(", ")}`);
+      return true;
+    }
+
+    const fromEmail = process.env.SMTP_FROM || process.env.SMTP_USER || "noreply@catacap.com";
+
+    await mailer.sendMail({
+      from: fromEmail,
+      to: recipient,
+      subject,
+      html: bodyHtml,
+      attachments: attachments.map(a => ({
+        filename: a.filename,
+        content: a.content,
+        contentType: a.contentType,
+      })),
+    });
+
+    console.log(`[EMAIL] Template email with attachments sent for category ${category} to: ${recipient}`);
+    return true;
+  } catch (err: any) {
+    console.error(`[EMAIL] Error sending template email with attachments for category ${category}:`, err.message);
+    return false;
+  }
+}

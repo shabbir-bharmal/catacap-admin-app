@@ -1,8 +1,16 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
+import { parsePagination, softDeleteFilter, buildSortClause } from "../utils/softDelete.js";
+import { sendTemplateEmail } from "../utils/emailService.js";
+import ExcelJS from "exceljs";
+import crypto from "crypto";
+import fs from "fs";
+import path from "path";
 
 const router = Router();
+
+const UPLOADS_DIR = path.resolve(process.cwd(), "server", "uploads");
 
 const InvestmentStageEnum: Record<string, number> = {
   Private: 1,
@@ -15,6 +23,91 @@ const InvestmentStageEnum: Record<string, number> = {
   Vetting: 8,
   CompletedOngoingPrivate: 9,
 };
+
+const StageDisplayNames: Record<number, string> = {
+  1: "Private",
+  2: "Public",
+  3: "Closed - Invested",
+  4: "Closed - Not Invested",
+  5: "New",
+  6: "Compliance Review",
+  7: "Completed - Ongoing",
+  8: "Vetting",
+  9: "Completed - Ongoing/Private",
+};
+
+const InvestmentRequestStatusNames: Record<number, string> = {
+  0: "Draft",
+  1: "Submitted",
+  2: "Under Review",
+  3: "Approved",
+  4: "Rejected",
+};
+
+function formatDateMMDDYYYY(dateVal: any): string {
+  if (!dateVal) return "";
+  const d = new Date(dateVal);
+  if (isNaN(d.getTime())) return "";
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  return `${mm}-${dd}-${yyyy}`;
+}
+
+function convertHtmlNoteToPlainText(htmlNote: string | null | undefined): string {
+  if (!htmlNote) return "";
+  let result = htmlNote.replace(/<(b|strong)>\s*(.*?)\s*<\/\1>/gi, "@$2");
+  result = result.replace(/<[^>]+>/g, "");
+  result = result.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, " ");
+  return result.trim();
+}
+
+function handleBase64File(base64Data: string | null | undefined, extension: string): string {
+  if (!base64Data) return "";
+
+  let rawBase64 = base64Data;
+  if (base64Data.startsWith("data:")) {
+    const match = base64Data.match(/^data:[^;]+;base64,(.+)$/);
+    if (!match) return "";
+    rawBase64 = match[1];
+  }
+
+  const newFileName = crypto.randomUUID() + extension;
+
+  if (!fs.existsSync(UPLOADS_DIR)) {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  }
+
+  const filePath = path.join(UPLOADS_DIR, newFileName);
+  fs.writeFileSync(filePath, Buffer.from(rawBase64, "base64"));
+
+  return newFileName;
+}
+
+function normalizeMentionFormat(html: string): string {
+  if (!html) return html;
+
+  html = html.replace(/\uFEFF/g, "");
+
+  html = html.replace(
+    /<span[^>]*class="bg-sky-100[^"]*"[^>]*contenteditable="false"[^>]*>(\{.*?\})<\/span>/gis,
+    "$1"
+  );
+
+  html = html.replace(
+    /<span[^>]*class="mention"[^>]*data-value="(\{.*?\})"[^>]*>.*?<\/span>/gis,
+    (_match, token) => {
+      return `<span class="bg-sky-100 text-sky-900 rounded-md px-1.5 py-0.5 inline-block mx-0.5 font-medium select-none" contenteditable="false">${token}</span>`;
+    }
+  );
+
+  html = html.replace(
+    /(<span[^>]*contenteditable="false"[^>]*>(\{.*?\})<\/span>)\2/gs,
+    "$1"
+  );
+
+  return html;
+}
 
 router.get("/types", async (_req: Request, res: Response) => {
   try {
@@ -101,5 +194,1617 @@ router.get("/names", async (req: Request, res: Response) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
+router.get("/data", async (_req: Request, res: Response) => {
+  try {
+    const [sdgsResult, themesResult, typesResult, approvedByResult, tagsResult] = await Promise.all([
+      pool.query(`SELECT id, name FROM sdgs ORDER BY id`),
+      pool.query(`SELECT id, name FROM themes WHERE (is_deleted IS NULL OR is_deleted = false) ORDER BY id`),
+      pool.query(`SELECT id, name FROM investment_types ORDER BY id`),
+      pool.query(`SELECT id, name FROM approvers WHERE (is_deleted IS NULL OR is_deleted = false) ORDER BY id`),
+      pool.query(`SELECT id, tag FROM investment_tags WHERE (is_deleted IS NULL OR is_deleted = false) ORDER BY id`),
+    ]);
+
+    res.json({
+      sdg: sdgsResult.rows.map((r: any) => ({ id: Number(r.id), name: r.name })),
+      theme: themesResult.rows.map((r: any) => ({ id: Number(r.id), name: r.name })),
+      investmentType: typesResult.rows.map((r: any) => ({ id: Number(r.id), name: r.name })),
+      approvedBy: approvedByResult.rows.map((r: any) => ({ id: Number(r.id), name: r.name })),
+      investmentTag: tagsResult.rows.map((r: any) => ({ id: Number(r.id), tag: r.tag })),
+    });
+  } catch (err: any) {
+    console.error("Error fetching investment data:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.get("/countries", async (_req: Request, res: Response) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, name, code FROM countries WHERE is_active = true ORDER BY sort_order ASC, name ASC`
+    );
+    res.json(result.rows.map((r: any) => ({ id: Number(r.id), name: r.name, code: r.code })));
+  } catch (err: any) {
+    console.error("Error fetching countries:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.get("/document", async (req: Request, res: Response) => {
+  try {
+    const action = String(req.query.action || "");
+    const pdfFileName = String(req.query.pdfFileName || "");
+    const originalPdfFileName = String(req.query.originalPdfFileName || "");
+
+    if (!action || !pdfFileName) {
+      res.json({ success: false, message: "Parameters required." });
+      return;
+    }
+
+    const filePath = path.join(UPLOADS_DIR, path.basename(pdfFileName));
+    if (fs.existsSync(filePath)) {
+      const downloadUrl = `/api/uploads/${path.basename(pdfFileName)}`;
+      res.json({ success: true, message: downloadUrl });
+      return;
+    }
+
+    if (pdfFileName.startsWith("/api/uploads/")) {
+      res.json({ success: true, message: pdfFileName });
+      return;
+    }
+
+    res.json({ success: true, message: `/api/uploads/${path.basename(pdfFileName)}` });
+  } catch (err: any) {
+    console.error("Error getting document:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.get("/export", async (_req: Request, res: Response) => {
+  try {
+    const campaignsResult = await pool.query(
+      `SELECT c.*, gpa.name AS group_for_private_access_name
+       FROM campaigns c
+       LEFT JOIN groups gpa ON c.group_for_private_access_id = gpa.id
+       WHERE (c.is_deleted IS NULL OR c.is_deleted = false)
+       ORDER BY c.id`
+    );
+
+    const campaigns = campaignsResult.rows;
+    const campaignIds = campaigns.map((c: any) => Number(c.id));
+
+    let recMap: Record<number, { balance: number; investors: number }> = {};
+    if (campaignIds.length > 0) {
+      const recResult = await pool.query(
+        `SELECT campaign_id,
+                SUM(amount) AS balance,
+                COUNT(DISTINCT user_email) AS investors
+         FROM recommendations
+         WHERE amount > 0 AND user_email IS NOT NULL
+           AND (LOWER(status) = 'approved' OR LOWER(status) = 'pending')
+           AND (is_deleted IS NULL OR is_deleted = false)
+         GROUP BY campaign_id`
+      );
+      for (const r of recResult.rows) {
+        recMap[Number(r.campaign_id)] = {
+          balance: parseFloat(r.balance) || 0,
+          investors: parseInt(r.investors) || 0,
+        };
+      }
+    }
+
+    let tagMap: Record<number, string> = {};
+    if (campaignIds.length > 0) {
+      const tagResult = await pool.query(
+        `SELECT itm.campaign_id, string_agg(it.tag, ', ') AS tags
+         FROM investment_tag_mappings itm
+         JOIN investment_tags it ON itm.tag_id = it.id
+         GROUP BY itm.campaign_id`
+      );
+      for (const r of tagResult.rows) {
+        tagMap[Number(r.campaign_id)] = r.tags;
+      }
+    }
+
+    let lastNoteMap: Record<number, string> = {};
+    if (campaignIds.length > 0) {
+      const noteResult = await pool.query(
+        `SELECT DISTINCT ON (campaign_id) campaign_id, note
+         FROM investment_notes
+         ORDER BY campaign_id, id DESC`
+      );
+      for (const r of noteResult.rows) {
+        lastNoteMap[Number(r.campaign_id)] = r.note || "";
+      }
+    }
+
+    let groupMap: Record<number, string[]> = {};
+    if (campaignIds.length > 0) {
+      const groupResult = await pool.query(
+        `SELECT cg.campaigns_id, g.name
+         FROM campaign_groups cg
+         JOIN groups g ON cg.groups_id = g.id`
+      );
+      for (const r of groupResult.rows) {
+        const cid = Number(r.campaigns_id);
+        if (!groupMap[cid]) groupMap[cid] = [];
+        groupMap[cid].push(r.name);
+      }
+    }
+
+    let fundNameMap: Record<number, string> = {};
+    const fundIds = campaigns
+      .filter((c: any) => c.is_part_of_fund && c.associated_fund_id)
+      .map((c: any) => Number(c.associated_fund_id));
+    if (fundIds.length > 0) {
+      const uniqueIds = [...new Set(fundIds)];
+      const ph = uniqueIds.map((_, i) => `$${i + 1}`).join(", ");
+      const fundResult = await pool.query(
+        `SELECT id, name FROM campaigns WHERE id IN (${ph})`,
+        uniqueIds
+      );
+      for (const r of fundResult.rows) {
+        fundNameMap[Number(r.id)] = r.name;
+      }
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Campaigns");
+
+    const headers = [
+      "Id", "Name", "Description", "Themes", "Approved By", "SDGs", "Type of Investment",
+      "Terms", "Minimum Investment", "Website", "Contact Info FullName", "Contact Info Address1", "Contact Info Address2",
+      "Investment Owner email", "Investment Informational Email", "Contact Info Phone Number", "Country", "Other Country Address", "City", "State", "ZipCode",
+      "Tell us a bit about your network", "ImpactAssetsFundingStatus",
+      "InvestmentRole", "How where you referred to CataCap?", "Target", "Status",
+      "Tile Image File Name", "Image File Name", "Pdf File Name", "Original Pdf File Name",
+      "Logo File Name", "Is Active", "Is Part Of Fund", "Associated Fund", "Featured Investment", "Stage", "Special Filters", "Property", "Added Total Admin Raised",
+      "Groups", "Total Recommendations", "Total Investors", "Group For Private Access", "Email Sends",
+      "Expected Fundraising Close Date", "Mission/Vision", "Personalized Thank You",
+      "How much money do you already have in commitments for your investment",
+      "Investment Type", "Equity / Valuation", "Equity / Security Type", "Fund / Term", "Equity / Funds Target Return",
+      "Debt / Payment Frequency", "Debt / Maturity Date", "Debt / Interest Rate", "Created Date", "Last Note", "Meta Title", "Meta Description"
+    ];
+
+    const headerRow = worksheet.addRow(headers);
+    headerRow.eachCell((cell) => { cell.font = { bold: true }; });
+
+    for (const c of campaigns) {
+      const cid = Number(c.id);
+      const rec = recMap[cid] || { balance: 0, investors: 0 };
+      const tags = tagMap[cid] || "";
+      const lastNote = lastNoteMap[cid] || "";
+      const groups = groupMap[cid] || [];
+
+      const stageDescription = c.stage != null ? (StageDisplayNames[c.stage] || String(c.stage)) : "";
+
+      worksheet.addRow([
+        c.id,
+        c.name,
+        c.description,
+        c.themes,
+        c.approved_by,
+        c.sdgs,
+        c.investment_types,
+        c.terms,
+        c.minimum_investment,
+        c.website,
+        c.contact_info_full_name,
+        c.contact_info_address,
+        c.contact_info_address_2,
+        c.contact_info_email_address,
+        c.investment_informational_email,
+        c.contact_info_phone_number,
+        c.country,
+        c.other_country_address,
+        c.city,
+        c.state,
+        c.zip_code,
+        c.network_description,
+        c.impact_assets_funding_status,
+        c.investment_role,
+        c.referred_to_catacap,
+        c.target,
+        c.status,
+        c.tile_image_file_name,
+        c.image_file_name,
+        c.pdf_file_name,
+        c.original_pdf_file_name,
+        c.logo_file_name,
+        c.is_active ? "Active" : "Inactive",
+        c.is_part_of_fund ? "Yes" : "No",
+        c.is_part_of_fund ? (fundNameMap[Number(c.associated_fund_id)] || "") : "",
+        c.featured_investment ? "Yes" : "No",
+        stageDescription,
+        tags,
+        c.property,
+        c.added_total_admin_raised || 0,
+        groups.join(","),
+        rec.balance,
+        rec.investors,
+        c.group_for_private_access_name || "",
+        c.email_sends ? "Yes" : "No",
+        c.fundraising_close_date,
+        c.mission_and_vision,
+        c.personalized_thank_you,
+        c.expected_total,
+        c.investment_type_category,
+        c.equity_valuation,
+        c.equity_security_type,
+        c.fund_term ? formatDateMMDDYYYY(c.fund_term) : "",
+        c.equity_target_return,
+        c.debt_payment_frequency,
+        c.debt_maturity_date ? formatDateMMDDYYYY(c.debt_maturity_date) : "",
+        c.debt_interest_rate,
+        c.created_date ? formatDateMMDDYYYY(c.created_date) : "",
+        lastNote,
+        c.meta_title,
+        c.meta_description,
+      ]);
+    }
+
+    worksheet.columns.forEach((col) => {
+      let maxLen = 10;
+      col.eachCell?.({ includeEmpty: false }, (cell) => {
+        const len = String(cell.value || "").length;
+        if (len > maxLen) maxLen = len;
+      });
+      col.width = Math.min(maxLen + 5, 50);
+    });
+
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", "attachment; filename=Investments.xlsx");
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err: any) {
+    console.error("Error exporting investments:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.get("/request", async (req: Request, res: Response) => {
+  try {
+    const params = parsePagination(req.query as Record<string, unknown>);
+    const page = params.currentPage;
+    const pageSize = params.perPage;
+    const isAsc = (params.sortDirection || "").toLowerCase() === "asc";
+    const sortField = (params.sortField || "").toLowerCase();
+    const searchValue = params.searchValue?.trim().toLowerCase() || "";
+    const investmentRequestStatus = req.query.investmentRequestStatus || req.query.InvestmentRequestStatus;
+
+    const conditions: string[] = [];
+    const values: any[] = [];
+    let paramIdx = 1;
+
+    const isDeletedRaw = req.query.IsDeleted || req.query.isDeleted;
+    if (isDeletedRaw !== undefined && String(isDeletedRaw).toLowerCase() === "true") {
+      conditions.push(`ir.is_deleted = true`);
+    } else {
+      conditions.push(`(ir.is_deleted IS NULL OR ir.is_deleted = false)`);
+    }
+
+    if (investmentRequestStatus !== undefined && investmentRequestStatus !== null && investmentRequestStatus !== "") {
+      conditions.push(`ir.status = $${paramIdx++}`);
+      values.push(parseInt(String(investmentRequestStatus), 10));
+    }
+
+    if (searchValue) {
+      conditions.push(`(
+        LOWER(COALESCE(ir.organization_name, '')) LIKE $${paramIdx} OR
+        LOWER(COALESCE(u.first_name || ' ' || u.last_name, '')) LIKE $${paramIdx} OR
+        LOWER(COALESCE(u.email, '')) LIKE $${paramIdx}
+      )`);
+      values.push(`%${searchValue}%`);
+      paramIdx++;
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    let orderBy: string;
+    switch (sortField) {
+      case "applicant":
+        orderBy = isAsc ? "u.first_name ASC, u.last_name ASC" : "u.first_name DESC, u.last_name DESC";
+        break;
+      case "organization":
+        orderBy = isAsc ? "ir.organization_name ASC" : "ir.organization_name DESC";
+        break;
+      case "status":
+        orderBy = isAsc ? "ir.status ASC" : "ir.status DESC";
+        break;
+      case "createdat":
+        orderBy = isAsc ? "ir.created_at ASC" : "ir.created_at DESC";
+        break;
+      default:
+        orderBy = "ir.created_at DESC";
+    }
+
+    const countResult = await pool.query(
+      `SELECT COUNT(*) FROM investment_requests ir LEFT JOIN users u ON ir.user_id = u.id ${whereClause}`,
+      values
+    );
+    const totalRecords = parseInt(countResult.rows[0].count, 10);
+
+    const dataResult = await pool.query(
+      `SELECT ir.id, u.first_name, u.last_name,
+              COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '') AS full_name,
+              u.email, ir.organization_name AS organization, ir.country,
+              ir.campaign_goal AS goal, ir.created_at AS submitted, ir.status
+       FROM investment_requests ir
+       LEFT JOIN users u ON ir.user_id = u.id
+       ${whereClause}
+       ORDER BY ${orderBy}
+       LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
+      [...values, pageSize, (page - 1) * pageSize]
+    );
+
+    const items = dataResult.rows.map((r: any) => ({
+      id: Number(r.id),
+      firstName: r.first_name || "",
+      lastName: r.last_name || "",
+      fullName: (r.full_name || "").trim(),
+      email: r.email || "",
+      organization: r.organization || "",
+      country: r.country || "",
+      goal: r.goal ? parseFloat(r.goal) : null,
+      submitted: r.submitted,
+      status: r.status,
+      statusName: InvestmentRequestStatusNames[r.status] || "Unknown",
+    }));
+
+    res.json({ totalCount: totalRecords, items });
+  } catch (err: any) {
+    console.error("Error fetching investment requests:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.get("/request/:id", async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id || id <= 0) {
+      res.json({ success: false, message: "Invalid id." });
+      return;
+    }
+
+    const result = await pool.query(
+      `SELECT ir.*, u.first_name, u.last_name, u.email
+       FROM investment_requests ir
+       LEFT JOIN users u ON ir.user_id = u.id
+       WHERE ir.id = $1 AND (ir.is_deleted IS NULL OR ir.is_deleted = false)`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      res.json({ success: false, message: "Investment request not found." });
+      return;
+    }
+
+    const r = result.rows[0];
+    res.json({
+      item: {
+        currentStep: r.current_step,
+        status: r.status,
+        statusName: InvestmentRequestStatusNames[r.status] || "Unknown",
+        fullName: ((r.first_name || "") + " " + (r.last_name || "")).trim(),
+        firstName: r.first_name || "",
+        lastName: r.last_name || "",
+        email: r.email || "",
+        country: r.country,
+        website: r.website,
+        organizationName: r.organization_name,
+        currentlyRaising: r.currently_raising,
+        investmentTypes: r.investment_types,
+        investmentThemes: r.investment_themes,
+        themeDescription: r.t_he_me_description,
+        capitalRaised: r.capital_raised,
+        referenceableInvestors: r.referenceable_investors,
+        hasDonorCommitment: r.has_donor_commitment,
+        softCircledAmount: r.soft_circled_amount ? parseFloat(r.soft_circled_amount) : 0,
+        timeline: r.time_li_n_e,
+        campaignGoal: r.campaign_goal ? parseFloat(r.campaign_goal) : 0,
+        role: r.role,
+        referralSource: r.referral_source,
+        investmentTerms: r.investment_terms,
+        whyBackYourInvestment: r.why_back_your_investment,
+        logoFileName: r.logo_file_name,
+        heroImageFileName: r.hero_image_file_name,
+        pitchDeckFileName: r.pitch_deck_file_name,
+        logo: r.logo,
+        heroImage: r.hero_image,
+        pitchDeck: r.pitch_deck,
+        createdAt: r.created_at,
+      },
+    });
+  } catch (err: any) {
+    console.error("Error fetching investment request by id:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.get("/:id/notes", async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id || id <= 0) {
+      res.json({ success: false, message: "Invalid investment id" });
+      return;
+    }
+
+    const result = await pool.query(
+      `SELECT n.id, n.old_status AS "oldStatus", n.new_status AS "newStatus",
+              n.note, u.user_name AS "userName", n.created_at AS "createdAt"
+       FROM investment_notes n
+       LEFT JOIN users u ON n.created_by = u.id
+       WHERE n.campaign_id = $1
+       ORDER BY n.id DESC`,
+      [id]
+    );
+
+    if (result.rows.length > 0) {
+      res.json(result.rows);
+    } else {
+      res.json({ success: false, message: "Notes not found" });
+    }
+  } catch (err: any) {
+    console.error("Error fetching investment notes:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.get("/:id/notes/export", async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+
+    const notesResult = await pool.query(
+      `SELECT n.id, n.old_status, n.new_status, n.note, n.created_at,
+              u.user_name, c.name AS campaign_name
+       FROM investment_notes n
+       LEFT JOIN users u ON n.created_by = u.id
+       LEFT JOIN campaigns c ON n.campaign_id = c.id
+       WHERE n.campaign_id = $1
+       ORDER BY n.id DESC`,
+      [id]
+    );
+
+    const notes = notesResult.rows;
+    const campaignName = notes.length > 0 ? notes[0].campaign_name : "Investment Notes";
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("InvestmentNotes");
+
+    worksheet.mergeCells("A1:E2");
+    const titleCell = worksheet.getCell("A1");
+    titleCell.value = "Investment Name: " + (campaignName || "Investment Notes");
+    titleCell.font = { bold: true, size: 13 };
+    titleCell.alignment = { horizontal: "center", vertical: "middle" };
+
+    const headerRowNum = 3;
+    const headers = ["Date", "Username", "From", "To", "Note"];
+    const headerRow = worksheet.getRow(headerRowNum);
+    headers.forEach((h, i) => {
+      headerRow.getCell(i + 1).value = h;
+    });
+    headerRow.font = { bold: true };
+
+    notes.forEach((note: any, index: number) => {
+      const row = worksheet.getRow(headerRowNum + 1 + index);
+      row.getCell(1).value = note.created_at ? formatDateMMDDYYYY(note.created_at) : "";
+      row.getCell(2).value = note.user_name || "";
+      row.getCell(3).value = note.old_status || "";
+      row.getCell(4).value = note.new_status || "";
+      row.getCell(5).value = convertHtmlNoteToPlainText(note.note);
+    });
+
+    worksheet.columns.forEach((col) => {
+      let maxLen = 10;
+      col.eachCell?.({ includeEmpty: false }, (cell) => {
+        const len = String(cell.value || "").length;
+        if (len > maxLen) maxLen = len;
+      });
+      col.width = maxLen + 10;
+    });
+
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", "attachment; filename=InvestmentNotes.xlsx");
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err: any) {
+    console.error("Error exporting investment notes:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.get("/:id/recommendations/export", async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+
+    const recResult = await pool.query(
+      `SELECT r.user_full_name, c.name AS campaign_name, r.amount, r.date_created,
+              pg.status AS pending_grant_status
+       FROM recommendations r
+       JOIN campaigns c ON r.campaign_id = c.id
+       LEFT JOIN pending_grants pg ON r.pending_grants_id = pg.id
+       WHERE r.campaign_id = $1
+         AND (LOWER(TRIM(r.status)) = 'pending' OR LOWER(TRIM(r.status)) = 'approved')
+         AND (r.is_deleted IS NULL OR r.is_deleted = false)
+       ORDER BY r.id DESC`,
+      [id]
+    );
+
+    if (recResult.rows.length === 0) {
+      res.json({ success: false, message: "There are no recommendations to export for your investment." });
+      return;
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Recommendations");
+
+    const headerRow = worksheet.addRow(["UserFullName", "InvestmentName", "Amount", "DateCreated", "InTransitGrant?"]);
+    headerRow.eachCell((cell) => { cell.font = { bold: true }; });
+
+    for (const r of recResult.rows) {
+      const isInTransit = r.pending_grant_status && r.pending_grant_status.toLowerCase().trim() === "in transit" ? "Yes" : "";
+      worksheet.addRow([
+        r.user_full_name || "",
+        r.campaign_name || "",
+        parseFloat(r.amount) || 0,
+        r.date_created || "",
+        isInTransit,
+      ]);
+    }
+
+    worksheet.columns.forEach((col) => {
+      let maxLen = 10;
+      col.eachCell?.({ includeEmpty: false }, (cell) => {
+        const len = String(cell.value || "").length;
+        if (len > maxLen) maxLen = len;
+      });
+      col.width = maxLen + 5;
+    });
+
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", "attachment; filename=Recommendations.xlsx");
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err: any) {
+    console.error("Error exporting recommendations:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.get("/:id", async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id || id <= 0) {
+      res.status(404).json({ message: "Not found" });
+      return;
+    }
+
+    const campaignResult = await pool.query(
+      `SELECT c.*, gpa.id AS gpa_id, gpa.name AS gpa_name
+       FROM campaigns c
+       LEFT JOIN groups gpa ON c.group_for_private_access_id = gpa.id
+       WHERE c.id = $1`,
+      [id]
+    );
+
+    if (campaignResult.rows.length === 0) {
+      res.status(404).json({ message: "Not found" });
+      return;
+    }
+
+    const c = campaignResult.rows[0];
+
+    const balanceResult = await pool.query(
+      `SELECT COALESCE(SUM(CASE WHEN LOWER(status) = 'approved' OR LOWER(status) = 'pending' THEN amount ELSE 0 END), 0) AS balance,
+              COUNT(DISTINCT CASE WHEN (LOWER(status) = 'approved' OR LOWER(status) = 'pending') AND amount > 0 AND user_email IS NOT NULL THEN user_email END) AS investors
+       FROM recommendations
+       WHERE campaign_id = $1 AND (is_deleted IS NULL OR is_deleted = false)`,
+      [id]
+    );
+    const currentBalance = parseFloat(balanceResult.rows[0]?.balance) || 0;
+    const numberOfInvestors = parseInt(balanceResult.rows[0]?.investors) || 0;
+
+    const notesResult = await pool.query(
+      `SELECT n.id, n.old_status, n.new_status, n.note, n.created_at, u.user_name
+       FROM investment_notes n
+       LEFT JOIN users u ON n.created_by = u.id
+       WHERE n.campaign_id = $1
+       ORDER BY n.id DESC`,
+      [id]
+    );
+
+    const investmentNotes = notesResult.rows.map((n: any) => ({
+      date: n.created_at ? new Date(n.created_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) : "",
+      userName: n.user_name || "",
+      note: n.note || "",
+      oldStatus: n.old_status || null,
+      newStatus: n.new_status || null,
+    }));
+
+    const tagResult = await pool.query(
+      `SELECT it.tag
+       FROM investment_tag_mappings itm
+       JOIN investment_tags it ON itm.tag_id = it.id
+       WHERE itm.campaign_id = $1`,
+      [id]
+    );
+    const investmentTag = tagResult.rows.map((t: any) => ({ tag: t.tag }));
+
+    let terms = c.terms || "";
+    if (terms) terms = normalizeMentionFormat(terms);
+
+    const campaign: any = {
+      id: Number(c.id),
+      name: c.name,
+      description: c.description,
+      themes: c.themes,
+      approvedBy: c.approved_by,
+      sdGs: c.sdgs,
+      investmentTypes: c.investment_types,
+      terms,
+      minimumInvestment: c.minimum_investment,
+      website: c.website,
+      networkDescription: c.network_description,
+      contactInfoFullName: c.contact_info_full_name,
+      contactInfoAddress: c.contact_info_address,
+      contactInfoAddress2: c.contact_info_address_2,
+      contactInfoEmailAddress: c.contact_info_email_address,
+      investmentInformationalEmail: c.investment_informational_email,
+      contactInfoPhoneNumber: c.contact_info_phone_number,
+      otherCountryAddress: c.other_country_address,
+      country: c.country,
+      city: c.city,
+      state: c.state,
+      zipCode: c.zip_code,
+      impactAssetsFundingStatus: c.impact_assets_funding_status,
+      investmentRole: c.investment_role,
+      referredToCataCap: c.referred_to_catacap,
+      target: c.target,
+      status: c.status,
+      tileImageFileName: c.tile_image_file_name,
+      imageFileName: c.image_file_name,
+      pdfFileName: c.pdf_file_name,
+      originalPdfFileName: c.original_pdf_file_name,
+      logoFileName: c.logo_file_name,
+      isActive: c.is_active,
+      isPartOfFund: c.is_part_of_fund || false,
+      associatedFundId: c.associated_fund_id,
+      stage: c.stage,
+      property: c.property,
+      addedTotalAdminRaised: c.added_total_admin_raised,
+      currentBalance,
+      numberOfInvestors,
+      groupForPrivateAccessDto: c.gpa_id ? { id: Number(c.gpa_id), name: c.gpa_name } : null,
+      emailSends: c.email_sends,
+      fundraisingCloseDate: c.fundraising_close_date,
+      missionAndVision: c.mission_and_vision,
+      personalizedThankYou: c.personalized_thank_you,
+      hasExistingInvestors: c.has_existing_investors,
+      expectedTotal: c.expected_total ? parseFloat(c.expected_total) : null,
+      investmentTypeCategory: c.investment_type_category,
+      equityValuation: c.equity_valuation ? parseFloat(c.equity_valuation) : null,
+      equitySecurityType: c.equity_security_type,
+      fundTerm: c.fund_term,
+      equityTargetReturn: c.equity_target_return ? parseFloat(c.equity_target_return) : null,
+      debtPaymentFrequency: c.debt_payment_frequency,
+      debtMaturityDate: c.debt_maturity_date,
+      debtInterestRate: c.debt_interest_rate ? parseFloat(c.debt_interest_rate) : null,
+      featuredInvestment: c.featured_investment || false,
+      createdDate: c.created_date,
+      modifiedDate: c.modified_date,
+      investmentNotes,
+      investmentTag,
+      metaTitle: c.meta_title,
+      metaDescription: c.meta_description,
+      groupForPrivateAccessId: c.group_for_private_access_id,
+    };
+
+    res.json(campaign);
+  } catch (err: any) {
+    console.error("Error fetching investment by id:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.get("/", async (req: Request, res: Response) => {
+  try {
+    const params = parsePagination(req.query as Record<string, unknown>);
+    const page = params.currentPage;
+    const pageSize = params.perPage;
+    const isAsc = (params.sortDirection || "").toLowerCase() === "asc";
+    const searchValue = (params.searchValue || "").trim().toLowerCase();
+    const stages = (req.query.Stages || req.query.stages) as string | undefined;
+    const investmentStatusRaw = req.query.InvestmentStatus || req.query.investmentStatus;
+
+    const recResult = await pool.query(
+      `SELECT campaign_id,
+              SUM(amount) AS current_balance,
+              COUNT(DISTINCT user_email) AS number_of_investors
+       FROM recommendations
+       WHERE amount > 0 AND user_email IS NOT NULL
+         AND (LOWER(status) = 'approved' OR LOWER(status) = 'pending')
+         AND (is_deleted IS NULL OR is_deleted = false)
+       GROUP BY campaign_id`
+    );
+    const recMap: Record<number, { currentBalance: number; numberOfInvestors: number }> = {};
+    for (const r of recResult.rows) {
+      recMap[Number(r.campaign_id)] = {
+        currentBalance: parseFloat(r.current_balance) || 0,
+        numberOfInvestors: parseInt(r.number_of_investors) || 0,
+      };
+    }
+
+    const notesSetResult = await pool.query(
+      `SELECT DISTINCT campaign_id FROM investment_notes WHERE campaign_id IS NOT NULL`
+    );
+    const notesSet = new Set(notesSetResult.rows.map((r: any) => Number(r.campaign_id)));
+
+    const conditions: string[] = [];
+    const values: any[] = [];
+    let paramIdx = 1;
+
+    softDeleteFilter("c", params.isDeleted, conditions);
+
+    if (searchValue) {
+      conditions.push(`LOWER(COALESCE(c.name, '')) LIKE $${paramIdx}`);
+      values.push(`%${searchValue}%`);
+      paramIdx++;
+    }
+
+    if (stages) {
+      const stageList = stages.split(",").map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n));
+      if (stageList.length > 0) {
+        const ph = stageList.map((_, i) => `$${paramIdx + i}`).join(", ");
+        conditions.push(`c.stage IN (${ph})`);
+        values.push(...stageList);
+        paramIdx += stageList.length;
+      }
+    }
+
+    if (investmentStatusRaw !== undefined && investmentStatusRaw !== null && investmentStatusRaw !== "") {
+      const investmentStatus = String(investmentStatusRaw).toLowerCase() === "true";
+      conditions.push(`c.is_active = $${paramIdx}`);
+      values.push(investmentStatus);
+      paramIdx++;
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const queryText = `
+      SELECT c.id, c.name, c.created_date, c.stage, c.fundraising_close_date,
+             c.is_active, c.property, c.original_pdf_file_name, c.image_file_name,
+             c.pdf_file_name, c.meta_title, c.meta_description,
+             c.deleted_at, du.first_name AS deleted_by_first, du.last_name AS deleted_by_last
+      FROM campaigns c
+      LEFT JOIN users du ON c.deleted_by = du.id
+      ${whereClause}
+    `;
+
+    const campaignResult = await pool.query(queryText, values);
+
+    let enrichedCampaigns = campaignResult.rows
+      .filter((c: any) => c.id != null)
+      .map((c: any) => {
+        const cid = Number(c.id);
+        const rec = recMap[cid] || { currentBalance: 0, numberOfInvestors: 0 };
+        return {
+          id: cid,
+          name: c.name,
+          createdDate: c.created_date,
+          stage: c.stage,
+          fundraisingCloseDate: c.fundraising_close_date,
+          isActive: c.is_active,
+          property: c.property,
+          originalPdfFileName: c.original_pdf_file_name,
+          imageFileName: c.image_file_name,
+          pdfFileName: c.pdf_file_name,
+          currentBalance: rec.currentBalance,
+          numberOfInvestors: rec.numberOfInvestors,
+          hasNotes: notesSet.has(cid),
+          metaTitle: c.meta_title,
+          metaDescription: c.meta_description,
+          deletedAt: c.deleted_at,
+          deletedBy: c.deleted_by_first ? `${c.deleted_by_first} ${c.deleted_by_last || ""}`.trim() : null,
+        };
+      });
+
+    const sortFieldLower = (params.sortField || "").toLowerCase();
+    enrichedCampaigns.sort((a: any, b: any) => {
+      let cmp = 0;
+      switch (sortFieldLower) {
+        case "name":
+          cmp = ((a.name || "").trim()).localeCompare((b.name || "").trim());
+          break;
+        case "createddate":
+          cmp = new Date(a.createdDate || 0).getTime() - new Date(b.createdDate || 0).getTime();
+          break;
+        case "catacapfunding":
+          cmp = (a.currentBalance || 0) - (b.currentBalance || 0);
+          break;
+        case "totalinvestors":
+          cmp = (a.numberOfInvestors || 0) - (b.numberOfInvestors || 0);
+          break;
+        default:
+          cmp = new Date(a.createdDate || 0).getTime() - new Date(b.createdDate || 0).getTime();
+          return isAsc ? cmp : -cmp;
+      }
+      return isAsc ? cmp : -cmp;
+    });
+
+    const totalCount = enrichedCampaigns.length;
+    const pagedResult = enrichedCampaigns.slice((page - 1) * pageSize, page * pageSize);
+
+    res.json({ items: pagedResult, totalCount });
+  } catch (err: any) {
+    console.error("Error fetching investments:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.post("/", async (req: Request, res: Response) => {
+  try {
+    const campaign = req.body;
+    if (!campaign) {
+      res.json({ success: false, message: "Campaign data is required." });
+      return;
+    }
+
+    if (!campaign.contactInfoEmailAddress) {
+      res.json({ success: false, message: "Email is required." });
+      return;
+    }
+
+    if (!campaign.firstName || !(campaign.firstName || "").trim()) {
+      res.json({ success: false, message: "First Name is required." });
+      return;
+    }
+
+    if (!campaign.lastName || !(campaign.lastName || "").trim()) {
+      res.json({ success: false, message: "Last Name is required." });
+      return;
+    }
+
+    const userEmail = campaign.contactInfoEmailAddress.trim().toLowerCase();
+    let userResult = await pool.query(
+      `SELECT id FROM users WHERE LOWER(email) = $1 LIMIT 1`,
+      [userEmail]
+    );
+
+    let userId = userResult.rows[0]?.id || null;
+
+    if (!userId) {
+      const firstName = campaign.firstName.trim();
+      const lastName = campaign.lastName.trim();
+      let userName = `${firstName}${lastName}`.replace(/\s/g, "").toLowerCase();
+
+      let existing = await pool.query(`SELECT id FROM users WHERE user_name = $1`, [userName]);
+      while (existing.rows.length > 0) {
+        userName = `${userName}${Math.floor(Math.random() * 100)}`;
+        existing = await pool.query(`SELECT id FROM users WHERE user_name = $1`, [userName]);
+      }
+
+      const newUserResult = await pool.query(
+        `INSERT INTO users (id, first_name, last_name, user_name, email, is_free_user, email_confirmed)
+         VALUES ($1, $2, $3, $4, $5, true, false)
+         RETURNING id`,
+        [crypto.randomUUID(), firstName, lastName, userName, userEmail]
+      );
+      userId = newUserResult.rows[0].id;
+    }
+
+    let pdfFileName = campaign.pdfFileName || null;
+    let imageFileName = campaign.imageFileName || null;
+    let tileImageFileName = campaign.tileImageFileName || null;
+    let logoFileName = campaign.logoFileName || null;
+
+    if (campaign.pdfPresentation || campaign.PDFPresentation) {
+      pdfFileName = handleBase64File(campaign.pdfPresentation || campaign.PDFPresentation, ".pdf");
+    }
+    if (campaign.image) {
+      imageFileName = handleBase64File(campaign.image, ".jpg");
+    }
+    if (campaign.tileImage) {
+      tileImageFileName = handleBase64File(campaign.tileImage, ".jpg");
+    }
+    if (campaign.logo) {
+      logoFileName = handleBase64File(campaign.logo, ".jpg");
+    }
+
+    const insertResult = await pool.query(
+      `INSERT INTO campaigns (
+        name, description, themes, approved_by, sdgs, investment_types, terms,
+        minimum_investment, website, network_description, contact_info_full_name,
+        contact_info_address, contact_info_address_2, contact_info_email_address,
+        investment_informational_email, contact_info_phone_number, country,
+        other_country_address, city, state, zip_code, impact_assets_funding_status,
+        investment_role, referred_to_catacap, target, status, stage, is_active,
+        pdf_file_name, original_pdf_file_name, image_file_name, tile_image_file_name,
+        logo_file_name, property, added_total_admin_raised, email_sends,
+        group_for_private_access_id, fundraising_close_date, mission_and_vision,
+        personalized_thank_you, has_existing_investors, expected_total,
+        is_part_of_fund, associated_fund_id, featured_investment,
+        investment_type_category, equity_valuation, equity_security_type,
+        fund_term, equity_target_return, debt_payment_frequency,
+        debt_maturity_date, debt_interest_rate, user_id,
+        meta_title, meta_description, created_date, modified_date
+      ) VALUES (
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
+        $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,
+        $39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,NOW(),NOW()
+      ) RETURNING id`,
+      [
+        campaign.name || null,
+        campaign.description || null,
+        campaign.themes || null,
+        campaign.approvedBy || null,
+        campaign.sdGs || campaign.sdgs || null,
+        campaign.investmentTypes || null,
+        campaign.terms || null,
+        campaign.minimumInvestment || null,
+        campaign.website || null,
+        campaign.networkDescription || null,
+        campaign.contactInfoFullName || null,
+        campaign.contactInfoAddress || null,
+        campaign.contactInfoAddress2 || null,
+        campaign.contactInfoEmailAddress || null,
+        campaign.investmentInformationalEmail || null,
+        campaign.contactInfoPhoneNumber || null,
+        campaign.country || null,
+        campaign.otherCountryAddress || null,
+        campaign.city || null,
+        campaign.state || null,
+        campaign.zipCode || null,
+        campaign.impactAssetsFundingStatus || null,
+        campaign.investmentRole || null,
+        campaign.referredToCataCap || null,
+        campaign.target || null,
+        "0",
+        InvestmentStageEnum.New,
+        false,
+        pdfFileName,
+        campaign.originalPdfFileName || pdfFileName,
+        imageFileName,
+        tileImageFileName,
+        logoFileName,
+        campaign.property || null,
+        0,
+        false,
+        campaign.groupForPrivateAccessDto?.id || null,
+        campaign.fundraisingCloseDate || null,
+        campaign.missionAndVision || null,
+        campaign.personalizedThankYou || null,
+        campaign.hasExistingInvestors || false,
+        campaign.expectedTotal || null,
+        campaign.isPartOfFund || false,
+        campaign.associatedFundId || null,
+        campaign.featuredInvestment || false,
+        campaign.investmentTypeCategory || null,
+        campaign.equityValuation || null,
+        campaign.equitySecurityType || null,
+        campaign.fundTerm || null,
+        campaign.equityTargetReturn || null,
+        campaign.debtPaymentFrequency || null,
+        campaign.debtMaturityDate || null,
+        campaign.debtInterestRate || null,
+        userId,
+        campaign.metaTitle || null,
+        campaign.metaDescription || null,
+      ]
+    );
+
+    const newCampaignId = insertResult.rows[0].id;
+
+    if (campaign.investmentTag && Array.isArray(campaign.investmentTag) && campaign.investmentTag.length > 0) {
+      await handleTagMappings(newCampaignId, campaign.investmentTag);
+    }
+
+    res.json({ success: true, message: "Investment has been created successfully." });
+  } catch (err: any) {
+    console.error("Error creating investment:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.put("/restore", async (req: Request, res: Response) => {
+  try {
+    const ids = req.body;
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      res.json({ success: false, message: "No IDs provided." });
+      return;
+    }
+
+    const ph = ids.map((_: any, i: number) => `$${i + 1}`).join(", ");
+
+    const campaignResult = await pool.query(
+      `SELECT id FROM campaigns WHERE id IN (${ph}) AND is_deleted = true`,
+      ids
+    );
+
+    if (campaignResult.rows.length === 0) {
+      res.json({ success: false, message: "No deleted campaigns found." });
+      return;
+    }
+
+    const campaignIds = campaignResult.rows.map((r: any) => Number(r.id));
+    const ciPh = campaignIds.map((_: any, i: number) => `$${i + 1}`).join(", ");
+
+    await pool.query(
+      `UPDATE campaigns SET is_deleted = false, deleted_at = NULL, deleted_by = NULL WHERE id IN (${ciPh})`,
+      campaignIds
+    );
+
+    await pool.query(
+      `UPDATE recommendations SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+       WHERE campaign_id IN (${ciPh}) AND is_deleted = true`,
+      campaignIds
+    );
+
+    await pool.query(
+      `UPDATE pending_grants SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+       WHERE campaign_id IN (${ciPh}) AND is_deleted = true`,
+      campaignIds
+    );
+
+    await pool.query(
+      `UPDATE disbursal_requests SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+       WHERE campaign_id IN (${ciPh}) AND is_deleted = true`,
+      campaignIds
+    );
+
+    await pool.query(
+      `UPDATE completed_investment_details SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+       WHERE campaign_id IN (${ciPh}) AND is_deleted = true`,
+      campaignIds
+    );
+
+    const count = campaignIds.length;
+    res.json({ success: true, message: `${count} campaign(s) restored successfully.` });
+  } catch (err: any) {
+    console.error("Error restoring campaigns:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.put("/:id/status", async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const status = String(req.query.status).toLowerCase() === "true";
+
+    const result = await pool.query(
+      `UPDATE campaigns SET is_active = $1, modified_date = NOW() WHERE id = $2 RETURNING *`,
+      [status, id]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(400).json({ message: "Campaign not found" });
+      return;
+    }
+
+    const campaign = result.rows[0];
+
+    if (status) {
+      const requestOrigin = process.env.REQUEST_ORIGIN || process.env.VITE_FRONTEND_URL || "";
+      const logoUrl = process.env.LOGO_URL || "";
+      const now = new Date();
+      const dateStr = `${String(now.getMonth() + 1).padStart(2, "0")}/${String(now.getDate()).padStart(2, "0")}/${now.getFullYear()}`;
+
+      try {
+        await sendTemplateEmail(11, "investments@catacap.org", {
+          logoUrl,
+          date: dateStr,
+          investmentLink: `${requestOrigin}/investments/${campaign.property}`,
+          campaignName: campaign.name || "",
+        });
+      } catch (emailErr: any) {
+        console.error("Error sending investment approved email:", emailErr);
+      }
+    }
+
+    res.json(mapCampaignRow(campaign));
+  } catch (err: any) {
+    console.error("Error updating investment status:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.put("/:id", async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) {
+      res.status(400).json({ message: "Invalid id" });
+      return;
+    }
+
+    const campaign = req.body;
+
+    if (campaign.property) {
+      const slugExists = await pool.query(
+        `SELECT id FROM slugs WHERE type = 1 AND reference_id != $1 AND value = $2 LIMIT 1`,
+        [id, campaign.property]
+      );
+      const propExists = await pool.query(
+        `SELECT id FROM campaigns WHERE id != $1 AND LOWER(TRIM(COALESCE(property, ''))) = $2 LIMIT 1`,
+        [id, campaign.property.toLowerCase().trim()]
+      );
+
+      if (slugExists.rows.length > 0 || propExists.rows.length > 0) {
+        res.json({ success: false, message: "Investment name for URL already exists." });
+        return;
+      }
+    }
+
+    let pdfFileName = campaign.pdfFileName || null;
+    let imageFileName = campaign.imageFileName || null;
+    let tileImageFileName = campaign.tileImageFileName || null;
+    let logoFileName = campaign.logoFileName || null;
+
+    if (campaign.pdfPresentation || campaign.PDFPresentation) {
+      pdfFileName = handleBase64File(campaign.pdfPresentation || campaign.PDFPresentation, ".pdf");
+    }
+    if (campaign.image) {
+      imageFileName = handleBase64File(campaign.image, ".jpg");
+    }
+    if (campaign.tileImage) {
+      tileImageFileName = handleBase64File(campaign.tileImage, ".jpg");
+    }
+    if (campaign.logo) {
+      logoFileName = handleBase64File(campaign.logo, ".jpg");
+    }
+
+    const existingResult = await pool.query(`SELECT * FROM campaigns WHERE id = $1`, [id]);
+    if (existingResult.rows.length === 0) {
+      res.status(404).json({ message: "Campaign not found" });
+      return;
+    }
+    const existing = existingResult.rows[0];
+
+    if (existing.property && existing.property.trim()) {
+      const currentSlug = await pool.query(
+        `SELECT id FROM slugs WHERE type = 1 AND value = $1 LIMIT 1`,
+        [existing.property]
+      );
+      if (currentSlug.rows.length === 0) {
+        await pool.query(
+          `INSERT INTO slugs (reference_id, type, value, created_at) VALUES ($1, 1, $2, NOW())`,
+          [id, existing.property]
+        );
+      }
+    }
+
+    const userRole = req.user?.role?.toLowerCase() || "";
+    const isAdmin = userRole === "admin" || userRole === "superadmin" || req.user?.isSuperAdmin;
+
+    let finalMinimumInvestment = campaign.minimumInvestment;
+    let finalApprovedBy = campaign.approvedBy;
+    let finalStage = campaign.stage;
+    let finalProperty = campaign.property;
+    let finalAddedTotalAdminRaised = campaign.addedTotalAdminRaised;
+    let finalIsActive = campaign.isActive;
+    let finalGroupForPrivateAccessId = campaign.groupForPrivateAccessDto?.id || campaign.groupForPrivateAccessId || null;
+
+    if (!isAdmin) {
+      finalMinimumInvestment = existing.minimum_investment;
+      finalApprovedBy = existing.approved_by;
+      finalStage = existing.stage;
+      finalProperty = existing.property;
+      finalAddedTotalAdminRaised = existing.added_total_admin_raised;
+      finalIsActive = existing.is_active;
+      finalGroupForPrivateAccessId = existing.group_for_private_access_id;
+    }
+
+    await pool.query(
+      `UPDATE campaigns SET
+        name = $1, description = $2, themes = $3, approved_by = $4, sdgs = $5,
+        investment_types = $6, terms = $7, minimum_investment = $8, website = $9,
+        network_description = $10, contact_info_full_name = $11, contact_info_address = $12,
+        contact_info_address_2 = $13, contact_info_email_address = $14,
+        investment_informational_email = $15, contact_info_phone_number = $16,
+        country = $17, other_country_address = $18, city = $19, state = $20,
+        zip_code = $21, impact_assets_funding_status = $22, investment_role = $23,
+        referred_to_catacap = $24, target = $25, pdf_file_name = $26,
+        original_pdf_file_name = $27, image_file_name = $28, tile_image_file_name = $29,
+        logo_file_name = $30, property = $31, stage = $32, is_active = $33,
+        added_total_admin_raised = $34, group_for_private_access_id = $35,
+        email_sends = $36, fundraising_close_date = $37, mission_and_vision = $38,
+        personalized_thank_you = $39, has_existing_investors = $40, expected_total = $41,
+        is_part_of_fund = $42, associated_fund_id = $43, featured_investment = $44,
+        investment_type_category = $45, equity_valuation = $46, equity_security_type = $47,
+        fund_term = $48, equity_target_return = $49, debt_payment_frequency = $50,
+        debt_maturity_date = $51, debt_interest_rate = $52,
+        meta_title = $53, meta_description = $54, modified_date = NOW()
+      WHERE id = $55`,
+      [
+        campaign.name || existing.name,
+        campaign.description ?? existing.description,
+        campaign.themes ?? existing.themes,
+        finalApprovedBy ?? existing.approved_by,
+        campaign.sdGs || campaign.sdgs || existing.sdgs,
+        campaign.investmentTypes ?? existing.investment_types,
+        campaign.terms ?? existing.terms,
+        finalMinimumInvestment ?? existing.minimum_investment,
+        campaign.website ?? existing.website,
+        campaign.networkDescription ?? existing.network_description,
+        campaign.contactInfoFullName ?? existing.contact_info_full_name,
+        campaign.contactInfoAddress ?? existing.contact_info_address,
+        campaign.contactInfoAddress2 ?? existing.contact_info_address_2,
+        campaign.contactInfoEmailAddress ?? existing.contact_info_email_address,
+        campaign.investmentInformationalEmail ?? existing.investment_informational_email,
+        campaign.contactInfoPhoneNumber ?? existing.contact_info_phone_number,
+        campaign.country ?? existing.country,
+        campaign.otherCountryAddress ?? existing.other_country_address,
+        campaign.city ?? existing.city,
+        campaign.state ?? existing.state,
+        campaign.zipCode ?? existing.zip_code,
+        campaign.impactAssetsFundingStatus ?? existing.impact_assets_funding_status,
+        campaign.investmentRole ?? existing.investment_role,
+        campaign.referredToCataCap ?? existing.referred_to_catacap,
+        campaign.target ?? existing.target,
+        pdfFileName || existing.pdf_file_name,
+        campaign.originalPdfFileName || pdfFileName || existing.original_pdf_file_name,
+        imageFileName || existing.image_file_name,
+        tileImageFileName || existing.tile_image_file_name,
+        logoFileName || existing.logo_file_name,
+        finalProperty ?? existing.property,
+        finalStage ?? existing.stage,
+        finalIsActive ?? existing.is_active,
+        finalAddedTotalAdminRaised ?? existing.added_total_admin_raised,
+        finalGroupForPrivateAccessId,
+        campaign.emailSends ?? existing.email_sends,
+        campaign.fundraisingCloseDate ?? existing.fundraising_close_date,
+        campaign.missionAndVision ?? existing.mission_and_vision,
+        campaign.personalizedThankYou ?? existing.personalized_thank_you,
+        campaign.hasExistingInvestors ?? existing.has_existing_investors,
+        campaign.expectedTotal ?? existing.expected_total,
+        campaign.isPartOfFund ?? existing.is_part_of_fund,
+        campaign.associatedFundId ?? existing.associated_fund_id,
+        campaign.featuredInvestment ?? existing.featured_investment,
+        campaign.investmentTypeCategory ?? existing.investment_type_category,
+        campaign.equityValuation ?? existing.equity_valuation,
+        campaign.equitySecurityType ?? existing.equity_security_type,
+        campaign.fundTerm ?? existing.fund_term,
+        campaign.equityTargetReturn ?? existing.equity_target_return,
+        campaign.debtPaymentFrequency ?? existing.debt_payment_frequency,
+        campaign.debtMaturityDate ?? existing.debt_maturity_date,
+        campaign.debtInterestRate ?? existing.debt_interest_rate,
+        campaign.metaTitle ?? existing.meta_title,
+        campaign.metaDescription ?? existing.meta_description,
+        id,
+      ]
+    );
+
+    if (campaign.investmentTag && Array.isArray(campaign.investmentTag)) {
+      await handleTagMappings(id, campaign.investmentTag);
+    }
+
+    if (
+      campaign.note || campaign.Note ||
+      (campaign.oldStatus && campaign.newStatus) ||
+      (campaign.OldStatus && campaign.NewStatus)
+    ) {
+      const loginUserId = req.user?.id || null;
+      const noteText = (campaign.note || campaign.Note || "").trim() || null;
+      const oldStatus = campaign.oldStatus || campaign.OldStatus || null;
+      const newStatus = campaign.newStatus || campaign.NewStatus || null;
+
+      await pool.query(
+        `INSERT INTO investment_notes (campaign_id, note, created_by, created_at, old_status, new_status)
+         VALUES ($1, $2, $3, NOW(), $4, $5)`,
+        [id, noteText, loginUserId, oldStatus, newStatus]
+      );
+    }
+
+    if (campaign.noteEmail && Array.isArray(campaign.noteEmail) && campaign.noteEmail.length > 0) {
+      const loggedInUserName = req.user?.name || "";
+      const investmentName = campaign.name || existing.name || "";
+      const fromStage = campaign.oldStatus || campaign.OldStatus || null;
+      const toStage = campaign.newStatus || campaign.NewStatus || null;
+      const noteText = (campaign.note || campaign.Note || "").trim() || null;
+
+      const stageChangeSection = (!fromStage || !toStage) ? "" :
+        `<tr><td style='padding:6px 0; font-weight:bold;'>Stage Change:</td><td style='padding:6px 0;'>${fromStage} → ${toStage}</td></tr>`;
+
+      const logoUrl = process.env.LOGO_URL || "";
+      const uniqueEmails = [...new Set(campaign.noteEmail)] as string[];
+
+      for (const email of uniqueEmails) {
+        if (!email) continue;
+        try {
+          await sendTemplateEmail(19, email, {
+            logoUrl,
+            loggedInUserName,
+            investmentName,
+            noteText: noteText || "",
+            stageChangeSection,
+          });
+        } catch (emailErr: any) {
+          console.error("Error sending mention email:", emailErr);
+        }
+      }
+    }
+
+    const notesResult = await pool.query(
+      `SELECT n.id, n.old_status, n.new_status, n.note, n.created_at, u.user_name
+       FROM investment_notes n
+       LEFT JOIN users u ON n.created_by = u.id
+       WHERE n.campaign_id = $1
+       ORDER BY n.id DESC`,
+      [id]
+    );
+
+    const investmentNotes = notesResult.rows.map((n: any) => ({
+      date: n.created_at ? new Date(n.created_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) : "",
+      userName: n.user_name || "",
+      note: n.note || "",
+      oldStatus: n.old_status || null,
+      newStatus: n.new_status || null,
+    }));
+
+    const updatedResult = await pool.query(`SELECT * FROM campaigns WHERE id = $1`, [id]);
+    const updatedCampaign = updatedResult.rows[0];
+
+    res.json({
+      success: true,
+      message: "Campaign details updated successfully",
+      campaign: {
+        ...mapCampaignRow(updatedCampaign),
+        investmentNotes,
+      },
+    });
+  } catch (err: any) {
+    console.error("Error updating investment:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.delete("/:id", async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const loginUserId = req.user?.id || null;
+
+    const campaignResult = await pool.query(`SELECT id FROM campaigns WHERE id = $1`, [id]);
+    if (campaignResult.rows.length === 0) {
+      res.json({ success: false, message: "Campaign not found." });
+      return;
+    }
+
+    await pool.query(
+      `UPDATE campaigns SET is_deleted = true, deleted_at = NOW(), deleted_by = $1 WHERE id = $2`,
+      [loginUserId, id]
+    );
+
+    await pool.query(
+      `UPDATE recommendations SET is_deleted = true, deleted_at = NOW(), deleted_by = $1 WHERE campaign_id = $2 AND (is_deleted IS NULL OR is_deleted = false)`,
+      [loginUserId, id]
+    );
+
+    await pool.query(
+      `UPDATE pending_grants SET is_deleted = true, deleted_at = NOW(), deleted_by = $1 WHERE campaign_id = $2 AND (is_deleted IS NULL OR is_deleted = false)`,
+      [loginUserId, id]
+    );
+
+    await pool.query(
+      `UPDATE disbursal_requests SET is_deleted = true, deleted_at = NOW(), deleted_by = $1 WHERE campaign_id = $2 AND (is_deleted IS NULL OR is_deleted = false)`,
+      [loginUserId, id]
+    );
+
+    await pool.query(
+      `UPDATE completed_investment_details SET is_deleted = true, deleted_at = NOW(), deleted_by = $1 WHERE campaign_id = $2 AND (is_deleted IS NULL OR is_deleted = false)`,
+      [loginUserId, id]
+    );
+
+    res.json({ success: true, message: "Campaign deleted successfully." });
+  } catch (err: any) {
+    console.error("Error deleting investment:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.post("/:id/clone", async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const name = (String(req.query.name || "")).trim();
+
+    if (name) {
+      const nameExists = await pool.query(
+        `SELECT id FROM campaigns WHERE TRIM(name) = $1 LIMIT 1`,
+        [name]
+      );
+      if (nameExists.rows.length > 0) {
+        res.json({ success: false, message: "Campaign name already exists." });
+        return;
+      }
+    }
+
+    const campaignResult = await pool.query(
+      `SELECT * FROM campaigns WHERE id = $1`,
+      [id]
+    );
+
+    if (campaignResult.rows.length === 0) {
+      res.json({ success: false, message: "Campaign not found." });
+      return;
+    }
+
+    const c = campaignResult.rows[0];
+
+    const baseProp = (name || "").toLowerCase().replace(/\s/g, "");
+    let updatedProperty = `${baseProp}-qbe-${new Date().getFullYear()}`;
+
+    let counter = 1;
+    let propExists = await pool.query(`SELECT id FROM campaigns WHERE property = $1`, [updatedProperty]);
+    while (propExists.rows.length > 0) {
+      updatedProperty = `${baseProp}-qbe-${new Date().getFullYear()}-${counter}`;
+      counter++;
+      propExists = await pool.query(`SELECT id FROM campaigns WHERE property = $1`, [updatedProperty]);
+    }
+
+    await pool.query(
+      `INSERT INTO campaigns (
+        name, description, themes, approved_by, sdgs, investment_types, terms,
+        minimum_investment, website, network_description, contact_info_full_name,
+        contact_info_address, contact_info_address_2, contact_info_phone_number,
+        country, other_country_address, city, state, zip_code,
+        impact_assets_funding_status, investment_role, referred_to_catacap,
+        target, status, tile_image_file_name, image_file_name, pdf_file_name,
+        original_pdf_file_name, logo_file_name, is_active, stage, property,
+        added_total_admin_raised, email_sends, fundraising_close_date,
+        mission_and_vision, personalized_thank_you, has_existing_investors,
+        expected_total, created_date, modified_date
+      ) VALUES (
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
+        $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,NOW(),NOW()
+      )`,
+      [
+        name || c.name,
+        c.description,
+        c.themes,
+        c.approved_by,
+        c.sdgs,
+        c.investment_types,
+        c.terms,
+        c.minimum_investment,
+        c.website,
+        c.network_description,
+        c.contact_info_full_name,
+        c.contact_info_address,
+        c.contact_info_address_2,
+        c.contact_info_phone_number,
+        c.country,
+        c.other_country_address,
+        c.city,
+        c.state,
+        c.zip_code,
+        c.impact_assets_funding_status,
+        c.investment_role,
+        c.referred_to_catacap,
+        c.target,
+        "0",
+        c.tile_image_file_name,
+        c.image_file_name,
+        c.pdf_file_name,
+        c.original_pdf_file_name,
+        c.logo_file_name,
+        false,
+        InvestmentStageEnum.New,
+        updatedProperty,
+        0,
+        false,
+        c.fundraising_close_date,
+        c.mission_and_vision,
+        c.personalized_thank_you,
+        c.has_existing_investors,
+        c.expected_total,
+      ]
+    );
+
+    res.json({ success: true, message: "Investment cloned successfully." });
+  } catch (err: any) {
+    console.error("Error cloning investment:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+function mapCampaignRow(c: any): any {
+  return {
+    id: Number(c.id),
+    name: c.name,
+    description: c.description,
+    themes: c.themes,
+    approvedBy: c.approved_by,
+    sdGs: c.sdgs,
+    investmentTypes: c.investment_types,
+    terms: c.terms,
+    minimumInvestment: c.minimum_investment,
+    website: c.website,
+    contactInfoFullName: c.contact_info_full_name,
+    contactInfoAddress: c.contact_info_address,
+    contactInfoAddress2: c.contact_info_address_2,
+    contactInfoEmailAddress: c.contact_info_email_address,
+    investmentInformationalEmail: c.investment_informational_email,
+    contactInfoPhoneNumber: c.contact_info_phone_number,
+    country: c.country,
+    city: c.city,
+    state: c.state,
+    zipCode: c.zip_code,
+    otherCountryAddress: c.other_country_address,
+    impactAssetsFundingStatus: c.impact_assets_funding_status,
+    investmentRole: c.investment_role,
+    referredToCataCap: c.referred_to_catacap,
+    target: c.target,
+    status: c.status,
+    tileImageFileName: c.tile_image_file_name,
+    imageFileName: c.image_file_name,
+    pdfFileName: c.pdf_file_name,
+    originalPdfFileName: c.original_pdf_file_name,
+    logoFileName: c.logo_file_name,
+    isActive: c.is_active,
+    isPartOfFund: c.is_part_of_fund || false,
+    associatedFundId: c.associated_fund_id,
+    stage: c.stage,
+    property: c.property,
+    addedTotalAdminRaised: c.added_total_admin_raised,
+    emailSends: c.email_sends,
+    fundraisingCloseDate: c.fundraising_close_date,
+    missionAndVision: c.mission_and_vision,
+    personalizedThankYou: c.personalized_thank_you,
+    expectedTotal: c.expected_total ? parseFloat(c.expected_total) : null,
+    featuredInvestment: c.featured_investment || false,
+    createdDate: c.created_date,
+    modifiedDate: c.modified_date,
+    investmentTypeCategory: c.investment_type_category,
+    equityValuation: c.equity_valuation ? parseFloat(c.equity_valuation) : null,
+    equitySecurityType: c.equity_security_type,
+    fundTerm: c.fund_term,
+    equityTargetReturn: c.equity_target_return ? parseFloat(c.equity_target_return) : null,
+    debtPaymentFrequency: c.debt_payment_frequency,
+    debtMaturityDate: c.debt_maturity_date,
+    debtInterestRate: c.debt_interest_rate ? parseFloat(c.debt_interest_rate) : null,
+    metaTitle: c.meta_title,
+    metaDescription: c.meta_description,
+  };
+}
+
+async function handleTagMappings(campaignId: number, investmentTags: any[]): Promise<void> {
+  const tagNames = investmentTags
+    .map((t: any) => (typeof t === "string" ? t : t.tag || "").trim())
+    .filter((t: string) => t.length > 0);
+
+  if (tagNames.length === 0) {
+    await pool.query(`DELETE FROM investment_tag_mappings WHERE campaign_id = $1`, [campaignId]);
+    return;
+  }
+
+  for (const tagName of tagNames) {
+    const existing = await pool.query(
+      `SELECT id FROM investment_tags WHERE LOWER(TRIM(tag)) = $1 AND (is_deleted IS NULL OR is_deleted = false)`,
+      [tagName.toLowerCase()]
+    );
+    if (existing.rows.length === 0) {
+      await pool.query(`INSERT INTO investment_tags (tag) VALUES ($1)`, [tagName]);
+    }
+  }
+
+  const allTagsResult = await pool.query(
+    `SELECT id, tag FROM investment_tags WHERE (is_deleted IS NULL OR is_deleted = false)`
+  );
+  const allTags = allTagsResult.rows;
+
+  const tagNameLowerSet = new Set(tagNames.map((t: string) => t.toLowerCase()));
+  const matchingTagIds = allTags
+    .filter((t: any) => tagNameLowerSet.has(t.tag.trim().toLowerCase()))
+    .map((t: any) => Number(t.id));
+
+  await pool.query(`DELETE FROM investment_tag_mappings WHERE campaign_id = $1`, [campaignId]);
+
+  for (const tagId of matchingTagIds) {
+    await pool.query(
+      `INSERT INTO investment_tag_mappings (tag_id, campaign_id) VALUES ($1, $2)`,
+      [tagId, campaignId]
+    );
+  }
+}
 
 export default router;

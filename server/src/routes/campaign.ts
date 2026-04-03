@@ -7,7 +7,8 @@ import ExcelJS from "exceljs";
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
-import { sendTemplateEmail } from "../utils/emailService.js";
+import { sendTemplateEmail, sendTemplateEmailWithAttachments } from "../utils/emailService.js";
+import QRCode from "qrcode";
 
 const router = Router();
 
@@ -580,6 +581,199 @@ router.get("/get-disbursal-request-notes", jwtUserAuthMiddleware, async (req: Re
     }
   } catch (err: any) {
     console.error("Error fetching disbursal request notes:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+function convertHtmlNoteToPlainText(htmlNote: string | null | undefined): string {
+  if (!htmlNote) return "";
+  let result = htmlNote.replace(/<(b|strong)>\s*(.*?)\s*<\/\1>/gi, "@$2");
+  result = result.replace(/<[^>]+>/g, "");
+  result = result.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, " ");
+  return result.trim();
+}
+
+function formatDateMMDDYYYY(dateVal: any): string {
+  if (!dateVal) return "";
+  const d = new Date(dateVal);
+  if (isNaN(d.getTime())) return "";
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  return `${mm}-${dd}-${yyyy}`;
+}
+
+router.get("/send-investment-qr-code-email", jwtUserAuthMiddleware, async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(String(req.query.id || "0"), 10);
+    const investmentTag = String(req.query.investmentTag || "");
+
+    if (!id || id <= 0) {
+      res.json({ success: false, message: "Invalid investment id" });
+      return;
+    }
+
+    const campaignResult = await pool.query(
+      `SELECT id, name, property, contact_info_email_address, contact_info_full_name FROM campaigns WHERE id = $1`,
+      [id]
+    );
+
+    if (campaignResult.rows.length === 0) {
+      res.json({ success: false, message: "Investment not found." });
+      return;
+    }
+
+    const investment = campaignResult.rows[0];
+
+    if (!investment.contact_info_email_address || !investment.contact_info_email_address.trim()) {
+      res.json({ success: false, message: "You can't send QR by email because your organizational email isn't set up yet" });
+      return;
+    }
+
+    const requestOrigin = process.env.REQUEST_ORIGIN || process.env.VITE_FRONTEND_URL || "";
+    let investmentUrl = investmentTag && investmentTag.trim()
+      ? investmentTag
+      : investment.property
+        ? `${requestOrigin}/invest/${encodeURIComponent(investment.property)}`
+        : null;
+
+    if (!investmentUrl) {
+      res.json({ success: false, message: "Failed to send email because investment URL is missing." });
+      return;
+    }
+
+    const fullName = investment.contact_info_full_name || "";
+    const parts = fullName.split(/\s+/).filter((p: string) => p.length > 0);
+    const firstName = parts.length > 0 ? parts[0] : "";
+
+    const qrPngBuffer = await QRCode.toBuffer(investmentUrl, {
+      type: "png",
+      width: 400,
+      errorCorrectionLevel: "Q",
+    });
+
+    const logoUrl = process.env.LOGO_URL || "";
+    const unsubscribeUrl = `${requestOrigin}/settings`;
+
+    try {
+      await sendTemplateEmailWithAttachments(
+        22,
+        investment.contact_info_email_address.trim().toLowerCase(),
+        {
+          logoUrl,
+          firstName,
+          investmentName: investment.name || "",
+          unsubscribeUrl,
+          investmentUrl,
+        },
+        [
+          {
+            filename: `${investment.name || "investment"}.png`,
+            content: qrPngBuffer,
+            contentType: "image/png",
+          },
+        ]
+      );
+    } catch (emailErr: any) {
+      console.error("Error sending QR code email:", emailErr);
+    }
+
+    res.json({ success: true, message: "Email sent successfully." });
+  } catch (err: any) {
+    console.error("Error sending QR code email:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.get("/export-investment-notes", jwtUserAuthMiddleware, async (req: Request, res: Response) => {
+  try {
+    const campaignId = parseInt(String(req.query.campaignId || "0"), 10);
+
+    const notesResult = await pool.query(
+      `SELECT n.id, n.old_status, n.new_status, n.note, n.created_at,
+              u.user_name, c.name AS campaign_name
+       FROM investment_notes n
+       LEFT JOIN users u ON n.created_by = u.id
+       LEFT JOIN campaigns c ON n.campaign_id = c.id
+       WHERE n.campaign_id = $1
+       ORDER BY n.id DESC`,
+      [campaignId]
+    );
+
+    const notes = notesResult.rows;
+    const campaignName = notes.length > 0 ? notes[0].campaign_name : "Investment Notes";
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("InvestmentNotes");
+
+    worksheet.mergeCells("A1:E2");
+    const titleCell = worksheet.getCell("A1");
+    titleCell.value = "Investment Name: " + (campaignName || "Investment Notes");
+    titleCell.font = { bold: true, size: 13 };
+    titleCell.alignment = { horizontal: "center", vertical: "middle" };
+
+    const headerRowNum = 3;
+    const headers = ["Date", "Username", "From", "To", "Note"];
+    const headerRow = worksheet.getRow(headerRowNum);
+    headers.forEach((h, i) => {
+      headerRow.getCell(i + 1).value = h;
+    });
+    headerRow.font = { bold: true };
+
+    notes.forEach((note: any, index: number) => {
+      const row = worksheet.getRow(headerRowNum + 1 + index);
+      row.getCell(1).value = note.created_at ? formatDateMMDDYYYY(note.created_at) : "";
+      row.getCell(2).value = note.user_name || "";
+      row.getCell(3).value = note.old_status || "";
+      row.getCell(4).value = note.new_status || "";
+      row.getCell(5).value = convertHtmlNoteToPlainText(note.note);
+    });
+
+    worksheet.columns.forEach((col) => {
+      let maxLen = 10;
+      col.eachCell?.({ includeEmpty: false }, (cell) => {
+        const len = String(cell.value || "").length;
+        if (len > maxLen) maxLen = len;
+      });
+      col.width = maxLen + 10;
+    });
+
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", "attachment; filename=InvestmentNotes.xlsx");
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err: any) {
+    console.error("Error exporting investment notes:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.get("/get-investments-notes", jwtUserAuthMiddleware, async (req: Request, res: Response) => {
+  try {
+    const investmentId = parseInt(String(req.query.investmentId || "0"), 10);
+    if (!investmentId || investmentId <= 0) {
+      res.json({ success: false, message: "Invalid investment id" });
+      return;
+    }
+
+    const result = await pool.query(
+      `SELECT n.id, n.old_status AS "oldStatus", n.new_status AS "newStatus",
+              n.note, u.user_name AS "userName", n.created_at AS "createdAt"
+       FROM investment_notes n
+       LEFT JOIN users u ON n.created_by = u.id
+       WHERE n.campaign_id = $1
+       ORDER BY n.id DESC`,
+      [investmentId]
+    );
+
+    if (result.rows.length > 0) {
+      res.json(result.rows);
+    } else {
+      res.json({ success: false, message: "Notes not found" });
+    }
+  } catch (err: any) {
+    console.error("Error fetching investment notes:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
