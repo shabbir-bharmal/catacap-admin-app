@@ -254,16 +254,16 @@ router.get("/investment-by-theme", async (_req: Request, res: Response) => {
 
     const campaignThemeMap = new Map<number, number[]>();
     for (const ct of campaignThemes) {
-      campaignThemeMap.set(ct.id, ct.themeIds);
+      campaignThemeMap.set(Number(ct.id), ct.themeIds);
     }
 
     const themeStats = new Map<number, { name: string; total: number }>();
     for (const theme of themes.rows) {
-      themeStats.set(theme.id, { name: theme.name, total: 0 });
+      themeStats.set(Number(theme.id), { name: theme.name, total: 0 });
     }
 
     for (const rec of recResult.rows) {
-      const themeIds = campaignThemeMap.get(rec.campaign_id) || [];
+      const themeIds = campaignThemeMap.get(Number(rec.campaign_id)) || [];
       if (themeIds.length === 0) continue;
       const splitAmount = (parseFloat(rec.amount) || 0) / themeIds.length;
       for (const themeId of themeIds) {

@@ -146,18 +146,31 @@ export default function AdminDashboard() {
     }
   };
 
+  const [themeError, setThemeError] = useState(false);
+
   useEffect(() => {
     const fetchMainData = async () => {
       setLoading(true);
-      try {
-        const [summaryData, themeData] = await Promise.all([fetchSummary(), fetchInvestmentByTheme()]);
-        setSummary(summaryData);
-        setThemeInvestments(themeData);
-      } catch (error) {
-        console.error("Error fetching dashboard data:", error);
-      } finally {
-        setLoading(false);
+      const [summaryResult, themeResult] = await Promise.allSettled([
+        fetchSummary(),
+        fetchInvestmentByTheme(),
+      ]);
+
+      if (summaryResult.status === "fulfilled") {
+        setSummary(summaryResult.value);
+      } else {
+        console.error("Error fetching summary data:", summaryResult.reason);
       }
+
+      if (themeResult.status === "fulfilled") {
+        setThemeInvestments(themeResult.value);
+        setThemeError(false);
+      } else {
+        console.error("Error fetching investment by theme:", themeResult.reason);
+        setThemeError(true);
+      }
+
+      setLoading(false);
     };
     fetchMainData();
   }, []);
@@ -457,23 +470,29 @@ export default function AdminDashboard() {
                   <CardTitle className="text-sm font-semibold mb-4">Investment by Theme</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {themeInvestments.map((cat, i) => {
-                    const colors = ["bg-[#405189]", "bg-[#0ab39c]", "bg-[#299cdb]", "bg-[#f7b84b]", "bg-[#f06548]", "bg-[#405189]/70", "bg-muted-foreground", "bg-[#0ab39c]/70"];
-                    const color = colors[i % colors.length];
-                    return (
-                      <div key={cat.name} className="pb-3">
-                        <div className="flex items-center justify-between gap-2 my-1">
-                          <span className="text-xs font-medium">
-                            {cat.name} <span className="text-success-foreground">({cat.percentage}%)</span>
-                          </span>
-                          <span className="text-sm text-foreground">{currency_format(cat.totalAmount)}</span>
+                  {themeError ? (
+                    <p className="text-sm text-destructive">Failed to load theme data. Please try refreshing the page.</p>
+                  ) : themeInvestments.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No theme data available.</p>
+                  ) : (
+                    themeInvestments.map((cat, i) => {
+                      const colors = ["bg-[#405189]", "bg-[#0ab39c]", "bg-[#299cdb]", "bg-[#f7b84b]", "bg-[#f06548]", "bg-[#405189]/70", "bg-muted-foreground", "bg-[#0ab39c]/70"];
+                      const color = colors[i % colors.length];
+                      return (
+                        <div key={cat.name} className="pb-3">
+                          <div className="flex items-center justify-between gap-2 my-1">
+                            <span className="text-xs font-medium">
+                              {cat.name} <span className="text-success-foreground">({cat.percentage}%)</span>
+                            </span>
+                            <span className="text-sm text-foreground">{currency_format(cat.totalAmount)}</span>
+                          </div>
+                          <div className="h-1.5 w-full bg-muted rounded-full">
+                            <div className={`h-full rounded-full ${color}`} style={{ width: `${cat.percentage}%` }} />
+                          </div>
                         </div>
-                        <div className="h-1.5 w-full bg-muted rounded-full">
-                          <div className={`h-full rounded-full ${color}`} style={{ width: `${cat.percentage}%` }} />
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })
+                  )}
                 </CardContent>
               </Card>
             </div>
