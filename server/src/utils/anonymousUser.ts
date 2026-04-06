@@ -36,9 +36,11 @@ export async function findOrCreateAnonymousUser(
 
   try {
     await pool.query(
-      `INSERT INTO users (id, first_name, last_name, user_name, email, is_free_user, email_confirmed)
-       VALUES ($1, $2, $3, $4, $5, true, false)`,
-      [userId, trimmedFirst, trimmedLast, userName, userEmail]
+      `INSERT INTO users (id, first_name, last_name, user_name, email, is_free_user, email_confirmed,
+       phone_number_confirmed, two_factor_enabled, lockout_enabled, access_failed_count,
+       security_stamp, concurrency_stamp)
+       VALUES ($1, $2, $3, $4, $5, true, false, false, false, true, 0, $6, $7)`,
+      [userId, trimmedFirst, trimmedLast, userName, userEmail, crypto.randomUUID(), crypto.randomUUID()]
     );
   } catch (insertErr: any) {
     if (insertErr.code === "23505") {
