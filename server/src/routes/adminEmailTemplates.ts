@@ -1,5 +1,6 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
+import { Resend } from "resend";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter } from "../utils/softDelete.js";
 
@@ -400,6 +401,57 @@ router.delete("/:id", async (req: Request, res: Response) => {
   } catch (err) {
     console.error("EmailTemplate Delete error:", err);
     res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+router.post("/send-test/:id", async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(String(req.params.id), 10);
+    if (isNaN(id)) { res.status(400).json({ success: false, message: "Invalid ID" }); return; }
+
+    const { email } = req.body;
+    if (!email || typeof email !== "string" || !email.includes("@")) {
+      res.status(400).json({ success: false, message: "A valid email address is required." });
+      return;
+    }
+
+    const result = await pool.query(
+      `SELECT name, subject, body_html FROM email_templates WHERE id = $1 AND (is_deleted IS NULL OR is_deleted = false)`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ success: false, message: "Template not found." });
+      return;
+    }
+
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) {
+      res.status(500).json({ success: false, message: "Email service is not configured (RESEND_API_KEY missing)." });
+      return;
+    }
+
+    const template = result.rows[0];
+    const resend = new Resend(apiKey);
+
+    const { data, error } = await resend.emails.send({
+      from: "CataCap <support@catacap.org>",
+      to: [email.trim()],
+      subject: template.subject || template.name,
+      html: template.body_html || "",
+    });
+
+    if (error) {
+      console.error("SendTestEmail Resend error:", error);
+      res.status(500).json({ success: false, message: error.message || "Failed to send email." });
+      return;
+    }
+
+    console.log(`[EMAIL] Test email sent for template "${template.name}" to ${email} (id: ${data?.id})`);
+    res.json({ success: true, message: `Test email sent successfully to ${email}.` });
+  } catch (err) {
+    console.error("SendTestEmail error:", err);
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
 

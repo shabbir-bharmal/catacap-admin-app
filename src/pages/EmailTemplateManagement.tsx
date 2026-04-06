@@ -47,6 +47,7 @@ import {
   createEmailTemplate,
   updateEmailTemplate,
   deleteEmailTemplate,
+  sendTestEmail,
   EmailTemplateListItem,
   EmailTemplateCategory
 } from "../api/email-template/emailTemplateApi";
@@ -123,6 +124,10 @@ export default function EmailTemplateManagement() {
   const [previewId, setPreviewId] = useState<number | null>(null);
   const [htmlViewOpen, setHtmlViewOpen] = useState(false);
   const [htmlViewId, setHtmlViewId] = useState<number | null>(null);
+  const [sendTestDialogOpen, setSendTestDialogOpen] = useState(false);
+  const [sendTestTemplate, setSendTestTemplate] = useState<EmailTemplateListItem | null>(null);
+  const [sendTestEmailAddress, setSendTestEmailAddress] = useState("");
+  const [isSendingTest, setIsSendingTest] = useState(false);
 
   // ── Form state ───────────────────────────────────────────────────────────
   const [formName, setFormName] = useState("");
@@ -306,6 +311,26 @@ export default function EmailTemplateManagement() {
   };
 
   const isSubmitting = createMutation.isPending || updateMutation.isPending;
+
+  const handleSendTestEmail = async () => {
+    if (!sendTestTemplate || !sendTestEmailAddress.trim()) return;
+    setIsSendingTest(true);
+    try {
+      const result = await sendTestEmail(sendTestTemplate.id, sendTestEmailAddress.trim());
+      if (result.success) {
+        toast({ title: result.message || "Test email sent successfully" });
+        setSendTestDialogOpen(false);
+        setSendTestTemplate(null);
+        setSendTestEmailAddress("");
+      } else {
+        toast({ title: result.message || "Failed to send test email", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Failed to send test email", variant: "destructive" });
+    } finally {
+      setIsSendingTest(false);
+    }
+  };
 
   const visualEditorRef = useRef<HTMLIFrameElement>(null);
 
@@ -692,10 +717,7 @@ export default function EmailTemplateManagement() {
                                   <Button
                                     size="icon"
                                     variant="outline"
-                                    className={cn(
-                                      "h-8 w-8 text-slate-600 hover:text-slate-700 hover:bg-muted/30",
-                                      hasActionPermission("content management", "delete") ? "rounded-none border-r-0" : "rounded-l-none"
-                                    )}
+                                    className="h-8 w-8 rounded-none border-r-0 text-slate-600 hover:text-slate-700 hover:bg-muted/30"
                                     onClick={() => {
                                       setHtmlViewId(template.id);
                                       setHtmlViewOpen(true);
@@ -706,6 +728,29 @@ export default function EmailTemplateManagement() {
                                   </Button>
                                 </TooltipTrigger>
                                 <TooltipContent>View HTML</TooltipContent>
+                              </Tooltip>
+
+                              {/* Send Test Email */}
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="icon"
+                                    variant="outline"
+                                    className={cn(
+                                      "h-8 w-8 text-[#405189] hover:text-[#405189] hover:bg-muted/30",
+                                      hasActionPermission("content management", "delete") ? "rounded-none border-r-0" : "rounded-l-none"
+                                    )}
+                                    onClick={() => {
+                                      setSendTestTemplate(template);
+                                      setSendTestEmailAddress("");
+                                      setSendTestDialogOpen(true);
+                                    }}
+                                    data-testid={`button-send-test-${template.id}`}
+                                  >
+                                    <Mail className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Send Test Email</TooltipContent>
                               </Tooltip>
 
                               {/* Delete */}
@@ -1151,6 +1196,57 @@ export default function EmailTemplateManagement() {
               </Button>
               <Button onClick={confirmInsertLink} disabled={!linkUrl.trim()} className="bg-[#405189] hover:bg-[#405189]/90">
                 Insert Link
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* ── Send Test Email Dialog ── */}
+        <Dialog open={sendTestDialogOpen} onOpenChange={(open) => {
+          if (!open) {
+            setSendTestDialogOpen(false);
+            setSendTestTemplate(null);
+            setSendTestEmailAddress("");
+          }
+        }}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Send Test Email</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              {sendTestTemplate && (
+                <p className="text-sm text-muted-foreground">
+                  Template: <span className="font-medium text-foreground">{sendTestTemplate.name}</span>
+                </p>
+              )}
+              <div className="space-y-2">
+                <Label htmlFor="test-email-address">
+                  Email Address <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="test-email-address"
+                  type="email"
+                  placeholder="recipient@example.com"
+                  value={sendTestEmailAddress}
+                  onChange={(e) => setSendTestEmailAddress(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && sendTestEmailAddress.trim()) handleSendTestEmail();
+                  }}
+                  autoFocus
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setSendTestDialogOpen(false)} disabled={isSendingTest}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSendTestEmail}
+                disabled={!sendTestEmailAddress.trim() || isSendingTest}
+                className="bg-[#405189] hover:bg-[#405189]/90"
+              >
+                {isSendingTest && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
+                Send
               </Button>
             </DialogFooter>
           </DialogContent>

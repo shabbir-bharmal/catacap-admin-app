@@ -164,3 +164,8 @@ export async function deleteEmailTemplate(id: number): Promise<unknown> {
   const response = await axiosInstance.delete(`/api/admin/email-template/${id}`);
   return response.data;
 }
+
+export async function sendTestEmail(id: number, email: string): Promise<{ success: boolean; message: string }> {
+  const response = await axiosInstance.post<{ success: boolean; message: string }>(`/api/admin/email-template/send-test/${id}`, { email });
+  return response.data;
+}
