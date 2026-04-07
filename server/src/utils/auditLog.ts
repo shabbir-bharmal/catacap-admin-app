@@ -42,7 +42,7 @@ export async function logAudit({
        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
       [
         tableName,
-        recordId,
+        String(recordId),
         actionType,
         oldValues ? JSON.stringify(oldValues) : null,
         newValues ? JSON.stringify(newValues) : null,
@@ -50,7 +50,8 @@ export async function logAudit({
         updatedBy,
       ]
     );
+    console.log(`[AUDIT] ${actionType} on ${tableName} record ${recordId} logged successfully.`);
   } catch (err) {
-    console.error("Audit log error:", err);
+    console.warn(`[AUDIT WARNING] Failed to write audit log for ${tableName} record ${recordId}:`, err);
   }
 }

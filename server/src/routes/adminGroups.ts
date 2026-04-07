@@ -975,6 +975,18 @@ router.put("/restore", async (req: Request, res: Response) => {
       return;
     }
 
+    const restoredIds = result.rows.map((r: any) => r.id);
+    for (const gid of restoredIds) {
+      await logAudit({
+        tableName: "groups",
+        recordId: String(gid),
+        actionType: "Modified",
+        oldValues: { is_deleted: true },
+        newValues: { is_deleted: false },
+        updatedBy: (req as any).user?.id || null,
+      });
+    }
+
     res.json({ success: true, message: `${result.rowCount} group(s) restored successfully.` });
   } catch (err) {
     console.error("Restore groups error:", err);
@@ -1461,6 +1473,15 @@ router.put("/:id/transaction-history", async (req: Request, res: Response) => {
 
     const groupCurrentBalance = currentBal - accountBalance;
 
+    await logAudit({
+      tableName: "groups",
+      recordId: String(id),
+      actionType: "Modified",
+      oldValues: { account_balance: currentGroupBalance },
+      newValues: { account_balance: currentGroupBalance + accountBalance },
+      updatedBy: adminUser?.id || null,
+    });
+
     res.json({ success: true, message: `Group current balance is ${groupCurrentBalance}` });
   } catch (err) {
     console.error("Update group account balance error:", err);
@@ -1534,6 +1555,12 @@ router.put("/:id/investments", async (req: Request, res: Response) => {
       return;
     }
 
+    const oldCampaignsResult = await pool.query(
+      `SELECT campaigns_id FROM campaign_groups WHERE groups_id = $1`,
+      [id]
+    );
+    const oldCampaignIds = oldCampaignsResult.rows.map((r: any) => r.campaigns_id);
+
     await pool.query(`DELETE FROM campaign_groups WHERE groups_id = $1`, [id]);
 
     if (campaignIds.length > 0) {
@@ -1554,6 +1581,15 @@ router.put("/:id/investments", async (req: Request, res: Response) => {
         );
       }
     }
+
+    await logAudit({
+      tableName: "groups",
+      recordId: String(id),
+      actionType: "Modified",
+      oldValues: { assigned_campaign_ids: oldCampaignIds },
+      newValues: { assigned_campaign_ids: campaignIds },
+      updatedBy: (req as any).user?.id || null,
+    });
 
     res.status(200).send();
   } catch (err) {

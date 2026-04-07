@@ -1254,6 +1254,17 @@ router.put("/restore", async (req: Request, res: Response) => {
       campaignIds
     );
 
+    for (const cid of campaignIds) {
+      await logAudit({
+        tableName: "campaigns",
+        recordId: String(cid),
+        actionType: "Modified",
+        oldValues: { is_deleted: true },
+        newValues: { is_deleted: false },
+        updatedBy: req.user?.id || null,
+      });
+    }
+
     const count = campaignIds.length;
     res.json({ success: true, message: `${count} campaign(s) restored successfully.` });
   } catch (err: any) {
@@ -1697,7 +1708,7 @@ router.post("/:id/clone", async (req: Request, res: Response) => {
       propExists = await pool.query(`SELECT id FROM campaigns WHERE property = $1`, [updatedProperty]);
     }
 
-    await pool.query(
+    const cloneResult = await pool.query(
       `INSERT INTO campaigns (
         name, description, themes, approved_by, sdgs, investment_types, terms,
         minimum_investment, website, network_description, contact_info_full_name,
@@ -1712,7 +1723,7 @@ router.post("/:id/clone", async (req: Request, res: Response) => {
       ) VALUES (
         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
         $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,NOW(),NOW()
-      )`,
+      ) RETURNING id`,
       [
         name || c.name,
         c.description,
@@ -1755,6 +1766,16 @@ router.post("/:id/clone", async (req: Request, res: Response) => {
         c.expected_total,
       ]
     );
+
+    const clonedId = cloneResult.rows[0]?.id;
+    await logAudit({
+      tableName: "campaigns",
+      recordId: String(clonedId || id),
+      actionType: "Created",
+      oldValues: null,
+      newValues: { cloned_from: id, name: name || c.name },
+      updatedBy: req.user?.id || null,
+    });
 
     res.json({ success: true, message: "Investment cloned successfully." });
   } catch (err: any) {

@@ -977,6 +977,17 @@ router.put("/restore", async (req: Request, res: Response) => {
 
       await client.query("COMMIT");
 
+      for (const user of deletedUsers) {
+        await logAudit({
+          tableName: "users",
+          recordId: user.id,
+          actionType: "Modified",
+          oldValues: { is_deleted: true },
+          newValues: { is_deleted: false },
+          updatedBy: req.user?.id || null,
+        });
+      }
+
       res.json({ success: true, message: `${deletedUsers.length} user(s) restored successfully.` });
     } catch (err) {
       await client.query("ROLLBACK");
