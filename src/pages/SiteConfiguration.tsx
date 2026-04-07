@@ -1125,6 +1125,7 @@ export default function SiteConfiguration() {
                 value={editingItem.field1}
                 onChange={(e) => setEditingItem((prev) => ({ ...prev, field1: e.target.value }))}
                 placeholder={`Enter ${getField1Label().toLowerCase()}`}
+                disabled={!!editingItem.id && activeTab === "Configuration" && editingItem.field1.toLowerCase().startsWith("auto delete archived")}
                 data-testid="input-field1"
               />
             </div>
