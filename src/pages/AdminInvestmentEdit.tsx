@@ -939,7 +939,7 @@ export default function AdminInvestmentEdit() {
         oldStatus: isStageDirty ? (getStageLabel(savedStage) || null) : null,
         newStatus: isStageDirty ? (getStageLabel(formData.stage) || null) : null,
         contactInfoAddress: isUSA ? formData.address1?.trim() : "",
-        ContactInfoAddress2: isUSA ? formData.address2?.trim() : "",
+        contactInfoAddress2: isUSA ? formData.address2?.trim() : "",
         city: isUSA ? formData.city?.trim() : "",
         state: isUSA ? formData.state?.trim() : "",
         zipCode: isUSA ? formData.zipCode?.trim() : "",

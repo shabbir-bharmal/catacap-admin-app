@@ -728,7 +728,7 @@ export default function AdminRaiseMoney() {
         contactInfoPhoneNumber: formData.mobile,
         country: formData.companyLocation,
         contactInfoAddress: formData.companyLocation === "USA" ? formData.address1 : "",
-        ContactInfoAddress2: formData.companyLocation === "USA" ? formData.address2 : "",
+        contactInfoAddress2: formData.companyLocation === "USA" ? formData.address2 : "",
         city: formData.companyLocation === "USA" ? formData.city : "",
         state: formData.companyLocation === "USA" ? formData.state : "",
         zipCode: formData.companyLocation === "USA" ? formData.zipCode : "",
