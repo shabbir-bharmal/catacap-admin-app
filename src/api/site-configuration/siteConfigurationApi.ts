@@ -11,7 +11,8 @@ export type SiteConfigType =
     | "news-type"
     | "news-audience"
     | "statistics"
-    | "meta-information";
+    | "meta-information"
+    | "Configuration";
 
 // ─── Raw API response shapes (match actual server JSON) ───────────────────────
 
@@ -134,8 +135,11 @@ export async function fetchTransactionTypes(): Promise<TransactionTypeItem[]> {
 
 /** Static key/value entries – accessed via the `investment-terms` endpoint */
 export async function fetchStaticValues(): Promise<StaticValueItem[]> {
-    // investment-terms already returns { id, key, value } — no remapping needed
     return fetchRaw<RawStaticValueItem>("investment-terms");
+}
+
+export async function fetchConfigurations(): Promise<StaticValueItem[]> {
+    return fetchRaw<RawStaticValueItem>("Configuration");
 }
 
 export async function fetchNewsTypes(): Promise<NewsTypeItem[]> {
@@ -177,6 +181,7 @@ export interface AllSiteConfigurations {
     specialFilters: SpecialFilterItem[];
     transactionTypes: TransactionTypeItem[];
     staticValues: StaticValueItem[];
+    configurations: StaticValueItem[];
     newsTypes: NewsTypeItem[];
     newsAudiences: NewsAudienceItem[];
     statistics: StatisticsItem[];
@@ -188,13 +193,14 @@ export interface AllSiteConfigurations {
  * Individual failures are swallowed – the section returns an empty array.
  */
 export async function fetchAllSiteConfigurations(): Promise<AllSiteConfigurations> {
-    const [sourcedByRes, themesRes, specialFiltersRes, transactionTypesRes, staticValuesRes, newsTypesRes, newsAudiencesRes, statisticsRes, metaInformationRes] =
+    const [sourcedByRes, themesRes, specialFiltersRes, transactionTypesRes, staticValuesRes, configurationsRes, newsTypesRes, newsAudiencesRes, statisticsRes, metaInformationRes] =
         await Promise.allSettled([
             fetchSourcedBy(),
             fetchThemes(),
             fetchSpecialFilters(),
             fetchTransactionTypes(),
             fetchStaticValues(),
+            fetchConfigurations(),
             fetchNewsTypes(),
             fetchNewsAudiences(),
             fetchStatistics(),
@@ -207,6 +213,7 @@ export async function fetchAllSiteConfigurations(): Promise<AllSiteConfiguration
         specialFilters: specialFiltersRes.status === "fulfilled" ? specialFiltersRes.value : [],
         transactionTypes: transactionTypesRes.status === "fulfilled" ? transactionTypesRes.value : [],
         staticValues: staticValuesRes.status === "fulfilled" ? staticValuesRes.value : [],
+        configurations: configurationsRes.status === "fulfilled" ? configurationsRes.value : [],
         newsTypes: newsTypesRes.status === "fulfilled" ? newsTypesRes.value : [],
         newsAudiences: newsAudiencesRes.status === "fulfilled" ? newsAudiencesRes.value : [],
         statistics: statisticsRes.status === "fulfilled" ? statisticsRes.value : [],

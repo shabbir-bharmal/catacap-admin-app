@@ -8,6 +8,7 @@ const router = Router();
 
 const SITE_CONFIG_TYPES = {
   StaticValue: "StaticValue",
+  Configuration: "Configuration",
   TransactionType: "TransactionType",
   Statistics: "Statistics",
   NewsType: "NewsType",
@@ -63,6 +64,17 @@ router.get("/:type", async (req: Request, res: Response) => {
            WHERE x.type = $1 AND ${softDelete}
            ORDER BY x.key`,
           [SITE_CONFIG_TYPES.StaticValue]
+        );
+        res.json(result.rows);
+        return;
+      }
+
+      case "configuration": {
+        const result = await pool.query(
+          `SELECT x.id, x.key, x.value FROM site_configurations x
+           WHERE x.type = $1 AND ${softDelete}
+           ORDER BY x.key`,
+          [SITE_CONFIG_TYPES.Configuration]
         );
         res.json(result.rows);
         return;
@@ -216,6 +228,17 @@ router.delete("/:type/:id", async (req: Request, res: Response) => {
           [`%{${entity.rows[0].key}}%`]
         );
         if (inUse.rows.length > 0) { res.json({ success: false, message: "Cannot delete this term, it's being used in investments." }); return; }
+        await softDeleteRecord("site_configurations", id, userId);
+        result = { success: true, message: "Configuration deleted successfully." };
+        break;
+      }
+
+      case "configuration": {
+        const entity = await pool.query(
+          `SELECT id FROM site_configurations WHERE id = $1 AND type = $2`,
+          [id, SITE_CONFIG_TYPES.Configuration]
+        );
+        if (entity.rows.length === 0) { res.json({ success: false, message: "Record not found." }); return; }
         await softDeleteRecord("site_configurations", id, userId);
         result = { success: true, message: "Configuration deleted successfully." };
         break;
@@ -496,6 +519,21 @@ async function createByType(type: string, dto: any): Promise<{ success: boolean;
       return { success: true, message: "Configuration created successfully." };
     }
 
+    case "configuration": {
+      if (!dto.key?.trim()) return { success: false, message: "Key is required." };
+      if (!dto.value?.trim()) return { success: false, message: "Value is required." };
+      const dup = await pool.query(
+        `SELECT 1 FROM site_configurations WHERE type = $1 AND TRIM(key) = $2 AND (is_deleted IS NULL OR is_deleted = false)`,
+        [SITE_CONFIG_TYPES.Configuration, dto.key.trim()]
+      );
+      if (dup.rows.length > 0) return { success: false, message: "Entered key already exists." };
+      await pool.query(
+        `INSERT INTO site_configurations (key, value, type) VALUES ($1, $2, $3)`,
+        [dto.key.trim(), dto.value.trim(), SITE_CONFIG_TYPES.Configuration]
+      );
+      return { success: true, message: "Configuration created successfully." };
+    }
+
     case "meta-information": {
       if (!dto.key?.trim()) return { success: false, message: "Key is required." };
       if (!dto.value?.trim()) return { success: false, message: "Value is required." };
@@ -654,6 +692,20 @@ async function updateByType(type: string, dto: any): Promise<{ success: boolean;
       const dup = await pool.query(
         `SELECT 1 FROM site_configurations WHERE type = $1 AND TRIM(key) = $2 AND id != $3 AND (is_deleted IS NULL OR is_deleted = false)`,
         [SITE_CONFIG_TYPES.StaticValue, dto.key.trim(), id]
+      );
+      if (dup.rows.length > 0) return { success: false, message: "Entered key already exists." };
+      await pool.query(`UPDATE site_configurations SET key = $1, value = $2 WHERE id = $3`, [dto.key.trim(), dto.value.trim(), id]);
+      return { success: true, message: "Configuration updated successfully." };
+    }
+
+    case "configuration": {
+      if (!dto.key?.trim()) return { success: false, message: "Key is required." };
+      if (!dto.value?.trim()) return { success: false, message: "Value is required." };
+      const entity = await pool.query(`SELECT id FROM site_configurations WHERE id = $1 AND type = $2`, [id, SITE_CONFIG_TYPES.Configuration]);
+      if (entity.rows.length === 0) return { success: false, message: "Record not found." };
+      const dup = await pool.query(
+        `SELECT 1 FROM site_configurations WHERE type = $1 AND TRIM(key) = $2 AND id != $3 AND (is_deleted IS NULL OR is_deleted = false)`,
+        [SITE_CONFIG_TYPES.Configuration, dto.key.trim(), id]
       );
       if (dup.rows.length > 0) return { success: false, message: "Entered key already exists." };
       await pool.query(`UPDATE site_configurations SET key = $1, value = $2 WHERE id = $3`, [dto.key.trim(), dto.value.trim(), id]);

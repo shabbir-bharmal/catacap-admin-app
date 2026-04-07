@@ -18,6 +18,7 @@ import {
   fetchThemes,
   fetchSpecialFilters,
   fetchStaticValues,
+  fetchConfigurations,
   fetchTransactionTypes,
   fetchNewsTypes,
   fetchNewsAudiences,
@@ -56,7 +57,8 @@ export default function SiteConfiguration() {
   const [sourcedBy, setSourcedBy] = useState<SourcedByItem[]>([]);
   const [themes, setThemes] = useState<ThemeItem[]>([]);
   const [specialFilters, setSpecialFilters] = useState<SpecialFilterItem[]>([]);
-  const [staticValues, setStaticValues] = useState<StaticValueItem[]>([]);
+  const [staticValues, setStaticValues] = useState<(StaticValueItem & { configType: SiteConfigType })[]>([]);
+  const [configurations, setConfigurations] = useState<(StaticValueItem & { configType: SiteConfigType })[]>([]);
   const [transactionTypes, setTransactionTypes] = useState<TransactionTypeItem[]>([]);
   const [newsTypes, setNewsTypes] = useState<NewsTypeItem[]>([]);
   const [newsAudiences, setNewsAudiences] = useState<NewsAudienceItem[]>([]);
@@ -70,17 +72,18 @@ export default function SiteConfiguration() {
   const editorRef = useRef<HTMLDivElement>(null);
 
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingItem, setEditingItem] = useState<{ id: number | string | null; field1: string; field2: string; field3: string; imagePreview: string; imageFileName: string }>({
+  const [editingItem, setEditingItem] = useState<{ id: number | string | null; field1: string; field2: string; field3: string; imagePreview: string; imageFileName: string; configType?: SiteConfigType }>({
     id: null,
     field1: "",
     field2: "",
     field3: "",
     imagePreview: "",
-    imageFileName: ""
+    imageFileName: "",
+    configType: undefined
   });
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<{ id: number | string; name: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number | string; name: string; configType: SiteConfigType } | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -90,7 +93,8 @@ export default function SiteConfiguration() {
         setSourcedBy(data.sourcedBy);
         setThemes(data.themes);
         setSpecialFilters(data.specialFilters);
-        setStaticValues(data.staticValues);
+        setStaticValues(data.staticValues.map(v => ({ ...v, configType: "investment-terms" as SiteConfigType })));
+        setConfigurations(data.configurations.map(v => ({ ...v, configType: "Configuration" as SiteConfigType })));
         setTransactionTypes(data.transactionTypes);
         setNewsTypes(data.newsTypes);
         setNewsAudiences(data.newsAudiences);
@@ -201,11 +205,11 @@ export default function SiteConfiguration() {
   }
 
   function openAdd() {
-    setEditingItem({ id: null, field1: "", field2: "", field3: "", imagePreview: "", imageFileName: "" });
+    setEditingItem({ id: null, field1: "", field2: "", field3: "", imagePreview: "", imageFileName: "", configType: getApiType(activeTab) });
     setDialogOpen(true);
   }
 
-  function openEdit(id: number | string) {
+  function openEdit(id: number | string, type?: SiteConfigType) {
     switch (activeTab) {
       case "Sourced By": {
         const item = sourcedBy.find((i) => i.id === id);
@@ -231,8 +235,8 @@ export default function SiteConfiguration() {
         break;
       }
       case "Configuration": {
-        const item = staticValues.find((i) => i.id === id);
-        if (item) setEditingItem({ id, field1: item.key, field2: item.value, field3: "", imagePreview: "", imageFileName: "" });
+        const item = [...staticValues, ...configurations].find((i) => i.id === id && i.configType === type);
+        if (item) setEditingItem({ id, field1: item.key, field2: item.value, field3: "", imagePreview: "", imageFileName: "", configType: item.configType });
         break;
       }
       case "Transaction Type": {
@@ -275,13 +279,15 @@ export default function SiteConfiguration() {
   const [isSaving, setIsSaving] = useState(false);
 
   async function handleSave() {
-    const { id, field1 } = editingItem;
+    const { id, field1, configType } = editingItem;
     if (!field1.trim() || isSaving) return;
 
-    const richTextValue = (activeTab === "Configuration" || activeTab === "Statistics") && editorRef.current ? editorRef.current.innerHTML : editingItem.field2;
+    const isAutoDeleteConfig = activeTab === "Configuration" && field1.toLowerCase().startsWith("auto delete archived");
+    const useRichText = (activeTab === "Configuration" && !isAutoDeleteConfig) || activeTab === "Statistics";
+    const richTextValue = useRichText && editorRef.current ? editorRef.current.innerHTML : editingItem.field2;
 
     // Build the payload the API expects
-    const type = getApiType(activeTab);
+    const type = configType || getApiType(activeTab);
     const payload: SiteConfigSavePayload = {
       type,
       value: field1.trim(),
@@ -323,9 +329,12 @@ export default function SiteConfiguration() {
         case "Special Filters":
           setSpecialFilters(await fetchSpecialFilters());
           break;
-        case "Configuration":
-          setStaticValues(await fetchStaticValues());
+        case "Configuration": {
+          const [sv, cv] = await Promise.all([fetchStaticValues(), fetchConfigurations()]);
+          setStaticValues(sv.map(v => ({ ...v, configType: "investment-terms" as SiteConfigType })));
+          setConfigurations(cv.map(v => ({ ...v, configType: "Configuration" as SiteConfigType })));
           break;
+        }
         case "Transaction Type":
           setTransactionTypes(await fetchTransactionTypes());
           break;
@@ -355,8 +364,8 @@ export default function SiteConfiguration() {
     }
   }
 
-  function openDelete(id: number | string, name: string) {
-    setDeleteTarget({ id, name });
+  function openDelete(id: number | string, name: string, configType?: SiteConfigType) {
+    setDeleteTarget({ id, name, configType: configType || getApiType(activeTab) });
     setDeleteDialogOpen(true);
   }
 
@@ -372,7 +381,7 @@ export default function SiteConfiguration() {
       case "Special Filters":
         return "special-filters";
       case "Configuration":
-        return "investment-terms";
+        return "Configuration";
       case "Transaction Type":
         return "transaction-type";
       case "News Type":
@@ -388,12 +397,11 @@ export default function SiteConfiguration() {
 
   async function handleDelete() {
     if (!deleteTarget || isDeleting) return;
-    const { id } = deleteTarget;
-    const type = getApiType(activeTab);
+    const { id, configType: deleteConfigType } = deleteTarget;
+    const type = deleteConfigType || getApiType(activeTab);
     setIsDeleting(true);
     try {
       await deleteSiteConfigItem(type, id);
-      // Remove from local state only after API confirms success
       switch (activeTab) {
         case "Sourced By":
           setSourcedBy((prev) => prev.filter((i) => i.id !== id));
@@ -404,9 +412,12 @@ export default function SiteConfiguration() {
         case "Special Filters":
           setSpecialFilters((prev) => prev.filter((i) => i.id !== id));
           break;
-        case "Configuration":
-          setStaticValues((prev) => prev.filter((i) => i.id !== id));
+        case "Configuration": {
+          const [sv, cv] = await Promise.all([fetchStaticValues(), fetchConfigurations()]);
+          setStaticValues(sv.map(v => ({ ...v, configType: "investment-terms" as SiteConfigType })));
+          setConfigurations(cv.map(v => ({ ...v, configType: "Configuration" as SiteConfigType })));
           break;
+        }
         case "Transaction Type":
           setTransactionTypes((prev) => prev.filter((i) => i.id !== id));
           break;
@@ -552,8 +563,18 @@ export default function SiteConfiguration() {
                       </thead>
                       <tbody>
                         {activeTab === "Configuration" &&
-                          staticValues.map((item) => (
-                            <tr key={item.id} className="border-b last:border-b-0 hover:bg-muted/20 transition-colors" data-testid={`row-item-${item.id}`}>
+                          [...staticValues, ...configurations]
+                            .sort((a, b) => {
+                              const aIsAutoDelete = a.key.toLowerCase().startsWith("auto delete archived");
+                              const bIsAutoDelete = b.key.toLowerCase().startsWith("auto delete archived");
+                              if (aIsAutoDelete && !bIsAutoDelete) return -1;
+                              if (!aIsAutoDelete && bIsAutoDelete) return 1;
+                              return 0;
+                            })
+                            .map((item) => {
+                              const isAutoDelete = item.key.toLowerCase().startsWith("auto delete archived");
+                              return (
+                            <tr key={`${item.configType}-${item.id}`} className="border-b last:border-b-0 hover:bg-muted/20 transition-colors" data-testid={`row-item-${item.id}`}>
                               <td className="px-4 py-3 align-top">
                                 <span className="text-sm font-medium" data-testid={`text-key-${item.id}`}>
                                   {item.key}
@@ -576,9 +597,9 @@ export default function SiteConfiguration() {
                                           variant="outline"
                                           className={cn(
                                             "h-8 w-8 text-[#405189] hover:text-[#405189] hover:bg-[#405189]/5",
-                                            hasActionPermission("site configuration", "delete") ? "rounded-r-none border-r-0" : ""
+                                            !isAutoDelete && hasActionPermission("site configuration", "delete") ? "rounded-r-none border-r-0" : ""
                                           )}
-                                          onClick={() => openEdit(item.id)}
+                                          onClick={() => openEdit(item.id, item.configType)}
                                           data-testid={`button-edit-${item.id}`}
                                         >
                                           <Pencil className="h-4 w-4" />
@@ -587,14 +608,14 @@ export default function SiteConfiguration() {
                                       <TooltipContent>Edit Item</TooltipContent>
                                     </Tooltip>
 
-                                    {hasActionPermission("site configuration", "delete") && (
+                                    {!isAutoDelete && hasActionPermission("site configuration", "delete") && (
                                       <Tooltip>
                                         <TooltipTrigger asChild>
                                           <Button
                                             size="icon"
                                             variant="outline"
                                             className="h-8 w-8 rounded-l-none text-[#f06548] hover:text-[#f06548] hover:bg-[#f06548]/5"
-                                            onClick={() => openDelete(item.id, item.key)}
+                                            onClick={() => openDelete(item.id, item.key, item.configType)}
                                             data-testid={`button-delete-${item.id}`}
                                           >
                                             <Trash2 className="h-4 w-4" />
@@ -607,7 +628,8 @@ export default function SiteConfiguration() {
                                 </div>
                               </td>
                             </tr>
-                          ))}
+                              );
+                            })}
                         {activeTab === "Meta Information" &&
                           metaInformation.map((item) => (
                             <tr key={item.id} className="border-b last:border-b-0 hover:bg-muted/20 transition-colors" data-testid={`row-item-${item.id}`}>
@@ -725,7 +747,7 @@ export default function SiteConfiguration() {
                               </td>
                             </tr>
                           ))}
-                        {activeTab === "Configuration" && staticValues.length === 0 && (
+                        {activeTab === "Configuration" && staticValues.length === 0 && configurations.length === 0 && (
                           <tr>
                             <td colSpan={3} className="px-4 py-8 text-center text-sm text-muted-foreground">
                               No items found
@@ -1172,7 +1194,13 @@ export default function SiteConfiguration() {
                 />
               </div>
             )}
-            {activeTab === "Configuration" && (
+            {activeTab === "Configuration" && editingItem.field1.toLowerCase().startsWith("auto delete archived") && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Value</label>
+                <Input value={editingItem.field2} onChange={(e) => setEditingItem((prev) => ({ ...prev, field2: e.target.value }))} placeholder="Enter value" data-testid="input-field2" />
+              </div>
+            )}
+            {activeTab === "Configuration" && !editingItem.field1.toLowerCase().startsWith("auto delete archived") && (
               <div className="space-y-2">
                 <label className="text-sm font-medium">Value</label>
                 <div className="border rounded-md overflow-hidden">
