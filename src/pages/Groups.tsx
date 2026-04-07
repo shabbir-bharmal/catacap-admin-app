@@ -508,7 +508,7 @@ export default function GroupsPage() {
         isOpen={isAuditModalOpen}
         onOpenChange={setIsAuditModalOpen}
         entityId={auditTarget?.id || ""}
-        entityType="Groups"
+        entityType="groups"
         title={`Audit Logs - ${auditTarget?.name}`}
       />
 

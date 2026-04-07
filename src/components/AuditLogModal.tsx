@@ -35,8 +35,11 @@ export function AuditLogModal({ isOpen, onOpenChange, entityId, entityType, titl
     const source = tableName || entityType;
     const labelMap: Record<string, string> = {
       Campaigns: "Investment",
+      campaigns: "Investment",
       Groups: "Group",
+      groups: "Group",
       AspNetUsers: "User",
+      users: "User",
     };
 
     if (labelMap[source]) return labelMap[source];

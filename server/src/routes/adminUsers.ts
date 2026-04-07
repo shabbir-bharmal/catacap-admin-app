@@ -6,6 +6,7 @@ import { verifyToken } from "../utils/jwt.js";
 import crypto from "crypto";
 import ExcelJS from "exceljs";
 import { resolveFileUrl } from "../utils/uploadBase64Image.js";
+import { logAudit } from "../utils/auditLog.js";
 
 const router = Router();
 
@@ -722,6 +723,15 @@ router.put("/account-balance", async (req: Request, res: Response) => {
 
     await pool.query(updateQuery, updateParams);
 
+    await logAudit({
+      tableName: "users",
+      recordId: user.id,
+      actionType: "Modified",
+      oldValues: { account_balance: currentBalance },
+      newValues: { account_balance: newBalance },
+      updatedBy: loginUser?.id || null,
+    });
+
     res.json({ success: true, message: "Account balance has been updated successfully!" });
   } catch (err) {
     console.error("Update account balance error:", err);
@@ -1103,6 +1113,13 @@ router.post("/admin-users", async (req: Request, res: Response) => {
         return;
       }
       const user = userResult.rows[0];
+      const oldValues = {
+        first_name: user.first_name,
+        last_name: user.last_name,
+        email: user.email,
+        user_name: user.user_name,
+        is_active: user.is_active,
+      };
 
       const emailDup = await pool.query(
         "SELECT id FROM users WHERE LOWER(TRIM(email)) = LOWER(TRIM($1)) AND id != $2",
@@ -1166,6 +1183,21 @@ router.post("/admin-users", async (req: Request, res: Response) => {
         );
       }
 
+      await logAudit({
+        tableName: "users",
+        recordId: id,
+        actionType: "Modified",
+        oldValues,
+        newValues: {
+          first_name: firstName,
+          last_name: lastName,
+          email,
+          user_name: userName,
+          is_active: isActive ?? false,
+        },
+        updatedBy: req.user?.id || null,
+      });
+
       res.json({ success: true, message: "Admin user updated successfully." });
     } else {
       const existsUsername = await pool.query(
@@ -1223,6 +1255,20 @@ router.post("/admin-users", async (req: Request, res: Response) => {
         "INSERT INTO user_roles (user_id, role_id, discriminator) VALUES ($1, $2, $3)",
         [userId, roleId, "IdentityUserRole<string>"]
       );
+
+      await logAudit({
+        tableName: "users",
+        recordId: userId,
+        actionType: "Created",
+        newValues: {
+          first_name: firstName,
+          last_name: lastName,
+          email: email.toLowerCase().trim(),
+          user_name: userName,
+          is_active: isActive ?? false,
+        },
+        updatedBy: req.user?.id || null,
+      });
 
       res.json({ success: true, message: "Admin user created successfully." });
     }
@@ -1301,6 +1347,25 @@ router.put("/", async (req: Request, res: Response) => {
       [firstName || null, lastName || null, userName || null, email || null, existingUser.id]
     );
 
+    await logAudit({
+      tableName: "users",
+      recordId: existingUser.id,
+      actionType: "Modified",
+      oldValues: {
+        first_name: existingUser.first_name,
+        last_name: existingUser.last_name,
+        user_name: existingUser.user_name,
+        email: existingUser.email,
+      },
+      newValues: {
+        first_name: firstName || null,
+        last_name: lastName || null,
+        user_name: userName || existingUser.user_name,
+        email: email || existingUser.email,
+      },
+      updatedBy: jwtUser?.id || null,
+    });
+
     res.json({ success: true, message: "Profile details updated successfully." });
   } catch (err) {
     console.error("Update user profile error:", err);
@@ -1319,11 +1384,15 @@ router.patch("/:id/settings", async (req: Request, res: Response) => {
       return;
     }
 
-    const userResult = await pool.query("SELECT id FROM users WHERE id = $1", [id]);
+    const userResult = await pool.query("SELECT id, is_active, is_exclude_user_balance FROM users WHERE id = $1", [id]);
     if (userResult.rows.length === 0) {
       res.status(404).json({ message: "User not found." });
       return;
     }
+
+    const currentUser = userResult.rows[0];
+    const oldValues: Record<string, any> = {};
+    const newValues: Record<string, any> = {};
 
     const updates: string[] = [];
     const values: (string | boolean)[] = [];
@@ -1332,11 +1401,15 @@ router.patch("/:id/settings", async (req: Request, res: Response) => {
     if (isActive !== undefined) {
       updates.push(`is_active = $${paramIdx++}`);
       values.push(isActive === "true");
+      oldValues.is_active = currentUser.is_active;
+      newValues.is_active = isActive === "true";
     }
 
     if (isExcludeUserBalance !== undefined) {
       updates.push(`is_exclude_user_balance = $${paramIdx++}`);
       values.push(isExcludeUserBalance === "true");
+      oldValues.is_exclude_user_balance = currentUser.is_exclude_user_balance;
+      newValues.is_exclude_user_balance = isExcludeUserBalance === "true";
     }
 
     if (updates.length === 0) {
@@ -1351,6 +1424,14 @@ router.patch("/:id/settings", async (req: Request, res: Response) => {
     );
 
     if (result.rowCount && result.rowCount > 0) {
+      await logAudit({
+        tableName: "users",
+        recordId: id as string,
+        actionType: "Modified",
+        oldValues,
+        newValues,
+        updatedBy: req.user?.id || null,
+      });
       res.status(200).send();
     } else {
       res.status(400).send();
@@ -1659,6 +1740,14 @@ router.delete("/:id", async (req: Request, res: Response) => {
       );
 
       await client.query("COMMIT");
+
+      await logAudit({
+        tableName: "users",
+        recordId: String(id),
+        actionType: "Deleted",
+        oldValues: { email: user.email },
+        updatedBy: currentUserId || null,
+      });
 
       res.json({ success: true, message: "User deleted successfully." });
     } catch (err) {

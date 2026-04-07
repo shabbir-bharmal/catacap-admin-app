@@ -536,9 +536,20 @@ router.get("/audit-logs", async (req: Request, res: Response) => {
     let paramIdx = 1;
 
     if (params.type) {
-      conditions.push(`LOWER(TRIM(a.table_name)) = LOWER(TRIM($${paramIdx}))`);
-      values.push(params.type);
-      paramIdx++;
+      const typeAliases: Record<string, string[]> = {
+        users: ["users", "aspnetusers"],
+        aspnetusers: ["users", "aspnetusers"],
+        campaigns: ["campaigns"],
+        groups: ["groups"],
+      };
+      const normalizedType = (params.type as string).toLowerCase().trim();
+      const aliases = typeAliases[normalizedType] || [normalizedType];
+      const placeholders = aliases.map((_, i) => `$${paramIdx + i}`);
+      conditions.push(`LOWER(TRIM(a.table_name)) IN (${placeholders.join(", ")})`);
+      for (const alias of aliases) {
+        values.push(alias);
+        paramIdx++;
+      }
     }
 
     if (params.id) {
@@ -574,9 +585,9 @@ router.get("/audit-logs", async (req: Request, res: Response) => {
          a.table_name AS "tableName",
          a.record_id,
          CASE
-           WHEN a.table_name = 'AspNetUsers' THEN COALESCE(usr.first_name || ' ' || usr.last_name, a.record_id)
-           WHEN a.table_name = 'Campaigns' THEN COALESCE(camp.name, a.record_id)
-           WHEN a.table_name = 'Groups' THEN COALESCE(grp.name, a.record_id)
+           WHEN a.table_name IN ('AspNetUsers', 'users') THEN COALESCE(usr.first_name || ' ' || usr.last_name, a.record_id)
+           WHEN a.table_name IN ('Campaigns', 'campaigns') THEN COALESCE(camp.name, a.record_id)
+           WHEN a.table_name IN ('Groups', 'groups') THEN COALESCE(grp.name, a.record_id)
            ELSE a.record_id
          END AS identifier,
          a.action_type AS "actionType",
@@ -587,9 +598,9 @@ router.get("/audit-logs", async (req: Request, res: Response) => {
          TO_CHAR(a.updated_at, 'DD Mon YYYY HH12:MI AM') AS "updatedAt"
        FROM audit_logs a
        LEFT JOIN users upd ON a.updated_by = upd.id
-       LEFT JOIN users usr ON a.record_id = usr.id
-       LEFT JOIN campaigns camp ON a.record_id = camp.id::text
-       LEFT JOIN groups grp ON a.record_id = grp.id::text
+       LEFT JOIN users usr ON a.record_id = usr.id AND a.table_name IN ('AspNetUsers', 'users')
+       LEFT JOIN campaigns camp ON a.record_id = camp.id::text AND a.table_name IN ('Campaigns', 'campaigns')
+       LEFT JOIN groups grp ON a.record_id = grp.id::text AND a.table_name IN ('Groups', 'groups')
        ${whereClause}
        ORDER BY ${orderBy} ${orderDir}
        LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,

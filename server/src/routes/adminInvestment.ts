@@ -6,6 +6,7 @@ import { sendTemplateEmail } from "../utils/emailService.js";
 import ExcelJS from "exceljs";
 import crypto from "crypto";
 import { uploadBase64Image, resolveFileUrl, extractStoragePath } from "../utils/uploadBase64Image.js";
+import { logAudit } from "../utils/auditLog.js";
 
 const router = Router();
 
@@ -1181,6 +1182,19 @@ router.post("/", async (req: Request, res: Response) => {
       await handleTagMappings(newCampaignId, campaign.investmentTag);
     }
 
+    await logAudit({
+      tableName: "campaigns",
+      recordId: String(newCampaignId),
+      actionType: "Created",
+      newValues: {
+        name: campaign.name || null,
+        stage: InvestmentStageEnum.New,
+        is_active: false,
+        contact_info_email_address: campaign.contactInfoEmailAddress || null,
+      },
+      updatedBy: req.user?.id || null,
+    });
+
     res.json({ success: true, message: "Investment has been created successfully." });
   } catch (err: any) {
     console.error("Error creating investment:", err);
@@ -1253,6 +1267,9 @@ router.put("/:id/status", async (req: Request, res: Response) => {
     const id = parseInt(req.params.id, 10);
     const status = String(req.query.status).toLowerCase() === "true";
 
+    const beforeResult = await pool.query(`SELECT is_active FROM campaigns WHERE id = $1`, [id]);
+    const oldIsActive = beforeResult.rows[0]?.is_active;
+
     const result = await pool.query(
       `UPDATE campaigns SET is_active = $1, modified_date = NOW() WHERE id = $2 RETURNING *`,
       [status, id]
@@ -1264,6 +1281,15 @@ router.put("/:id/status", async (req: Request, res: Response) => {
     }
 
     const campaign = result.rows[0];
+
+    await logAudit({
+      tableName: "campaigns",
+      recordId: String(id),
+      actionType: "Modified",
+      oldValues: { is_active: oldIsActive },
+      newValues: { is_active: status },
+      updatedBy: req.user?.id || null,
+    });
 
     if (status) {
       const requestOrigin = process.env.REQUEST_ORIGIN || process.env.VITE_FRONTEND_URL || "";
@@ -1463,6 +1489,44 @@ router.put("/:id", async (req: Request, res: Response) => {
       await handleTagMappings(id, campaign.investmentTag);
     }
 
+    const auditOldValues: Record<string, any> = {
+      name: existing.name,
+      description: existing.description,
+      stage: existing.stage,
+      is_active: existing.is_active,
+      target: existing.target,
+      minimum_investment: existing.minimum_investment,
+      property: existing.property,
+      contact_info_email_address: existing.contact_info_email_address,
+      meta_title: existing.meta_title,
+      meta_description: existing.meta_description,
+      featured_investment: existing.featured_investment,
+      is_part_of_fund: existing.is_part_of_fund,
+    };
+    const auditNewValues: Record<string, any> = {
+      name: campaign.name || existing.name,
+      description: campaign.description ?? existing.description,
+      stage: finalStage ?? existing.stage,
+      is_active: finalIsActive ?? existing.is_active,
+      target: campaign.target ?? existing.target,
+      minimum_investment: finalMinimumInvestment ?? existing.minimum_investment,
+      property: finalProperty ?? existing.property,
+      contact_info_email_address: campaign.contactInfoEmailAddress ?? existing.contact_info_email_address,
+      meta_title: campaign.metaTitle ?? existing.meta_title,
+      meta_description: campaign.metaDescription ?? existing.meta_description,
+      featured_investment: campaign.featuredInvestment ?? existing.featured_investment,
+      is_part_of_fund: campaign.isPartOfFund ?? existing.is_part_of_fund,
+    };
+
+    await logAudit({
+      tableName: "campaigns",
+      recordId: String(id),
+      actionType: "Modified",
+      oldValues: auditOldValues,
+      newValues: auditNewValues,
+      updatedBy: req.user?.id || null,
+    });
+
     if (
       campaign.note || campaign.Note ||
       (campaign.oldStatus && campaign.newStatus) ||
@@ -1578,6 +1642,14 @@ router.delete("/:id", async (req: Request, res: Response) => {
       `UPDATE completed_investment_details SET is_deleted = true, deleted_at = NOW(), deleted_by = $1 WHERE campaign_id = $2 AND (is_deleted IS NULL OR is_deleted = false)`,
       [loginUserId, id]
     );
+
+    await logAudit({
+      tableName: "campaigns",
+      recordId: String(id),
+      actionType: "Deleted",
+      oldValues: { id },
+      updatedBy: loginUserId,
+    });
 
     res.json({ success: true, message: "Campaign deleted successfully." });
   } catch (err: any) {

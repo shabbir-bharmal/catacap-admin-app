@@ -5,6 +5,7 @@ import { parsePagination, softDeleteFilter, buildSortClause } from "../utils/sof
 import crypto from "crypto";
 import ExcelJS from "exceljs";
 import { uploadBase64Image, resolveFileUrl, extractStoragePath } from "../utils/uploadBase64Image.js";
+import { logAudit } from "../utils/auditLog.js";
 
 const STAGE_LABELS: Record<number, string> = {
   1: "Private",
@@ -518,6 +519,15 @@ router.post("/leaders-and-champions", async (req: Request, res: Response) => {
 
       await pool.query(`UPDATE groups SET leaders = $1 WHERE id = $2`, [JSON.stringify(leaders), groupId]);
 
+      await logAudit({
+        tableName: "groups",
+        recordId: String(groupId),
+        actionType: "Modified",
+        oldValues: { leaders: group.leaders },
+        newValues: { leaders: JSON.stringify(leaders) },
+        updatedBy: req.user?.id || null,
+      });
+
       const enriched = await enrichMembers(leaders, group.owner_id);
       res.json(enriched);
     } else if (type === "champions") {
@@ -541,6 +551,15 @@ router.post("/leaders-and-champions", async (req: Request, res: Response) => {
       }
 
       await pool.query(`UPDATE groups SET champions_and_catalysts = $1 WHERE id = $2`, [JSON.stringify(champions), groupId]);
+
+      await logAudit({
+        tableName: "groups",
+        recordId: String(groupId),
+        actionType: "Modified",
+        oldValues: { champions_and_catalysts: group.champions_and_catalysts },
+        newValues: { champions_and_catalysts: JSON.stringify(champions) },
+        updatedBy: req.user?.id || null,
+      });
 
       const enriched = await enrichMembers(champions);
       res.json(enriched);
@@ -595,6 +614,15 @@ router.delete("/leaders-and-champions", async (req: Request, res: Response) => {
 
       await pool.query(`UPDATE groups SET leaders = $1 WHERE id = $2`, [JSON.stringify(leaders), groupId]);
 
+      await logAudit({
+        tableName: "groups",
+        recordId: String(groupId),
+        actionType: "Modified",
+        oldValues: { leaders: group.leaders },
+        newValues: { leaders: JSON.stringify(leaders) },
+        updatedBy: req.user?.id || null,
+      });
+
       const enriched = await enrichMembers(leaders);
       res.json(enriched);
     } else if (type === "champions") {
@@ -606,6 +634,15 @@ router.delete("/leaders-and-champions", async (req: Request, res: Response) => {
       champions = champions.filter((x: any) => (x.UserId || x.userId) !== userId);
 
       await pool.query(`UPDATE groups SET champions_and_catalysts = $1 WHERE id = $2`, [JSON.stringify(champions), groupId]);
+
+      await logAudit({
+        tableName: "groups",
+        recordId: String(groupId),
+        actionType: "Modified",
+        oldValues: { champions_and_catalysts: group.champions_and_catalysts },
+        newValues: { champions_and_catalysts: JSON.stringify(champions) },
+        updatedBy: req.user?.id || null,
+      });
 
       const enriched = await enrichMembers(champions);
       res.json(enriched);
@@ -673,11 +710,15 @@ router.patch("/settings", async (req: Request, res: Response) => {
       return;
     }
 
-    const groupResult = await pool.query(`SELECT id FROM groups WHERE id = $1`, [id]);
+    const groupResult = await pool.query(`SELECT id, featured_group, is_corporate_group FROM groups WHERE id = $1`, [id]);
     if (groupResult.rows.length === 0) {
       res.json({ success: false, message: "Group not found." });
       return;
     }
+
+    const currentGroup = groupResult.rows[0];
+    const oldValues: Record<string, any> = {};
+    const newValues: Record<string, any> = {};
 
     const updates: string[] = [];
     const values: any[] = [];
@@ -686,11 +727,15 @@ router.patch("/settings", async (req: Request, res: Response) => {
     if (featuredGroup !== undefined && featuredGroup !== "undefined") {
       updates.push(`featured_group = $${paramIdx++}`);
       values.push(featuredGroup === "true");
+      oldValues.featured_group = currentGroup.featured_group;
+      newValues.featured_group = featuredGroup === "true";
     }
 
     if (isCorporateGroup !== undefined && isCorporateGroup !== "undefined") {
       updates.push(`is_corporate_group = $${paramIdx++}`);
       values.push(isCorporateGroup === "true");
+      oldValues.is_corporate_group = currentGroup.is_corporate_group;
+      newValues.is_corporate_group = isCorporateGroup === "true";
     }
 
     if (updates.length === 0) {
@@ -705,6 +750,14 @@ router.patch("/settings", async (req: Request, res: Response) => {
     );
 
     if (result.rowCount && result.rowCount > 0) {
+      await logAudit({
+        tableName: "groups",
+        recordId: String(id),
+        actionType: "Modified",
+        oldValues,
+        newValues,
+        updatedBy: req.user?.id || null,
+      });
       res.status(200).send();
     } else {
       res.status(400).send();
@@ -991,6 +1044,40 @@ router.put("/:id", async (req: Request, res: Response) => {
       }
     }
 
+    const oldValues = {
+      name: existing.name,
+      website: existing.website,
+      description: existing.description,
+      our_why_description: existing.our_why_description,
+      did_you_know: existing.did_you_know,
+      video_link: existing.video_link,
+      is_approuve_required: existing.is_approuve_required,
+      is_deactivated: existing.is_deactivated,
+      identifier: existing.identifier,
+      is_corporate_group: existing.is_corporate_group,
+      is_private_group: existing.is_private_group,
+      group_themes: existing.group_themes,
+      meta_title: existing.meta_title,
+      meta_description: existing.meta_description,
+    };
+
+    const updatedFields = {
+      name: groupData.name ?? existing.name,
+      website: groupData.website ?? existing.website,
+      description: groupData.description ?? existing.description,
+      our_why_description: groupData.ourWhyDescription ?? existing.our_why_description,
+      did_you_know: groupData.didYouKnow ?? existing.did_you_know,
+      video_link: groupData.videoLink ?? existing.video_link,
+      is_approuve_required: groupData.isApprouveRequired ?? existing.is_approuve_required,
+      is_deactivated: groupData.isDeactivated ?? existing.is_deactivated,
+      identifier: groupData.identifier ?? existing.identifier,
+      is_corporate_group: groupData.isCorporateGroup ?? existing.is_corporate_group,
+      is_private_group: groupData.isPrivateGroup ?? existing.is_private_group,
+      group_themes: groupData.groupThemes ?? existing.group_themes,
+      meta_title: groupData.metaTitle ?? existing.meta_title,
+      meta_description: groupData.metaDescription ?? existing.meta_description,
+    };
+
     await pool.query(
       `UPDATE groups SET
         name = $1,
@@ -1012,25 +1099,34 @@ router.put("/:id", async (req: Request, res: Response) => {
         modified_at = NOW()
       WHERE id = $17`,
       [
-        groupData.name ?? existing.name,
-        groupData.website ?? existing.website,
-        groupData.description ?? existing.description,
-        groupData.ourWhyDescription ?? existing.our_why_description,
-        groupData.didYouKnow ?? existing.did_you_know,
-        groupData.videoLink ?? existing.video_link,
-        groupData.isApprouveRequired ?? existing.is_approuve_required,
-        groupData.isDeactivated ?? existing.is_deactivated,
-        groupData.identifier ?? existing.identifier,
-        groupData.isCorporateGroup ?? existing.is_corporate_group,
-        groupData.isPrivateGroup ?? existing.is_private_group,
-        groupData.groupThemes ?? existing.group_themes,
-        groupData.metaTitle ?? existing.meta_title,
-        groupData.metaDescription ?? existing.meta_description,
+        updatedFields.name,
+        updatedFields.website,
+        updatedFields.description,
+        updatedFields.our_why_description,
+        updatedFields.did_you_know,
+        updatedFields.video_link,
+        updatedFields.is_approuve_required,
+        updatedFields.is_deactivated,
+        updatedFields.identifier,
+        updatedFields.is_corporate_group,
+        updatedFields.is_private_group,
+        updatedFields.group_themes,
+        updatedFields.meta_title,
+        updatedFields.meta_description,
         pictureFileName,
         backgroundPictureFileName,
         id,
       ]
     );
+
+    await logAudit({
+      tableName: "groups",
+      recordId: String(id),
+      actionType: "Modified",
+      oldValues,
+      newValues: updatedFields,
+      updatedBy: req.user?.id || null,
+    });
 
     res.status(200).send();
   } catch (err) {
@@ -1061,6 +1157,14 @@ router.delete("/:id", async (req: Request, res: Response) => {
       `UPDATE groups SET is_deleted = true, deleted_at = NOW(), deleted_by = $2 WHERE id = $1`,
       [id, deletedBy]
     );
+
+    await logAudit({
+      tableName: "groups",
+      recordId: String(id),
+      actionType: "Deleted",
+      oldValues: { id },
+      updatedBy: deletedBy,
+    });
 
     res.json({ success: true, message: "Group deleted successfully." });
   } catch (err) {

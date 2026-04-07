@@ -617,7 +617,7 @@ export default function UsersPage() {
         isOpen={isAuditModalOpen}
         onOpenChange={setIsAuditModalOpen}
         entityId={auditTarget?.id || ""}
-        entityType="AspNetUsers"
+        entityType="users"
         title={`Audit Logs - ${auditTarget?.name}`}
       />
     </AdminLayout>

@@ -795,7 +795,7 @@ export default function InvestmentsPage() {
         isOpen={isAuditModalOpen}
         onOpenChange={setIsAuditModalOpen}
         entityId={auditTarget?.id || ""}
-        entityType="Campaigns"
+        entityType="campaigns"
         title={`Audit Logs - ${auditTarget?.name}`}
       />
     </AdminLayout>
