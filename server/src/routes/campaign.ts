@@ -97,6 +97,7 @@ router.get("/get-all-investment-name-list", async (req: Request, res: Response) 
         `SELECT id, name, investment_types
          FROM campaigns
          WHERE stage != $1 AND TRIM(COALESCE(name, '')) != ''
+         AND (is_deleted IS NULL OR is_deleted = false)
          ORDER BY name ASC`,
         [STAGE_CLOSED_NOT_INVESTED]
       );
@@ -125,13 +126,14 @@ router.get("/get-all-investment-name-list", async (req: Request, res: Response) 
         `SELECT id, name
          FROM campaigns
          WHERE stage = $1 AND TRIM(COALESCE(name, '')) != ''
+         AND (is_deleted IS NULL OR is_deleted = false)
          ORDER BY name ASC`,
         [STAGE_CLOSED_INVESTED]
       );
 
       res.json(result.rows.map((c: any) => ({ id: c.id, name: c.name })));
     } else if (investmentStage === 0) {
-      let query = `SELECT id, name FROM campaigns WHERE TRIM(COALESCE(name, '')) != ''`;
+      let query = `SELECT id, name FROM campaigns WHERE TRIM(COALESCE(name, '')) != '' AND (is_deleted IS NULL OR is_deleted = false)`;
       const values: any[] = [];
 
       if (investmentId > 0) {

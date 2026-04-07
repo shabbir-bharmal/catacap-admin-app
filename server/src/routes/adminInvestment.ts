@@ -107,6 +107,7 @@ router.get("/names", async (req: Request, res: Response) => {
       const result = await pool.query(
         `SELECT id, name, investment_types FROM campaigns
          WHERE stage != $1 AND TRIM(COALESCE(name, '')) != ''
+         AND (is_deleted IS NULL OR is_deleted = false)
          ORDER BY name ASC`,
         [InvestmentStageEnum.ClosedNotInvested]
       );
@@ -135,13 +136,14 @@ router.get("/names", async (req: Request, res: Response) => {
       const result = await pool.query(
         `SELECT id, name FROM campaigns
          WHERE stage = $1 AND TRIM(COALESCE(name, '')) != ''
+         AND (is_deleted IS NULL OR is_deleted = false)
          ORDER BY name ASC`,
         [InvestmentStageEnum.ClosedInvested]
       );
       res.json(result.rows.map((r: any) => ({ id: Number(r.id), name: r.name })));
     } else if (stage === 0) {
       const values: any[] = [];
-      let condition = `TRIM(COALESCE(name, '')) != ''`;
+      let condition = `TRIM(COALESCE(name, '')) != '' AND (is_deleted IS NULL OR is_deleted = false)`;
       if (excludeId > 0) {
         values.push(excludeId);
         condition += ` AND id != $1`;
@@ -155,6 +157,7 @@ router.get("/names", async (req: Request, res: Response) => {
       const result = await pool.query(
         `SELECT id, name FROM campaigns
          WHERE stage IN ($1, $2, $3) AND TRIM(COALESCE(name, '')) != ''
+         AND (is_deleted IS NULL OR is_deleted = false)
          ORDER BY name ASC`,
         [
           InvestmentStageEnum.ClosedInvested,
