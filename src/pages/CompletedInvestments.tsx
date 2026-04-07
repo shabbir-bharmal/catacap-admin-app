@@ -954,8 +954,7 @@ export default function AdminCompletedInvestments() {
                           <td className="px-4 py-3 text-right">
                             <div className="flex items-center justify-end">
                               <div className="inline-flex rounded-md shadow-sm">
-                                {item.hasNotes && (
-                                  <Tooltip>
+                                <Tooltip>
                                     <TooltipTrigger asChild>
                                       <Button
                                         size="icon"
@@ -972,15 +971,13 @@ export default function AdminCompletedInvestments() {
                                     </TooltipTrigger>
                                     <TooltipContent>{expandedRow === item.id ? "Hide Notes" : "Show Notes"}</TooltipContent>
                                   </Tooltip>
-                                )}
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <Button
                                       size="icon"
                                       variant="outline"
                                       className={cn(
-                                        "h-8 w-8 text-[#0ab39c] hover:text-[#0ab39c] hover:bg-[#0ab39c]/5",
-                                        item.hasNotes ? "rounded-l-none" : "",
+                                        "h-8 w-8 rounded-l-none text-[#0ab39c] hover:text-[#0ab39c] hover:bg-[#0ab39c]/5",
                                         authUser?.isSuperAdmin ? "border-r-0 rounded-r-none" : ""
                                       )}
                                       onClick={() => openEditDialog(item)}
