@@ -168,7 +168,7 @@ CREATE TABLE public.campaigns (
   personalized_thank_you text,
   fundraising_close_date text,
   city text,
-  contact_info_address_2 text,
+  contact_info_address2 text,
   impact_assets_funding_status text,
   investment_role text,
   state text,

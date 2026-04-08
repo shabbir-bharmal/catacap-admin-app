@@ -901,7 +901,7 @@ router.post("/raisemoney", async (req: Request, res: Response) => {
       `INSERT INTO campaigns (
         name, description, themes, approved_by, sdgs, investment_types, terms,
         minimum_investment, website, network_description, contact_info_full_name,
-        contact_info_address, contact_info_address_2, contact_info_email_address,
+        contact_info_address, contact_info_address2, contact_info_email_address,
         investment_informational_email, contact_info_phone_number, country,
         other_country_address, city, state, zip_code, impact_assets_funding_status,
         investment_role, referred_to_catacap, target, status, stage, is_active,
