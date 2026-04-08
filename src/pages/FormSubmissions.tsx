@@ -89,9 +89,30 @@ export default function FormSubmissionsPage() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, status, note }: { id: number; status: number; note: string }) => updateFormSubmissionStatus(id, status, note),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["form-submissions"] });
       toast({ title: "Saved", description: "Submission updated successfully." });
+
+      setNotesData((prev) => {
+        const updated = { ...prev };
+        delete updated[variables.id];
+        return updated;
+      });
+
+      if (expandedRow === variables.id) {
+        setLoadingNotes((prev) => ({ ...prev, [variables.id]: true }));
+        fetchFormSubmissionNotes(variables.id)
+          .then((notes) => {
+            setNotesData((prev) => ({ ...prev, [variables.id]: notes || [] }));
+          })
+          .catch(() => {
+            setNotesData((prev) => ({ ...prev, [variables.id]: [] }));
+          })
+          .finally(() => {
+            setLoadingNotes((prev) => ({ ...prev, [variables.id]: false }));
+          });
+      }
+
       setSelectedSubmission(null);
     },
     onError: () => {
