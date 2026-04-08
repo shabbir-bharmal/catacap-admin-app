@@ -431,7 +431,7 @@ router.get("/leaders-and-champions", async (req: Request, res: Response) => {
          FROM users u
          WHERE u.is_active = true
            AND EXISTS (SELECT 1 FROM user_roles ur WHERE ur.user_id = u.id AND ur.role_id = $1)
-           AND ($2 IS NULL OR u.id != $2)
+           AND ($2::text IS NULL OR u.id != $2::text)
            AND LOWER(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) LIKE $3`,
         [groupAdminRoleId, groupOwnerId || null, `%${userName}%`]
       );
@@ -445,7 +445,7 @@ router.get("/leaders-and-champions", async (req: Request, res: Response) => {
          WHERE r.group_to_follow_id = $1
            AND r.status = 'accepted'
            AND u.is_active = true
-           AND ($2 IS NULL OR u.id != $2)
+           AND ($2::text IS NULL OR u.id != $2::text)
            AND LOWER(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) LIKE $3`,
         [groupId, groupOwnerId || null, `%${userName}%`]
       );

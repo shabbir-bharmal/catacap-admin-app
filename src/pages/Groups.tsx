@@ -236,6 +236,7 @@ export default function GroupsPage() {
             id: c.userId || crypto.randomUUID(),
             name: c.fullName || "",
             role: c.roleAndTitle || "",
+            description: c.description || "",
             pictureFileName: c.pictureFileName || null
           }))
         );
