@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
-import { parsePagination, softDeleteFilter } from "../utils/softDelete.js";
+import { parsePagination, softDeleteFilter, handleMissingTableError } from "../utils/softDelete.js";
 import { resolveFileUrl, uploadBase64Image, extractStoragePath, ensureFolderPrefix } from "../utils/uploadBase64Image.js";
 
 const router = Router();
@@ -91,7 +91,8 @@ router.get("/", async (req: Request, res: Response) => {
     }));
 
     res.json({ totalCount: parseInt(countResult.rows[0].total) || 0, items });
-  } catch (err) {
+  } catch (err: any) {
+    if (handleMissingTableError(err, res)) return;
     console.error("Teams GetAll error:", err);
     res.status(500).json({ message: "Internal server error" });
   }

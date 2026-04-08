@@ -91,7 +91,8 @@ export default function ArchivedRecordsDetail() {
         setTotalCount(data.totalCount ?? data.totalRecords ?? 0);
       } catch (error) {
         console.error("Error loading archived items:", error);
-        toast({ title: "Error", description: "Failed to load archived items", variant: "destructive" });
+        setItems([]);
+        setTotalCount(0);
       } finally {
         setLoading(false);
       }

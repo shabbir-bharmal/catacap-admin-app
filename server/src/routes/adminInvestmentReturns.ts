@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
-import { parsePagination } from "../utils/softDelete.js";
+import { parsePagination, handleMissingTableError } from "../utils/softDelete.js";
 import { sendTemplateEmail } from "../utils/emailService.js";
 import ExcelJS from "exceljs";
 
@@ -116,6 +116,7 @@ router.get("/", async (req: Request, res: Response) => {
 
     res.json({ items, totalCount });
   } catch (err: any) {
+    if (handleMissingTableError(err, res)) return;
     console.error("Error fetching investment returns:", err);
     res.status(500).json({ success: false, message: err.message });
   }

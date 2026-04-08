@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import { Resend } from "resend";
 import pool from "../db.js";
-import { parsePagination, softDeleteFilter } from "../utils/softDelete.js";
+import { parsePagination, softDeleteFilter, handleMissingTableError } from "../utils/softDelete.js";
 
 const router = Router();
 
@@ -298,7 +298,8 @@ router.get("/", async (req: Request, res: Response) => {
     }
 
     res.json({ totalRecords: parseInt(countResult.rows[0].total) || 0, items });
-  } catch (err) {
+  } catch (err: any) {
+    if (handleMissingTableError(err, res)) return;
     console.error("EmailTemplate GetAll error:", err);
     res.status(500).json({ message: "Internal server error" });
   }

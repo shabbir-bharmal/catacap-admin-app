@@ -63,6 +63,14 @@ export function softDeleteFilter(
   }
 }
 
+export function handleMissingTableError(err: any, res: any): boolean {
+  if (err && (err.code === "42P01" || err.code === "42703")) {
+    res.json({ items: [], totalCount: 0, totalRecords: 0 });
+    return true;
+  }
+  return false;
+}
+
 export function buildSortClause(
   sortField: string | undefined,
   isAsc: boolean,

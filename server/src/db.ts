@@ -9,6 +9,32 @@ pool.on("error", (err) => {
   console.error("Unexpected database pool error:", err);
 });
 
+async function runSoftDeleteMigration(client: pg.PoolClient): Promise<void> {
+  const tables = [
+    "account_balance_change_logs",
+    "campaigns",
+    "groups",
+    "recommendations",
+    "themes",
+    "users",
+  ];
+
+  for (const table of tables) {
+    const tableCheck = await client.query(
+      `SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1`,
+      [table]
+    );
+    if (tableCheck.rows.length === 0) continue;
+
+    await client.query(`
+      ALTER TABLE ${table}
+        ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false,
+        ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(450)
+    `);
+  }
+}
+
 export async function testConnection(): Promise<void> {
   const client = await pool.connect();
   try {
@@ -24,6 +50,8 @@ export async function testConnection(): Promise<void> {
     } else {
       console.warn("Warning: 'users' table not found. Auth endpoints will not work until the schema is deployed.");
     }
+
+    await runSoftDeleteMigration(client);
   } finally {
     client.release();
   }

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
-import { parsePagination } from "../utils/softDelete.js";
+import { parsePagination, handleMissingTableError } from "../utils/softDelete.js";
 import { resolveFileUrl } from "../utils/uploadBase64Image.js";
 import ExcelJS from "exceljs";
 
@@ -222,6 +222,7 @@ router.get("/", async (req: Request, res: Response) => {
       res.json({ success: false, message: "Data not found." });
     }
   } catch (err: any) {
+    if (handleMissingTableError(err, res)) return;
     console.error("Error fetching disbursal requests:", err);
     res.status(500).json({ success: false, message: err.message });
   }

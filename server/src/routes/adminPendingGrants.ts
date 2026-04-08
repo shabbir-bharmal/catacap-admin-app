@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
-import { parsePagination, softDeleteFilter } from "../utils/softDelete.js";
+import { parsePagination, softDeleteFilter, handleMissingTableError } from "../utils/softDelete.js";
 import ExcelJS from "exceljs";
 
 const router = Router();
@@ -253,6 +253,7 @@ router.get("/", async (req: Request, res: Response) => {
       res.json({ success: false, message: "Data not found." });
     }
   } catch (err: any) {
+    if (handleMissingTableError(err, res)) return;
     console.error("Error fetching pending grants:", err);
     res.status(500).json({ success: false, message: err.message });
   }
