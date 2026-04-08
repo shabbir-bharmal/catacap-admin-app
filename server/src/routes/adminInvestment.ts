@@ -5,7 +5,7 @@ import { parsePagination, softDeleteFilter, buildSortClause } from "../utils/sof
 import { sendTemplateEmail } from "../utils/emailService.js";
 import ExcelJS from "exceljs";
 import crypto from "crypto";
-import { uploadBase64Image, resolveFileUrl, extractStoragePath } from "../utils/uploadBase64Image.js";
+import { uploadBase64Image, resolveFileUrl, extractStoragePath, getSupabaseConfig } from "../utils/uploadBase64Image.js";
 import { logAudit } from "../utils/auditLog.js";
 
 const router = Router();
@@ -214,24 +214,61 @@ router.get("/document", async (req: Request, res: Response) => {
   try {
     const action = String(req.query.action || "");
     const pdfFileName = String(req.query.pdfFileName || "");
+    const originalPdfFileName = String(req.query.originalPdfFileName || pdfFileName);
+    const stream = req.query.stream === "true";
 
     if (!action || !pdfFileName) {
       res.json({ success: false, message: "Parameters required." });
       return;
     }
 
+    let fileUrl: string | null = null;
+
     if (pdfFileName.startsWith("http://") || pdfFileName.startsWith("https://")) {
-      res.json({ success: true, message: pdfFileName });
+      fileUrl = pdfFileName;
+    } else {
+      fileUrl = resolveFileUrl(pdfFileName, "campaigns");
+    }
+
+    if (!fileUrl) {
+      res.json({ success: false, message: "Document not found." });
       return;
     }
 
-    const resolved = resolveFileUrl(pdfFileName, "campaigns");
-    if (resolved) {
-      res.json({ success: true, message: resolved });
+    if (!stream) {
+      res.json({ success: true, message: fileUrl });
       return;
     }
 
-    res.json({ success: false, message: "Document not found." });
+    const storagePath = extractStoragePath(pdfFileName) || extractStoragePath(fileUrl);
+    if (storagePath) {
+      const { client: supabase, bucket } = getSupabaseConfig();
+      const cleanPath = storagePath.startsWith("/") ? storagePath.slice(1) : storagePath;
+      const { data, error } = await supabase.storage.from(bucket).download(cleanPath);
+      if (error || !data) {
+        res.status(502).json({ success: false, message: "Failed to download file from storage." });
+        return;
+      }
+
+      const arrayBuffer = await data.arrayBuffer();
+      res.setHeader("Content-Type", data.type || "application/octet-stream");
+      res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(originalPdfFileName)}"`);
+      res.send(Buffer.from(arrayBuffer));
+      return;
+    }
+
+    const fileResponse = await fetch(fileUrl);
+    if (!fileResponse.ok) {
+      res.status(502).json({ success: false, message: "Failed to fetch file from storage." });
+      return;
+    }
+
+    const contentType = fileResponse.headers.get("content-type") || "application/octet-stream";
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(originalPdfFileName)}"`);
+
+    const arrayBuffer = await fileResponse.arrayBuffer();
+    res.send(Buffer.from(arrayBuffer));
   } catch (err: any) {
     console.error("Error getting document:", err);
     res.status(500).json({ success: false, message: err.message });

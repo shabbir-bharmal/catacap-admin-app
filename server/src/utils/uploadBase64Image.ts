@@ -9,7 +9,7 @@ const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 
 const FOLDER_PATTERN = /^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/;
 
-function getSupabaseConfig() {
+export function getSupabaseConfig() {
   if (!SUPABASE_URL) {
     throw new Error("Missing environment variable: SUPABASE_URL");
   }

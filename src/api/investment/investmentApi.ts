@@ -1,4 +1,4 @@
-import axiosInstance from "../axios";
+import axiosInstance, { getToken, API_ACCESS_TOKEN } from "../axios";
 
 export interface InvestmentParams {
     currentPage?: number;
@@ -166,32 +166,21 @@ export async function fetchAllInvestmentNameList(investmentStage: number = 0, in
     return response.data;
 }
 
-export async function downloadInvestmentDocument(
+export function downloadInvestmentDocument(
     action: string,
     pdfFileName: string,
     originalPdfFileName: string
-): Promise<void> {
-    console.log("Downloading document...");
-    console.log(action, pdfFileName, originalPdfFileName);
-    const response = await axiosInstance.get<{ success: boolean; message: string }>(
-        `/api/admin/investment/document/`,
-        {
-            params: { action, pdfFileName, originalPdfFileName },
-        }
-    );
-
-    if (response.data.success && response.data.message) {
-        const link = document.createElement("a");
-        link.href = response.data.message;
-        link.setAttribute("download", originalPdfFileName);
-        link.target = "_self";
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    } else {
-        throw new Error(response.data.message || "Failed to get download URL");
-    }
-    
+): void {
+    const token = getToken();
+    const params = new URLSearchParams({
+        action,
+        pdfFileName,
+        originalPdfFileName,
+        stream: "true",
+        _token: token,
+        _apiToken: API_ACCESS_TOKEN,
+    });
+    window.location.href = `/api/admin/investment/document/?${params.toString()}`;
 }
 
 export enum InvestmentRequestStatus {

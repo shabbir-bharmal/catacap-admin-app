@@ -13,7 +13,7 @@ declare global {
 const ADMIN_ROLES = ["admin", "superadmin"];
 
 export function jwtAuthMiddleware(req: Request, res: Response, next: NextFunction): void {
-  const token = req.headers.authorization?.replace("Bearer ", "");
+  const token = req.headers.authorization?.replace("Bearer ", "") || (typeof req.query._token === "string" ? req.query._token : undefined);
 
   if (!token) {
     res.status(401).json({ message: "Authentication required" });

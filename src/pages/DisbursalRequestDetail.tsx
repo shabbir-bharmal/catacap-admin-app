@@ -39,6 +39,11 @@ export default function DisbursalRequestDetail() {
     const id = parseInt(params?.id || "0", 10);
 
     const { toast } = useToast();
+
+    const handleDocumentDownload = (pdfFileName: string, originalPdfFileName: string) => {
+        downloadInvestmentDocument("download", pdfFileName, originalPdfFileName);
+    };
+
     const [addNoteOpen, setAddNoteOpen] = useState(false);
     const [noteText, setNoteText] = useState("");
     const [expandedNoteId, setExpandedNoteId] = useState<number | null>(null);
@@ -297,7 +302,7 @@ export default function DisbursalRequestDetail() {
                                             variant="outline"
                                             size="sm"
                                             className="text-[#405189] border-[#405189] h-8"
-                                            onClick={() => downloadInvestmentDocument("download", detail.pitchDeck as string, detail.pitchDeckName as string)}
+                                            onClick={() => handleDocumentDownload(detail.pitchDeck as string, detail.pitchDeckName as string)}
                                         >
                                             Download
                                         </Button>
@@ -314,7 +319,7 @@ export default function DisbursalRequestDetail() {
                                             variant="outline"
                                             size="sm"
                                             className="text-[#405189] border-[#405189] h-8"
-                                            onClick={() => downloadInvestmentDocument("download", detail.investmentDocument as string, detail.investmentDocumentName as string)}
+                                            onClick={() => handleDocumentDownload(detail.investmentDocument as string, detail.investmentDocumentName as string)}
                                         >
                                             Download
                                         </Button>

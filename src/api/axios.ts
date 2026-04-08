@@ -1,9 +1,9 @@
 import axios from "axios";
 
 const BASE_URL = import.meta.env.DEV ? "" : (import.meta.env.VITE_API_BASE_URL || "");
-const API_ACCESS_TOKEN = import.meta.env.VITE_API_ACCESS_TOKEN || "";
+export const API_ACCESS_TOKEN = import.meta.env.VITE_API_ACCESS_TOKEN || "";
 
-function getToken(): string {
+export function getToken(): string {
   try {
     const raw = localStorage.getItem("persist:root");
     if (!raw) return "";

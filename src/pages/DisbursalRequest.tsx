@@ -195,6 +195,10 @@ export default function AdminDisbursalRequest() {
     gcTime: 0
   });
 
+  const handleDocumentDownload = (pdfFileName: string, originalPdfFileName: string) => {
+    downloadInvestmentDocument("download", pdfFileName, originalPdfFileName);
+  };
+
   const handleExport = async () => {
     setIsExporting(true);
     try {
@@ -342,7 +346,7 @@ export default function AdminDisbursalRequest() {
                                 variant="ghost"
                                 className="text-[#0ab39c]"
                                 data-testid={`button-pitch-deck-${entry.id}`}
-                                onClick={() => downloadInvestmentDocument("download", entry.pitchDeck!, entry.pitchDeckName || entry.pitchDeck!)}
+                                onClick={() => handleDocumentDownload(entry.pitchDeck!, entry.pitchDeckName || entry.pitchDeck!)}
                               >
                                 <Download className="h-4 w-4" />
                               </Button>
@@ -355,7 +359,7 @@ export default function AdminDisbursalRequest() {
                                 variant="ghost"
                                 className="text-[#0ab39c]"
                                 data-testid={`button-investment-terms-${entry.id}`}
-                                onClick={() => downloadInvestmentDocument("download", entry.investmentDocument!, entry.investmentDocumentName || entry.investmentDocument!)}
+                                onClick={() => handleDocumentDownload(entry.investmentDocument!, entry.investmentDocumentName || entry.investmentDocument!)}
                               >
                                 <Download className="h-4 w-4" />
                               </Button>
