@@ -48,7 +48,7 @@ router.get("/summary", async (_req: Request, res: Response) => {
 router.get("/", async (req: Request, res: Response) => {
   try {
     const params = parsePagination(req.query as Record<string, unknown>);
-    const isAsc = params.sortDirection?.toLowerCase() === "asc";
+    const isAsc = !params.sortDirection || params.sortDirection.toLowerCase() === "asc";
     const offset = (params.currentPage - 1) * params.perPage;
 
     const conditions: string[] = [];
@@ -89,7 +89,7 @@ router.get("/", async (req: Request, res: Response) => {
     if (sortMap[sortField]) {
       orderClause = `${sortMap[sortField]} ${isAsc ? "ASC" : "DESC"}, f.display_order ${isAsc ? "ASC" : "DESC"}`;
     } else {
-      orderClause = `f.display_order ${isAsc ? "ASC" : "DESC"}`;
+      orderClause = `f.category ASC, f.display_order ${isAsc ? "ASC" : "DESC"}`;
     }
 
     const countResult = await pool.query(
