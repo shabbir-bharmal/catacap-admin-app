@@ -52,7 +52,7 @@ router.get("/", async (req: Request, res: Response) => {
        FROM news n
        LEFT JOIN site_configurations nt ON n.news_type_id = nt.id
        LEFT JOIN site_configurations aud ON n.audience_id = aud.id
-       LEFT JOIN themes th ON n.t_he_me_id = th.id
+       LEFT JOIN themes th ON n.theme_id = th.id
        ${whereClause}`,
       values
     );
@@ -62,7 +62,7 @@ router.get("/", async (req: Request, res: Response) => {
          n.id, n.title, n.description,
          n.news_type_id, nt.value AS type_name,
          n.audience_id, aud.value AS audience_name,
-         n.t_he_me_id AS theme_id, th.name AS theme_name,
+         n.theme_id AS theme_id, th.name AS theme_name,
          n.image_file_name, n.status, n.news_link,
          CASE WHEN n.news_date IS NOT NULL
            THEN TO_CHAR(n.news_date, 'DD Mon YYYY')
@@ -73,7 +73,7 @@ router.get("/", async (req: Request, res: Response) => {
        FROM news n
        LEFT JOIN site_configurations nt ON n.news_type_id = nt.id
        LEFT JOIN site_configurations aud ON n.audience_id = aud.id
-       LEFT JOIN themes th ON n.t_he_me_id = th.id
+       LEFT JOIN themes th ON n.theme_id = th.id
        LEFT JOIN users du ON n.deleted_by = du.id
        ${whereClause}
        ORDER BY ${orderClause}
@@ -115,13 +115,13 @@ router.get("/:id", async (req: Request, res: Response) => {
       `SELECT n.id, n.title, n.description,
               n.news_type_id, nt.value AS type_name,
               n.audience_id, aud.value AS audience_name,
-              n.t_he_me_id AS theme_id, th.name AS theme_name,
+              n.theme_id AS theme_id, th.name AS theme_name,
               n.image_file_name, n.news_link, n.status,
               n.news_date::text AS news_date
        FROM news n
        LEFT JOIN site_configurations nt ON n.news_type_id = nt.id
        LEFT JOIN site_configurations aud ON n.audience_id = aud.id
-       LEFT JOIN themes th ON n.t_he_me_id = th.id
+       LEFT JOIN themes th ON n.theme_id = th.id
        WHERE n.id = $1`,
       [id]
     );
@@ -185,7 +185,7 @@ router.post("/", async (req: Request, res: Response) => {
       await pool.query(
         `UPDATE news SET
            title = $1, description = $2, news_type_id = $3, audience_id = $4,
-           t_he_me_id = $5, image_file_name = COALESCE($6, image_file_name),
+           theme_id = $5, image_file_name = COALESCE($6, image_file_name),
            news_link = $7, status = $8, news_date = $9,
            modified_at = NOW(), modified_by = $10
          WHERE id = $11`,
@@ -200,7 +200,7 @@ router.post("/", async (req: Request, res: Response) => {
       res.json({ success: true, message: "News updated successfully.", data: dto.id });
     } else {
       const result = await pool.query(
-        `INSERT INTO news (title, description, news_type_id, audience_id, t_he_me_id,
+        `INSERT INTO news (title, description, news_type_id, audience_id, theme_id,
            image_file_name, news_link, status, news_date, created_at, created_by)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), $10)
          RETURNING id`,
