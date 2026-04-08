@@ -653,7 +653,7 @@ export default function InvestmentsPage() {
                                         hasActionPermission("investment", "delete") ? "rounded-none border-r-0" : "rounded-l-none rounded-r-md"
                                       )}
                                       onClick={() => {
-                                        navigate(`/raisemoney/edit/${inv.property || inv.id}`);
+                                        navigate(`/raisemoney/edit/${inv.property || inv.id}?id=${inv.id}`);
                                       }}
                                       data-testid={`button-edit-${inv.id}`}
                                     >

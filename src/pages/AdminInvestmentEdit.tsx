@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import dayjs from "dayjs";
-import { useParams, useLocation } from "wouter";
+import { useParams, useLocation, useSearch } from "wouter";
 import { AdminLayout } from "../components/AdminLayout";
 import { RichTextEditor } from "../components/RichTextEditor";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -439,6 +439,9 @@ function TagSelectPopover({
 export default function AdminInvestmentEdit() {
   const params = useParams<{ idOrSlug: string }>();
   const [, setLocation] = useLocation();
+  const searchString = useSearch();
+  const searchParams = new URLSearchParams(searchString);
+  const queryId = searchParams.get("id");
   const { toast } = useToast();
   const { token } = useAuth();
   const [currentStep, setCurrentStep] = useState(0);
@@ -446,6 +449,7 @@ export default function AdminInvestmentEdit() {
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [investmentName, setInvestmentName] = useState("");
+  const [resolvedNumericId, setResolvedNumericId] = useState<number | null>(null);
   const [formData, setFormData] = useState<FormData>(defaultFormData);
   const [errors, setErrors] = useState<Record<string, boolean>>({});
   const [propertyError, setPropertyError] = useState("");
@@ -511,6 +515,7 @@ export default function AdminInvestmentEdit() {
   const { role } = useAuth();
   const isAdmin = role === "Admin";
   const campaignId = params.idOrSlug;
+  const apiId = resolvedNumericId?.toString() || queryId || campaignId;
   const isUSA = formData.country === "USA" || formData.country === "United States";
 
   const investmentTagLinks = useMemo(() => {
@@ -590,15 +595,19 @@ export default function AdminInvestmentEdit() {
     const load = async () => {
       setLoading(true);
       try {
+        const fetchId = apiId!;
         const [countriesData, investmentData, groupsData, investmentDetail, staticTermsData] = await Promise.all([
           fetchCountries(),
           fetchInvestmentData(),
           fetchAllGroups(),
-          fetchInvestmentById(campaignId!),
+          fetchInvestmentById(fetchId),
           fetchStaticValues(),
         ]);
 
         const resolvedId = investmentDetail?.id ?? 0;
+        if (resolvedId) {
+          setResolvedNumericId(resolvedId);
+        }
         const investmentOptionsData = await fetchAllInvestmentNameList(0, resolvedId);
 
         setCountries(countriesData || []);
@@ -984,9 +993,13 @@ export default function AdminInvestmentEdit() {
         setTileImage(undefined);
         setPdf(undefined);
 
+        const savedId = result.campaign.id;
+        if (savedId) {
+          setResolvedNumericId(savedId);
+        }
         const newSlug = result.campaign.property || result.campaign.id;
         if (newSlug && String(newSlug) !== campaignId) {
-          setLocation(`/raisemoney/edit/${newSlug}`, { replace: true });
+          setLocation(`/raisemoney/edit/${newSlug}?id=${savedId || resolvedNumericId || ""}`, { replace: true });
         }
       }
 
