@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const BASE_URL = import.meta.env.DEV ? "" : (import.meta.env.VITE_API_BASE_URL || "");
+const BASE_URL = "";
 export const API_ACCESS_TOKEN = import.meta.env.VITE_API_ACCESS_TOKEN || "";
 
 export function getToken(): string {
