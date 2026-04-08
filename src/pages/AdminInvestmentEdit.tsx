@@ -144,7 +144,7 @@ interface FormData {
   description: string;
   terms: string;
   featuredInvestment: boolean;
-  approvedBy: string;
+  approvedBy: string[];
   property: string;
   stage: string;
   privateGroupID: string;
@@ -197,7 +197,7 @@ const defaultFormData: FormData = {
   description: "",
   terms: "",
   featuredInvestment: false,
-  approvedBy: "",
+  approvedBy: [],
   property: "",
   stage: "",
   privateGroupID: "",
@@ -494,7 +494,7 @@ export default function AdminInvestmentEdit() {
   const [fundTermOpen, setFundTermOpen] = useState(false);
   const [debtMaturityOpen, setDebtMaturityOpen] = useState(false);
   const [savedTagValues, setSavedTagValues] = useState<string[]>([]);
-  const [savedApprovedBy, setSavedApprovedBy] = useState("");
+  const [savedApprovedBy, setSavedApprovedBy] = useState<string[]>([]);
   const [openQR, setOpenQR] = useState<string | null>(null);
   const [noteDialogOpen, setNoteDialogOpen] = useState(false);
   const [noteText, setNoteText] = useState("");
@@ -526,7 +526,8 @@ export default function AdminInvestmentEdit() {
   }, [formData.investmentTagValues, savedTagValues]);
 
   const isSourcedByDirty = useMemo(() => {
-    return formData.approvedBy !== savedApprovedBy;
+    if (formData.approvedBy.length !== savedApprovedBy.length) return true;
+    return formData.approvedBy.slice().sort().join(",") !== savedApprovedBy.slice().sort().join(",");
   }, [formData.approvedBy, savedApprovedBy]);
 
   const isStageDirty = useMemo(() => {
@@ -685,7 +686,7 @@ export default function AdminInvestmentEdit() {
       description: data.description ?? "",
       terms: data.terms ?? "",
       featuredInvestment: data.featuredInvestment ?? false,
-      approvedBy: data.approvedBy ? String(data.approvedBy) : "",
+      approvedBy: data.approvedBy ? Array.from(new Set(String(data.approvedBy).split(",").map((s: string) => s.trim()).filter(Boolean))) : [],
       property: data.property ?? "",
       stage: data.stage != null ? String(data.stage) : "",
       privateGroupID: data.groupForPrivateAccessDto?.id ? String(data.groupForPrivateAccessDto.id) : "",
@@ -706,7 +707,7 @@ export default function AdminInvestmentEdit() {
       metaDescription: data.metaDescription || ""
     });
     setSavedTagValues(tagValues);
-    setSavedApprovedBy(data.approvedBy ? String(data.approvedBy) : "");
+    setSavedApprovedBy(data.approvedBy ? Array.from(new Set(String(data.approvedBy).split(",").map((s: string) => s.trim()).filter(Boolean))) : []);
     setSavedStage(data.stage != null ? String(data.stage) : "");
   }, [toast]);
 
@@ -729,6 +730,13 @@ export default function AdminInvestmentEdit() {
     setFormData((prev) => {
       const arr = prev[field] as number[];
       return { ...prev, [field]: arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id] };
+    });
+  };
+
+  const toggleApprover = (id: string) => {
+    setFormData((prev) => {
+      const arr = prev.approvedBy;
+      return { ...prev, approvedBy: arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id] };
     });
   };
 
@@ -906,7 +914,7 @@ export default function AdminInvestmentEdit() {
         description: formData.description?.trim(),
         terms: formData.terms?.trim(),
         featuredInvestment: formData.featuredInvestment,
-        approvedBy: formData.approvedBy?.trim() || "",
+        approvedBy: formData.approvedBy.join(","),
         property: formData.property?.trim() || null,
         stage: formData.stage ? Number(formData.stage) : null,
         groupForPrivateAccessDto: formData.privateGroupID
@@ -1922,12 +1930,63 @@ export default function AdminInvestmentEdit() {
                   {/* Sourced By */}
                   <div className="space-y-1.5">
                     <Label className="text-sm">Sourced By </Label>
-                    <Select value={formData.approvedBy} onValueChange={(val) => upd("approvedBy", val)}>
-                      <SelectTrigger data-testid="select-sourced-by"><SelectValue placeholder="Select Sourced By" /></SelectTrigger>
-                      <SelectContent>
-                        {approvedByOptions.map((a) => <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                    <div className="space-y-2">
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <button
+                            type="button"
+                            className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring"
+                            data-testid="select-sourced-by"
+                          >
+                            <span className="text-muted-foreground">
+                              {formData.approvedBy.length > 0
+                                ? formData.approvedBy.map((id) => approvedByOptions.find((a) => String(a.id) === id)?.name ?? id).join(", ")
+                                : "Select Sourced By"}
+                            </span>
+                            <ChevronDown className="h-4 w-4 shrink-0 opacity-50 ml-2" />
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-72 p-2" align="start">
+                          <div className="max-h-48 overflow-y-auto">
+                            {approvedByOptions.map((a) => (
+                              <div
+                                key={a.id}
+                                className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer"
+                                onClick={() => toggleApprover(String(a.id))}
+                              >
+                                <Checkbox
+                                  checked={formData.approvedBy.includes(String(a.id))}
+                                  onCheckedChange={() => toggleApprover(String(a.id))}
+                                  className="pointer-events-none"
+                                />
+                                <span className="text-sm">{a.name}</span>
+                              </div>
+                            ))}
+                            {approvedByOptions.length === 0 && <p className="text-sm text-muted-foreground px-2 py-1">No options available</p>}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                      {formData.approvedBy.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {formData.approvedBy.map((id) => (
+                            <span
+                              key={id}
+                              className="inline-flex items-center gap-1 rounded bg-[#405189]/10 text-[#405189] px-2.5 py-1 text-xs font-medium"
+                            >
+                              {approvedByOptions.find((a) => String(a.id) === id)?.name ?? id}
+                              <button
+                                type="button"
+                                className="ml-0.5 hover:text-[#f06548] transition-colors"
+                                onClick={() => toggleApprover(id)}
+                                aria-label={`Remove ${approvedByOptions.find((a) => String(a.id) === id)?.name ?? id}`}
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* Special Filters */}
@@ -1938,36 +1997,41 @@ export default function AdminInvestmentEdit() {
                 </div>
 
                 {/* Combined Links Block for Sourced By and Special Filters */}
-                {(formData.approvedBy || formData.investmentTagValues.length > 0) && (
+                {(formData.approvedBy.length > 0 || formData.investmentTagValues.length > 0) && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {/* Sourced By Links */}
-                    {formData.approvedBy ? (
+                    {formData.approvedBy.length > 0 ? (
                       <div className="space-y-1.5">
                         <Label className="text-sm">Sourced By Links</Label>
-                        <div className={cn("rounded-md border p-3 relative", isSourcedByDirty && "select-none")}>
-                          <div className={cn(isSourcedByDirty && "blur-[2px] opacity-60 pointer-events-none")}>
-                            <div className="flex items-center gap-2">
-                              <Input
-                                readOnly
-                                value={`${import.meta.env.VITE_FRONTEND_URL}/investments?sourcedby=${(approvedByOptions.find((a) => String(a.id) === formData.approvedBy)?.name ?? "").replace(/\s+/g, "-")}`}
-                                className="bg-muted/30 text-sm"
-                                data-testid="input-sourced-by-link"
-                              />
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="icon"
-                                className="shrink-0"
-                                data-testid="button-copy-sourced-link"
-                                onClick={() => {
-                                  const link = `${import.meta.env.VITE_FRONTEND_URL}/investments?sourcedby=${(approvedByOptions.find((a) => String(a.id) === formData.approvedBy)?.name ?? "").replace(/\s+/g, "-")}`;
-                                  navigator.clipboard.writeText(link);
-                                  toast({ title: "Copied", description: "Link copied to clipboard." });
-                                }}
-                              >
-                                <Copy className="h-4 w-4" />
-                              </Button>
-                            </div>
+                        <div className={cn("rounded-md border p-3 space-y-3 relative", isSourcedByDirty && "select-none")}>
+                          <div className={cn("space-y-3", isSourcedByDirty && "blur-[2px] opacity-60 pointer-events-none")}>
+                            {formData.approvedBy.map((id) => {
+                              const approverName = (approvedByOptions.find((a) => String(a.id) === id)?.name ?? id).replace(/\s+/g, "-");
+                              const link = `${import.meta.env.VITE_FRONTEND_URL}/investments?sourcedby=${approverName}`;
+                              return (
+                                <div key={id} className="flex items-center gap-2">
+                                  <Input
+                                    readOnly
+                                    value={link}
+                                    className="bg-muted/30 text-sm"
+                                    data-testid={`input-sourced-by-link-${id}`}
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="icon"
+                                    className="shrink-0"
+                                    data-testid={`button-copy-sourced-link-${id}`}
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(link);
+                                      toast({ title: "Copied", description: "Link copied to clipboard." });
+                                    }}
+                                  >
+                                    <Copy className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              );
+                            })}
                           </div>
                           {isSourcedByDirty && (
                             <div className="absolute inset-0 flex items-center justify-center p-2">
