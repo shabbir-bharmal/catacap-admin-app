@@ -65,10 +65,10 @@ React 18 + TypeScript + Vite admin panel for the CataCap platform. Handles inves
 - All `/api` routes require `Api-Access-Token` header
 
 ## Deployment
-- **Target:** Static site
-- **Build command:** `pnpm run build`
-- **Output directory:** `dist`
-- For production, CORS or a reverse proxy is needed since Vite proxy only works in dev mode
+- **Target:** Autoscale (Express serves both API and built frontend)
+- **Build command:** `pnpm run build` (Vite builds frontend to `dist/`)
+- **Run command:** `pnpm run start` (runs Express server in production mode)
+- In production, Express serves the `dist/` static files and handles all `/api` routes on port 5000
 
 ## Replit Setup Notes
 - Vite configured for `host: "0.0.0.0"`, `port: 5000`, `allowedHosts: true` to work behind Replit's proxy

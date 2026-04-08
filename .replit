@@ -46,10 +46,10 @@ localPort = 8200
 externalPort = 3001
 
 [deployment]
-deploymentTarget = "static"
+deploymentTarget = "autoscale"
 build = ["pnpm", "run", "build"]
 publicDir = "dist"
-run = ["sh", "-c", "npm run build"]
+run = ["pnpm", "run", "start"]
 
 [postMerge]
 path = "scripts/post-merge.sh"
