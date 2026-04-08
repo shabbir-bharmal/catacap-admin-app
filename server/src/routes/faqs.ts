@@ -71,9 +71,10 @@ router.get("/", async (req: Request, res: Response) => {
     }
 
     if (params.status) {
-      if (params.status.toLowerCase() === "active") {
+      const statusLower = params.status.toLowerCase();
+      if (statusLower === "active" || statusLower === "true") {
         conditions.push(`f.status = true`);
-      } else if (params.status.toLowerCase() === "inactive") {
+      } else if (statusLower === "inactive" || statusLower === "draft" || statusLower === "false") {
         conditions.push(`f.status = false`);
       }
     }

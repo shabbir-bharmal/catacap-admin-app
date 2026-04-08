@@ -27,6 +27,21 @@ router.get("/", async (req: Request, res: Response) => {
       paramIdx++;
     }
 
+    const perspectiveText = (req.query.PerspectiveText || req.query.perspectiveText) as string | undefined;
+    if (perspectiveText) {
+      conditions.push(`t.perspective_text ILIKE $${paramIdx}`);
+      values.push(perspectiveText);
+      paramIdx++;
+    }
+
+    if (params.status) {
+      if (params.status.toLowerCase() === "active") {
+        conditions.push(`t.status = true`);
+      } else if (params.status.toLowerCase() === "draft") {
+        conditions.push(`t.status = false`);
+      }
+    }
+
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     const sortMap: Record<string, string> = {
