@@ -34,13 +34,9 @@ router.get("/", async (req: Request, res: Response) => {
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
-    const sortMap: Record<string, string> = {
-      name: "t.first_name",
-      designation: "t.designation",
-    };
     const sortField = (params.sortField || "").toLowerCase();
     let orderClause: string;
-    if (sortField === "name") {
+    if (sortField === "name" || sortField === "firstname") {
       orderClause = isAsc
         ? "t.first_name ASC, t.last_name ASC, t.display_order ASC"
         : "t.first_name DESC, t.last_name DESC, t.display_order DESC";
@@ -48,10 +44,16 @@ router.get("/", async (req: Request, res: Response) => {
       orderClause = isAsc
         ? "t.designation ASC, t.display_order ASC"
         : "t.designation DESC, t.display_order DESC";
-    } else {
+    } else if (sortField === "ismanagement") {
       orderClause = isAsc
         ? "t.is_management ASC, t.display_order ASC"
         : "t.is_management DESC, t.display_order DESC";
+    } else if (sortField === "displayorder") {
+      orderClause = isAsc
+        ? "t.display_order ASC"
+        : "t.display_order DESC";
+    } else {
+      orderClause = "t.display_order ASC";
     }
 
     const countResult = await pool.query(
@@ -263,10 +265,13 @@ router.post("/reorder", async (req: Request, res: Response) => {
     try {
       await client.query("BEGIN");
       for (const item of items) {
-        await client.query(
+        const result = await client.query(
           `UPDATE catacap_teams SET display_order = $1 WHERE id = $2`,
           [item.displayOrder, item.id]
         );
+        if (result.rowCount === 0) {
+          console.warn(`Reorder: no row updated for id=${item.id}, displayOrder=${item.displayOrder}`);
+        }
       }
       await client.query("COMMIT");
     } catch (e) {
@@ -281,7 +286,7 @@ router.post("/reorder", async (req: Request, res: Response) => {
               image_file_name, linkedin_url, is_management, display_order
        FROM catacap_teams
        WHERE (is_deleted IS NULL OR is_deleted = false)
-       ORDER BY is_management, display_order`
+       ORDER BY display_order ASC`
     );
 
     const data = updatedResult.rows.map((r: any) => ({

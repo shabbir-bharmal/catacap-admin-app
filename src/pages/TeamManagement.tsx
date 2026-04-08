@@ -55,7 +55,8 @@ function SortableRow({
   onPreview,
   onEdit,
   onDelete,
-  hasDeletePermission
+  hasDeletePermission,
+  dragDisabled
 }: {
   member: TeamMember;
   idx: number;
@@ -65,8 +66,9 @@ function SortableRow({
   onEdit: (m: TeamMember) => void;
   onDelete: (m: TeamMember) => void;
   hasDeletePermission: boolean;
+  dragDisabled?: boolean;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: member.id });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: member.id, disabled: dragDisabled });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -79,7 +81,7 @@ function SortableRow({
     <tr ref={setNodeRef} style={style} className="border-b last:border-b-0 bg-background hover:bg-muted/20 transition-colors" data-testid={`row-team-${member.id}`}>
       <td className="px-4 py-3 text-muted-foreground">{(currentPage - 1) * pageSize + idx + 1}</td>
       <td className="px-4 py-3">
-        <div className="flex items-center justify-center cursor-grab active:cursor-grabbing p-1" {...attributes} {...listeners} data-testid={`drag-handle-${member.id}`}>
+        <div className={cn("flex items-center justify-center p-1", dragDisabled ? "cursor-not-allowed opacity-30" : "cursor-grab active:cursor-grabbing")} {...attributes} {...listeners} data-testid={`drag-handle-${member.id}`}>
           <GripVertical className="h-4 w-4 text-muted-foreground" />
         </div>
       </td>
@@ -267,7 +269,7 @@ export default function TeamManagement() {
 
   const reorderMutation = useMutation({
     mutationFn: reorderTeamMembers,
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/team"] });
     },
     onError: () => {
@@ -286,16 +288,6 @@ export default function TeamManagement() {
     if (filterManagement === "management") list = list.filter((m) => m.isManagement);
     if (filterManagement === "team") list = list.filter((m) => !m.isManagement);
 
-    if (!sortField || !sortDir) return list;
-
-    list.sort((a, b) => {
-      let cmp = 0;
-      if (sortField === "displayOrder") cmp = a.displayOrder - b.displayOrder;
-      else if (sortField === "firstName") cmp = a.firstName.localeCompare(b.firstName);
-      else if (sortField === "designation") cmp = a.designation.localeCompare(b.designation);
-      else if (sortField === "isManagement") cmp = Number(b.isManagement) - Number(a.isManagement);
-      return sortDir === "asc" ? cmp : -cmp;
-    });
     return list;
   }, [members, effectiveSearch, filterManagement, sortField, sortDir]);
 
@@ -307,6 +299,7 @@ export default function TeamManagement() {
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
+    if (sortField || effectiveSearch || filterManagement !== "all") return;
     const oldIndex = paginated.findIndex((m) => m.id === active.id);
     const newIndex = paginated.findIndex((m) => m.id === over.id);
     if (oldIndex === -1 || newIndex === -1) return;
@@ -315,6 +308,23 @@ export default function TeamManagement() {
       id: m.id,
       displayOrder: (currentPage - 1) * pageSize + i + 1
     }));
+
+    const queryKey = ["/api/admin/team", sortField, sortDir];
+    queryClient.cancelQueries({ queryKey: ["/api/admin/team"] });
+    const previousData = queryClient.getQueryData<TeamListResponse>(queryKey);
+
+    if (previousData) {
+      const updatedItems = previousData.items.map(item => {
+        const match = reorderPayload.find(r => String(r.id) === String(item.id));
+        return match ? { ...item, displayOrder: match.displayOrder } : item;
+      });
+      updatedItems.sort((a, b) => a.displayOrder - b.displayOrder);
+      queryClient.setQueryData<TeamListResponse>(queryKey, {
+        ...previousData,
+        items: updatedItems
+      });
+    }
+
     reorderMutation.mutate(reorderPayload);
   }
 
@@ -567,6 +577,7 @@ export default function TeamManagement() {
                               setDeleteOpen(true);
                             }}
                             hasDeletePermission={hasActionPermission("team management", "delete")}
+                            dragDisabled={!!sortField || !!effectiveSearch || filterManagement !== "all"}
                           />
                         ))
                       )}
