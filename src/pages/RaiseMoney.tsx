@@ -679,7 +679,7 @@ export default function AdminRaiseMoney() {
     setFileErrors((p) => ({ ...p, pitchDeckFile: "" }));
     updateField("pitchDeckFile", file);
     updateField("pdfFileName", "");
-    updateField("originalPdfFileName", "");
+    updateField("originalPdfFileName", file.name);
   };
 
   const handleNext = () => {
