@@ -437,7 +437,7 @@ function TagSelectPopover({
 }
 
 export default function AdminInvestmentEdit() {
-  const params = useParams<{ id: string }>();
+  const params = useParams<{ idOrSlug: string }>();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { token } = useAuth();
@@ -510,7 +510,7 @@ export default function AdminInvestmentEdit() {
 
   const { role } = useAuth();
   const isAdmin = role === "Admin";
-  const campaignId = params.id;
+  const campaignId = params.idOrSlug;
   const isUSA = formData.country === "USA" || formData.country === "United States";
 
   const investmentTagLinks = useMemo(() => {
@@ -589,14 +589,16 @@ export default function AdminInvestmentEdit() {
     const load = async () => {
       setLoading(true);
       try {
-        const [countriesData, investmentData, groupsData, investmentOptionsData, investmentDetail, staticTermsData] = await Promise.all([
+        const [countriesData, investmentData, groupsData, investmentDetail, staticTermsData] = await Promise.all([
           fetchCountries(),
           fetchInvestmentData(),
           fetchAllGroups(),
-          fetchAllInvestmentNameList(0, Number(campaignId)),
-          fetchInvestmentById(Number(campaignId)),
+          fetchInvestmentById(campaignId!),
           fetchStaticValues(),
         ]);
+
+        const resolvedId = investmentDetail?.id ?? 0;
+        const investmentOptionsData = await fetchAllInvestmentNameList(0, resolvedId);
 
         setCountries(countriesData || []);
         setGroups(groupsData || []);
@@ -946,7 +948,7 @@ export default function AdminInvestmentEdit() {
         otherCountryAddress: isUSA ? "" : formData.otherCountryAddress?.trim(),
       };
 
-      const result = await updateInvestment(Number(campaignId), payload);
+      const result = await updateInvestment(formData.id!, payload);
 
       if (result && result.success === false) {
         if (result.message?.toLowerCase().includes("url") || result.message?.toLowerCase().includes("property")) {
@@ -973,6 +975,11 @@ export default function AdminInvestmentEdit() {
         setImage(undefined);
         setTileImage(undefined);
         setPdf(undefined);
+
+        const newSlug = result.campaign.property || result.campaign.id;
+        if (newSlug && String(newSlug) !== campaignId) {
+          setLocation(`/raisemoney/edit/${newSlug}`, { replace: true });
+        }
       }
 
       toast({ title: "Investment Updated", description: "Investment has been updated successfully." });
@@ -1832,7 +1839,7 @@ export default function AdminInvestmentEdit() {
                     data-testid="button-export-donations"
                     onClick={async () => {
                       try {
-                        await exportInvestmentRecommendations(Number(campaignId), investmentName || "investment");
+                        await exportInvestmentRecommendations(formData.id!, investmentName || "investment");
                         toast({ title: "Export Complete", description: "Recommendations exported successfully." });
                       } catch (err: any) {
                         const msg = err?.message || "Could not export recommendations. Please try again.";
@@ -2017,7 +2024,7 @@ export default function AdminInvestmentEdit() {
                                       const tag = formData.investmentTagValues[investmentTagLinks.indexOf(url)];
                                       if (!tag || !campaignId) return;
                                       try {
-                                        const res = await sendInvestmentQrCodeEmail(Number(campaignId), tag);
+                                        const res = await sendInvestmentQrCodeEmail(formData.id!, tag);
                                         if (res.success) {
                                           toast({ title: "Email Sent", description: res.message || "QR code email sent successfully." });
                                         } else {
@@ -2224,7 +2231,7 @@ export default function AdminInvestmentEdit() {
                     onClick={async () => {
                       if (!campaignId) return;
                       try {
-                        await exportInvestmentNotesApi(Number(campaignId), investmentName);
+                        await exportInvestmentNotesApi(formData.id!, investmentName);
                         toast({ title: "Export Complete", description: "Notes exported successfully." });
                       } catch (err: any) {
                         toast({ title: "Export Failed", description: err.message || "Could not export notes.", variant: "destructive" });
