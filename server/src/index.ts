@@ -3,7 +3,6 @@ import cors from "cors";
 import path from "path";
 import { testConnection } from "./db.js";
 import pool from "./db.js";
-import { apiAccessTokenMiddleware } from "./middleware/apiAccessToken.js";
 
 import authRoutes from "./routes/auth.js";
 import adminRoutes from "./routes/admin.js";
@@ -50,8 +49,6 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.use("/api/uploads", express.static(path.resolve(process.cwd(), "server", "uploads")));
-
-app.use("/api", apiAccessTokenMiddleware);
 
 app.use("/api/userauthentication", authRoutes);
 app.use("/api/event", publicEventRoutes);

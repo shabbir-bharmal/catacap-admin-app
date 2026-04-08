@@ -1,7 +1,6 @@
 import axios from "axios";
 
 const BASE_URL = "";
-export const API_ACCESS_TOKEN = import.meta.env.VITE_API_ACCESS_TOKEN || "";
 
 export function getToken(): string {
   try {
@@ -26,7 +25,6 @@ const axiosInstance = axios.create({
   headers: {
     "Content-Type": "application/json",
     Accept: "application/json",
-    "Api-Access-Token": API_ACCESS_TOKEN,
   },
 });
 

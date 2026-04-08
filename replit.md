@@ -35,7 +35,7 @@ React 18 + TypeScript + Vite admin panel for the CataCap platform. Handles inves
     - `adminDisbursalRequests.ts` — Disbursal request admin: paginated list with search/sort/status/soft-delete filter (GET /), detail with investment type resolution (GET /:id), Excel export (GET /export), notes history (GET /:id/notes), status update (PUT /:id/status), add note (POST /:id/notes), soft-delete (DELETE /:id), restore (PUT /restore)
     - `adminInvestment.ts` — Full investment CRUD: paginated list with search/stage/status/soft-delete filters (GET /), detail with balance/notes/tags (GET /:id), create with file uploads and anonymous user registration (POST /), update with slug management, tag mappings, audit notes, mention emails (PUT /:id), soft-delete with cascade (DELETE /:id), restore (PUT /restore), clone (POST /:id/clone), status toggle with email notification (PUT /:id/status), notes (GET /:id/notes), notes export (GET /:id/notes/export), recommendations export (GET /:id/recommendations/export), full export to Excel (GET /export), metadata (GET /data), countries (GET /countries), document URL (GET /document), investment types (GET /types), investment names (GET /names), investment requests list (GET /request), investment request detail (GET /request/:id)
     - `campaign.ts` — Campaign investment name list (GET /get-all-investment-name-list) with stage-based filtering; public disbursal endpoints: user-disbursal-investments (GET /user-disbursal-investments), save-disbursal with base64 PDF upload and email notification (POST /save-disbursal), get-disbursal-request (GET /get-disbursal-request), get-disbursal-request-list (GET /get-disbursal-request-list), export-disbursal-request-list (GET /export-disbursal-request-list), get-disbursal-request-notes (GET /get-disbursal-request-notes); QR code email (GET /send-investment-qr-code-email), investment notes export (GET /export-investment-notes), investment notes list (GET /get-investments-notes); raise money form (POST /raisemoney) with hCaptcha, anonymous user registration, file uploads, tag mappings, and 3 notification emails (categories 23, 21, 16); multi-step investment request (POST /investment-request) with anonymous user registration and file uploads
-  - `server/src/middleware/` — JWT auth and API access token middleware
+  - `server/src/middleware/` — JWT auth middleware
   - `server/src/utils/` — JWT, ASP.NET Identity password hashing, 2FA, soft delete, anonymous user registration, Supabase Storage Base64 image upload utilities
     - `uploadBase64Image.ts` — `uploadBase64Image(base64, folder)` uploads to Supabase Storage; `resolveFileUrl(path, defaultFolder)` resolves DB paths to public URLs (always pass defaultFolder); `ensureFolderPrefix(path, folder)` ensures folder prefix on bare filenames; `extractStoragePath(value)` extracts storage path from URLs/paths
   - **Supabase Storage folders** (bucket: `production`): campaigns, catacap-teams, disbursal-requests, events, groups, investment-requests, news, site-configurations, themes, users
@@ -46,7 +46,6 @@ React 18 + TypeScript + Vite admin panel for the CataCap platform. Handles inves
 - `VITE_API_BASE_URL` — Backend API base URL (used in production)
 - `VITE_SUPABASE_URL` — Supabase project URL for frontend image URL resolution (matches `SUPABASE_URL`)
 - `VITE_SUPABASE_STORAGE_BUCKET` — Supabase Storage bucket name for frontend image URL resolution (matches `SUPABASE_STORAGE_BUCKET`)
-- `VITE_API_ACCESS_TOKEN` — API access token (shared between frontend and backend)
 - `VITE_FRONTEND_URL` — Frontend public URL
 - `SUPABASE_DB_URL` — Supabase PostgreSQL connection string (backend)
 - `SUPABASE_URL` — Supabase project URL, e.g. `https://<project-ref>.supabase.co` (backend, used for Storage API)
@@ -62,7 +61,7 @@ React 18 + TypeScript + Vite admin panel for the CataCap platform. Handles inves
 - Vite dev server proxies `/api` requests to the Express backend on port 8200
 - Auth: ASP.NET Identity V3 password hashing + JWT tokens + optional 2FA
 - All `/api/admin/*` routes require JWT authentication
-- All `/api` routes require `Api-Access-Token` header
+- Public `/api` routes (auth, events, site config, forms) require no token
 
 ## Deployment
 - **Target:** Autoscale (Express serves both API and built frontend)

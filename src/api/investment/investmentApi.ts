@@ -1,4 +1,4 @@
-import axiosInstance, { getToken, API_ACCESS_TOKEN } from "../axios";
+import axiosInstance, { getToken } from "../axios";
 
 export interface InvestmentParams {
     currentPage?: number;
@@ -178,7 +178,6 @@ export function downloadInvestmentDocument(
         originalPdfFileName,
         stream: "true",
         _token: token,
-        _apiToken: API_ACCESS_TOKEN,
     });
     window.location.href = `/api/admin/investment/document/?${params.toString()}`;
 }
