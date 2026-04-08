@@ -892,7 +892,7 @@ router.get("/:identifier", async (req: Request, res: Response) => {
     }
 
     const completedInvResult = await pool.query(
-      `SELECT COUNT(*) as total FROM completed_investments_details`
+      `SELECT COUNT(*) as total FROM completed_investment_details`
     ).catch(() => ({ rows: [{ total: 0 }] }));
     const completedInvestments = parseInt(completedInvResult.rows[0]?.total) || 0;
 

@@ -255,7 +255,7 @@ async function getFinancesData(): Promise<FinancesData> {
 
     const completedResult = await pool.query(
       `SELECT COUNT(*) AS count, COALESCE(SUM(amount), 0) AS total
-       FROM completed_investments_details
+       FROM completed_investment_details
        WHERE (is_deleted IS NULL OR is_deleted = false)`
     );
     const completedCount = parseInt(completedResult.rows[0].count) || 0;
