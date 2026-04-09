@@ -8,6 +8,8 @@ export interface PaginationParams {
   isDeleted?: boolean;
   category?: number;
   isManagement?: boolean;
+  id?: string;
+  type?: string;
 }
 
 const MAX_PER_PAGE = 100;
@@ -48,6 +50,8 @@ export function parsePagination(query: Record<string, unknown>): PaginationParam
     isDeleted,
     category,
     isManagement,
+    id: (query.id || query.Id) as string | undefined,
+    type: (query.type || query.Type) as string | undefined,
   };
 }
 

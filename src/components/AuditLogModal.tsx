@@ -51,6 +51,7 @@ export function AuditLogModal({ isOpen, onOpenChange, entityId, entityType, titl
   const getActionLabel = (log: AuditLogEntry) => {
     const entityLabel = getEntityLabel(log.tableName);
 
+    if (!log.actionType) return `${entityLabel} updated`;
     if (log.actionType === "Modified") return `${entityLabel} updated`;
     if (log.actionType === "Created") return `${entityLabel} created`;
     if (log.actionType === "Deleted") return `${entityLabel} deleted`;
@@ -194,7 +195,7 @@ export function AuditLogModal({ isOpen, onOpenChange, entityId, entityType, titl
                     <tr key={idx} className="hover:bg-[#f3f6f9] transition-colors bg-white">
                       <td className="px-6 py-4 align-top w-[1px]">
                         <span className={`inline-flex items-center px-2 py-1 rounded text-[11px] font-semibold tracking-wide whitespace-nowrap ${log.actionType === "Created" ? "bg-[#45cb85] text-white" :
-                          log.actionType === "Modified" ? "bg-[#4b38b3] text-white" :
+                          log.actionType === "Modified" || !log.actionType ? "bg-[#4b38b3] text-white" :
                             "bg-[#f06548] text-white"
                           }`}>
                           {getActionLabel(log)}

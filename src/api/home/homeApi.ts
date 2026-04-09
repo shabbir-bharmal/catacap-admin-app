@@ -124,7 +124,7 @@ export async function fetchTopGroups(params?: DashboardTableParams): Promise<Pag
 export interface AuditLogEntry {
     tableName: string;
     identifier: string | null;
-    actionType: string;
+    actionType: string | null;
     oldValues: string;
     newValues: string;
     changedColumns: string;
