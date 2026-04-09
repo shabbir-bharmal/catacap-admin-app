@@ -636,8 +636,9 @@ router.get("/send-investment-qr-code-email", jwtUserAuthMiddleware, async (req: 
     const logoUrl = process.env.LOGO_URL || "";
     const unsubscribeUrl = `${requestOrigin}/settings`;
 
+    let emailSent = false;
     try {
-      await sendTemplateEmailWithAttachments(
+      emailSent = await sendTemplateEmailWithAttachments(
         22,
         investment.contact_info_email_address.trim().toLowerCase(),
         {
@@ -657,6 +658,12 @@ router.get("/send-investment-qr-code-email", jwtUserAuthMiddleware, async (req: 
       );
     } catch (emailErr: any) {
       console.error("Error sending QR code email:", emailErr);
+      emailSent = false;
+    }
+
+    if (!emailSent) {
+      res.json({ success: false, message: "Failed to send QR code email. Please check email configuration." });
+      return;
     }
 
     res.json({ success: true, message: "Email sent successfully." });

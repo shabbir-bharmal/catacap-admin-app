@@ -1736,12 +1736,22 @@ router.put("/:id", async (req: Request, res: Response) => {
     const updatedResult = await pool.query(`SELECT * FROM campaigns WHERE id = $1`, [id]);
     const updatedCampaign = updatedResult.rows[0];
 
+    const tagResult = await pool.query(
+      `SELECT it.tag
+       FROM investment_tag_mappings itm
+       JOIN investment_tags it ON itm.tag_id = it.id
+       WHERE itm.campaign_id = $1`,
+      [id]
+    );
+    const investmentTag = tagResult.rows.map((t: any) => ({ tag: t.tag }));
+
     res.json({
       success: true,
       message: "Campaign details updated successfully",
       campaign: {
         ...mapCampaignRow(updatedCampaign),
         investmentNotes,
+        investmentTag,
       },
     });
   } catch (err: any) {

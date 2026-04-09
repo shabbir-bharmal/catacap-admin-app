@@ -460,6 +460,7 @@ export default function AdminInvestmentEdit() {
   const [sdgOptions, setSdgOptions] = useState<any[]>([]);
   const [investmentTypes, setInvestmentTypes] = useState<InvestmentTypeItem[]>([]);
   const [allTagOptions, setAllTagOptions] = useState<InvestmentTagItem[]>([]);
+  const [investmentDataFailed, setInvestmentDataFailed] = useState(false);
   const [countries, setCountries] = useState<CountryItem[]>([]);
   const [groups, setGroups] = useState<GroupUpdatePayload[]>([]);
   const [approvedByOptions, setApprovedByOptions] = useState<ApprovedByItem[]>([]);
@@ -596,13 +597,22 @@ export default function AdminInvestmentEdit() {
       setLoading(true);
       try {
         const fetchId = apiId!;
-        const [countriesData, investmentData, groupsData, investmentDetail, staticTermsData] = await Promise.all([
+        const [countriesData, groupsData, investmentDetail, staticTermsData] = await Promise.all([
           fetchCountries(),
-          fetchInvestmentData(),
           fetchAllGroups(),
           fetchInvestmentById(fetchId),
           fetchStaticValues(),
         ]);
+
+        let investmentData: any = null;
+        try {
+          investmentData = await fetchInvestmentData();
+          setInvestmentDataFailed(false);
+        } catch (invDataErr) {
+          console.error("Failed to load investment data (tags, themes, etc.):", invDataErr);
+          setInvestmentDataFailed(true);
+          toast({ title: "Warning", description: "Some filter options failed to load. You can still edit other fields.", variant: "destructive" });
+        }
 
         const resolvedId = investmentDetail?.id ?? 0;
         if (resolvedId) {
@@ -613,12 +623,12 @@ export default function AdminInvestmentEdit() {
         setCountries(countriesData || []);
         setGroups(groupsData || []);
         setInvestmentOptions(investmentOptionsData || []);
-        setThemes(investmentData.theme || []);
-        setSdgs(investmentData.sdg || []);
-        setSdgOptions(investmentData.sdg || []);
-        setInvestmentTypes(investmentData.investmentType || []);
-        setAllTagOptions(investmentData.investmentTag || []);
-        setApprovedByOptions(investmentData.approvedBy || []);
+        setThemes(investmentData?.theme || []);
+        setSdgs(investmentData?.sdg || []);
+        setSdgOptions(investmentData?.sdg || []);
+        setInvestmentTypes(investmentData?.investmentType || []);
+        setAllTagOptions(investmentData?.investmentTag || []);
+        setApprovedByOptions(investmentData?.approvedBy || []);
         setStaticTerms(staticTermsData || []);
 
         try {
@@ -640,6 +650,23 @@ export default function AdminInvestmentEdit() {
     };
     load();
   }, [campaignId]);
+
+  const retryLoadInvestmentData = async () => {
+    try {
+      const investmentData = await fetchInvestmentData();
+      setThemes(investmentData?.theme || []);
+      setSdgs(investmentData?.sdg || []);
+      setSdgOptions(investmentData?.sdg || []);
+      setInvestmentTypes(investmentData?.investmentType || []);
+      setAllTagOptions(investmentData?.investmentTag || []);
+      setApprovedByOptions(investmentData?.approvedBy || []);
+      setInvestmentDataFailed(false);
+      toast({ title: "Success", description: "Filter options loaded successfully." });
+    } catch (err) {
+      console.error("Retry failed to load investment data:", err);
+      toast({ title: "Error", description: "Failed to load filter options. Please try again.", variant: "destructive" });
+    }
+  };
 
   const mapCampaignToState = useCallback((data: any) => {
     const closeDate = data.fundraisingCloseDate ?? "";
@@ -2005,7 +2032,20 @@ export default function AdminInvestmentEdit() {
                   {/* Special Filters */}
                   <div className="space-y-1.5">
                     <Label className="text-sm">Special Filters</Label>
-                    <TagSelectPopover options={allTagOptions} selected={formData.investmentTagValues} onToggle={toggleTagValue} testId="multiselect-tags" />
+                    {investmentDataFailed ? (
+                      <div className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/5 p-3">
+                        <span className="text-sm text-destructive">Failed to load filter options.</span>
+                        <button
+                          type="button"
+                          className="text-sm font-medium text-[#405189] hover:underline"
+                          onClick={retryLoadInvestmentData}
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    ) : (
+                      <TagSelectPopover options={allTagOptions} selected={formData.investmentTagValues} onToggle={toggleTagValue} testId="multiselect-tags" />
+                    )}
                   </div>
                 </div>
 
