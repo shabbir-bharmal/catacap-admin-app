@@ -607,14 +607,48 @@ router.get("/audit-logs", async (req: Request, res: Response) => {
       [...values, params.perPage, offset]
     );
 
+    const items = dataResult.rows.map((item: any) => ({
+      ...item,
+      oldValues: formatJsonDates(item.oldValues),
+      newValues: formatJsonDates(item.newValues),
+    }));
+
     res.json({
       totalCount: parseInt(countResult.rows[0].total) || 0,
-      items: dataResult.rows,
+      items,
     });
   } catch (err) {
     console.error("Audit logs error:", err);
     res.status(500).json({ message: "Internal server error" });
   }
 });
+
+function formatJsonDates(json: string | null): string | null {
+  if (!json) return json;
+  try {
+    const dict = JSON.parse(json);
+    if (!dict || typeof dict !== "object") return json;
+    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    for (const key of Object.keys(dict)) {
+      const val = dict[key];
+      if (typeof val !== "string" || val.length < 8 || val.length > 40) continue;
+      if (/^\d+$/.test(val.trim())) continue;
+      const d = new Date(val);
+      if (isNaN(d.getTime())) continue;
+      if (d.getFullYear() < 1900 || d.getFullYear() > 2100) continue;
+      const day = String(d.getDate()).padStart(2, "0");
+      const month = months[d.getMonth()];
+      const year = d.getFullYear();
+      let hours = d.getHours();
+      const ampm = hours >= 12 ? "PM" : "AM";
+      hours = hours % 12 || 12;
+      const mins = String(d.getMinutes()).padStart(2, "0");
+      dict[key] = `${day} ${month} ${year} ${String(hours).padStart(2, "0")}:${mins} ${ampm}`;
+    }
+    return JSON.stringify(dict);
+  } catch {
+    return json;
+  }
+}
 
 export default router;

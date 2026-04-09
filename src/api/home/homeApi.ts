@@ -125,9 +125,9 @@ export interface AuditLogEntry {
     tableName: string;
     identifier: string | null;
     actionType: string | null;
-    oldValues: string;
-    newValues: string;
-    changedColumns: string;
+    oldValues: string | null;
+    newValues: string | null;
+    changedColumns: string | null;
     updatedBy: string | null;
     updatedAt: string;
 }
