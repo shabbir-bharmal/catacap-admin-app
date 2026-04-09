@@ -359,7 +359,7 @@ router.put("/:id", async (req: Request, res: Response) => {
 
       const groupAccountBalances = await client.query(
         `SELECT gab.id, gab.balance, gab.group_id
-         FROM group_account_balance gab
+         FROM group_account_balances gab
          WHERE gab.user_id = $1
          ORDER BY gab.id ASC`,
         [grant.uid]
@@ -450,7 +450,7 @@ router.put("/:id", async (req: Request, res: Response) => {
           );
 
           await client.query(
-            `UPDATE group_account_balance SET balance = balance - $1 WHERE id = $2`,
+            `UPDATE group_account_balances SET balance = balance - $1 WHERE id = $2`,
             [deduction, gab.id]
           );
 
