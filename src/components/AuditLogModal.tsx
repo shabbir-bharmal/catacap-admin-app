@@ -67,11 +67,19 @@ export function AuditLogModal({ isOpen, onOpenChange, entityId, entityType, titl
     }
   };
 
-  const parseChangedColumns = (cols: string) => {
+  const parseChangedColumns = (cols: string): string[] => {
     try {
       if (!cols) return [];
       const parsed = JSON.parse(cols);
-      return Array.isArray(parsed) ? parsed : [];
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .map((item: any) => {
+          if (!item) return null;
+          if (typeof item === "string") return item;
+          if (typeof item === "object" && item.name) return item.name;
+          return null;
+        })
+        .filter((x: any): x is string => !!x);
     } catch {
       return [];
     }
@@ -91,18 +99,16 @@ export function AuditLogModal({ isOpen, onOpenChange, entityId, entityType, titl
     // Filter fields to only those with actual value differences
     const filteredFields = changedFields.filter((field) => {
       if (!field) return false;
-      const fieldName = typeof field === "object" ? field.name : field;
-      if (!fieldName) return false;
-      const oldVal = normalize(oldVals[fieldName]);
-      const newVal = normalize(newVals[fieldName]);
+      const oldVal = normalize(oldVals[field]);
+      const newVal = normalize(newVals[field]);
 
       // Ignore common system-generated timestamps and noise
       const systemFields = ["modifieddate", "modifiedat", "lastmodified", "createddate"];
-      if (systemFields.includes(fieldName.toLowerCase())) return false;
+      if (systemFields.includes(field.toLowerCase())) return false;
 
       // Only show if normalized values are definitely different
       return JSON.stringify(oldVal) !== JSON.stringify(newVal);
-    }).map((field: any) => typeof field === "object" ? field.name : field);
+    });
 
     // Handle cases where no visible data was changed
     if (filteredFields.length === 0) {
