@@ -639,7 +639,7 @@ router.get("/send-investment-qr-code-email", jwtUserAuthMiddleware, async (req: 
     let emailSent = false;
     try {
       emailSent = await sendTemplateEmailWithAttachments(
-        22,
+        17,
         investment.contact_info_email_address.trim().toLowerCase(),
         {
           logoUrl,
