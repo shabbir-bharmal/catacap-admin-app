@@ -395,8 +395,11 @@ router.delete("/:id", async (req: Request, res: Response) => {
       return;
     }
 
-    await pool.query(`DELETE FROM email_template_variables WHERE email_template_id = $1`, [id]);
-    await pool.query(`DELETE FROM email_templates WHERE id = $1`, [id]);
+    const userId = req.user?.id || null;
+    await pool.query(
+      `UPDATE email_templates SET is_deleted = true, deleted_at = NOW(), deleted_by = $2 WHERE id = $1`,
+      [id, userId]
+    );
 
     res.json({ success: true, message: "Email template deleted successfully." });
   } catch (err) {
