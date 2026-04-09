@@ -90,16 +90,19 @@ export function AuditLogModal({ isOpen, onOpenChange, entityId, entityType, titl
 
     // Filter fields to only those with actual value differences
     const filteredFields = changedFields.filter((field) => {
-      const oldVal = normalize(oldVals[field]);
-      const newVal = normalize(newVals[field]);
+      if (!field) return false;
+      const fieldName = typeof field === "object" ? field.name : field;
+      if (!fieldName) return false;
+      const oldVal = normalize(oldVals[fieldName]);
+      const newVal = normalize(newVals[fieldName]);
 
       // Ignore common system-generated timestamps and noise
       const systemFields = ["modifieddate", "modifiedat", "lastmodified", "createddate"];
-      if (systemFields.includes(field.toLowerCase())) return false;
+      if (systemFields.includes(fieldName.toLowerCase())) return false;
 
       // Only show if normalized values are definitely different
       return JSON.stringify(oldVal) !== JSON.stringify(newVal);
-    });
+    }).map((field: any) => typeof field === "object" ? field.name : field);
 
     // Handle cases where no visible data was changed
     if (filteredFields.length === 0) {
