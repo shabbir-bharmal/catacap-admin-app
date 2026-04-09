@@ -1288,7 +1288,7 @@ router.put("/restore", async (req: Request, res: Response) => {
       if (returnMasterIds.length > 0) {
         await client.query(
           `UPDATE return_details SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
-           WHERE return_ma_st_er_id = ANY($1) AND is_deleted = true`,
+           WHERE return_master_id = ANY($1) AND is_deleted = true`,
           [returnMasterIds]
         );
       }
@@ -1823,7 +1823,7 @@ router.delete("/:id", async (req: Request, res: Response) => {
       if (returnMasterIds.length > 0) {
         await client.query(
           `UPDATE return_details SET is_deleted = true, deleted_at = $1, deleted_by = $2
-           WHERE return_ma_st_er_id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
+           WHERE return_master_id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
           [now, loginUserId, returnMasterIds]
         );
       }

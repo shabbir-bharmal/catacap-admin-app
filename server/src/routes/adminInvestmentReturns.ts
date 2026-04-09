@@ -46,7 +46,7 @@ router.get("/", async (req: Request, res: Response) => {
              du.first_name AS deleted_by_first_name, du.last_name AS deleted_by_last_name
       FROM return_masters rm
       LEFT JOIN campaigns c ON rm.campaign_id = c.id
-      LEFT JOIN return_details rd ON rd.return_ma_st_er_id = rm.id
+      LEFT JOIN return_details rd ON rd.return_master_id = rm.id
       LEFT JOIN users u ON rd.user_id = u.id
       LEFT JOIN users du ON rd.deleted_by = du.id
       ${conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : ""}
@@ -326,7 +326,7 @@ router.post("/", async (req: Request, res: Response) => {
         if (!user) continue;
 
         await client.query(
-          `INSERT INTO return_details (return_ma_st_er_id, user_id, investment_amount, percentage_of_total_investment, return_amount)
+          `INSERT INTO return_details (return_master_id, user_id, investment_amount, percentage_of_total_investment, return_amount)
            VALUES ($1, $2, $3, $4, $5)`,
           [returnMasterId, user.id, item.investmentAmount, item.percentage, item.returnedAmount]
         );
@@ -400,7 +400,7 @@ router.get("/export", async (_req: Request, res: Response) => {
              u.first_name, u.last_name, u.email
       FROM return_masters rm
       LEFT JOIN campaigns c ON rm.campaign_id = c.id
-      LEFT JOIN return_details rd ON rd.return_ma_st_er_id = rm.id
+      LEFT JOIN return_details rd ON rd.return_master_id = rm.id
       LEFT JOIN users u ON rd.user_id = u.id
       WHERE rd.id IS NOT NULL
       ORDER BY rm.created_on DESC, rd.investment_amount DESC
