@@ -1,3 +1,5 @@
+set -e  # 🔥 stops script immediately on error
+
 echo "🚀 Pushing to current branch..."
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
