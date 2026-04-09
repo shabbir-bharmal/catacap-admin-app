@@ -48,7 +48,7 @@ router.get("/", async (req: Request, res: Response) => {
       LEFT JOIN campaigns c ON rm.campaign_id = c.id
       LEFT JOIN return_details rd ON rd.return_master_id = rm.id
       LEFT JOIN users u ON rd.user_id = u.id
-      LEFT JOIN users du ON rd.deleted_by = du.id
+      LEFT JOIN users du ON du.id = CASE WHEN rd.deleted_by ~ '^\d{1,18}$' THEN rd.deleted_by::bigint END
       ${conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : ""}
     `;
 
@@ -95,7 +95,7 @@ router.get("/", async (req: Request, res: Response) => {
         memo: r.memo_note,
         status: r.status,
         privateDebtDates,
-        postDate: formatDateShort(r.post_date),
+        postDate: formatDateShort(r.post_date || r.created_on),
         deletedAt: r.deleted_at,
         deletedBy: r.deleted_by_first_name
           ? `${r.deleted_by_first_name} ${r.deleted_by_last_name || ""}`.trim()
