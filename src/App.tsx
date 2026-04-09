@@ -50,7 +50,7 @@ function Router() {
         <Route path="/login" component={AdminLogin} />
         <ProtectedRoute path="/dashboard" component={AdminDashboard} />
         <ProtectedRoute path="/raisemoney" component={AdminRaiseMoney} moduleName="all-investments" />
-        <ProtectedRoute path="/raisemoney/edit/:id" component={AdminInvestmentEdit} moduleName="all-investments" />
+        <ProtectedRoute path="/raisemoney/edit/:idOrSlug" component={AdminInvestmentEdit} moduleName="all-investments" />
         <ProtectedRoute path="/users" component={AdminUsers} moduleName="user" />
         <ProtectedRoute path="/admin-users" component={AdminAdminUsers} moduleName="user" requiresSuperAdmin={true} />
         <ProtectedRoute path="/form-submissions" component={FormSubmissions} moduleName="form-submissions" />

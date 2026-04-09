@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
-import { parsePagination, softDeleteFilter } from "../utils/softDelete.js";
+import { parsePagination, softDeleteFilter, handleMissingTableError } from "../utils/softDelete.js";
 
 const router = Router();
 
@@ -39,7 +39,8 @@ router.get("/summary", async (_req: Request, res: Response) => {
     }));
 
     res.json(response);
-  } catch (err) {
+  } catch (err: any) {
+    if (handleMissingTableError(err, res)) return;
     console.error("FAQ Summary error:", err);
     res.status(500).json({ message: "Internal server error" });
   }
@@ -48,7 +49,7 @@ router.get("/summary", async (_req: Request, res: Response) => {
 router.get("/", async (req: Request, res: Response) => {
   try {
     const params = parsePagination(req.query as Record<string, unknown>);
-    const isAsc = params.sortDirection?.toLowerCase() === "asc";
+    const isAsc = !params.sortDirection || params.sortDirection.toLowerCase() === "asc";
     const offset = (params.currentPage - 1) * params.perPage;
 
     const conditions: string[] = [];
@@ -70,9 +71,10 @@ router.get("/", async (req: Request, res: Response) => {
     }
 
     if (params.status) {
-      if (params.status.toLowerCase() === "active") {
+      const statusLower = params.status.toLowerCase();
+      if (statusLower === "active" || statusLower === "true") {
         conditions.push(`f.status = true`);
-      } else if (params.status.toLowerCase() === "inactive") {
+      } else if (statusLower === "inactive" || statusLower === "draft" || statusLower === "false") {
         conditions.push(`f.status = false`);
       }
     }
@@ -89,7 +91,7 @@ router.get("/", async (req: Request, res: Response) => {
     if (sortMap[sortField]) {
       orderClause = `${sortMap[sortField]} ${isAsc ? "ASC" : "DESC"}, f.display_order ${isAsc ? "ASC" : "DESC"}`;
     } else {
-      orderClause = `f.display_order ${isAsc ? "ASC" : "DESC"}`;
+      orderClause = `f.category ASC, f.display_order ${isAsc ? "ASC" : "DESC"}`;
     }
 
     const countResult = await pool.query(
@@ -122,7 +124,8 @@ router.get("/", async (req: Request, res: Response) => {
     }));
 
     res.json({ totalRecords: parseInt(countResult.rows[0].total) || 0, items });
-  } catch (err) {
+  } catch (err: any) {
+    if (handleMissingTableError(err, res)) return;
     console.error("FAQ GetAll error:", err);
     res.status(500).json({ message: "Internal server error" });
   }

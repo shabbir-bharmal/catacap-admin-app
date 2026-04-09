@@ -45,11 +45,15 @@ externalPort = 3002
 localPort = 8200
 externalPort = 3001
 
+[[ports]]
+localPort = 9999
+externalPort = 3003
+
 [deployment]
-deploymentTarget = "static"
-build = ["pnpm", "run", "build"]
+deploymentTarget = "autoscale"
+build = ["npm", "run", "build"]
 publicDir = "dist"
-run = ["sh", "-c", "npm run build"]
+run = ["node", "./dist/index.cjs"]
 
 [postMerge]
 path = "scripts/post-merge.sh"

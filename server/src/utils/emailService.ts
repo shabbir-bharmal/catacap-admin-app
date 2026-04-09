@@ -58,10 +58,10 @@ export async function sendTemplateEmail(
 
     const mailer = getTransporter();
     if (!mailer) {
-      console.log(`[EMAIL] SMTP not configured. Template email for category ${category} would be sent to: ${recipient}`);
-      console.log(`  Subject: ${subject}`);
-      console.log(`  Variables: ${JSON.stringify(variables)}`);
-      return true;
+      console.warn(`[EMAIL] SMTP not configured — email NOT sent. Template category ${category} would be sent to: ${recipient}`);
+      console.warn(`  Subject: ${subject}`);
+      console.warn(`  Variables: ${JSON.stringify(variables)}`);
+      return false;
     }
 
     const fromEmail = process.env.SMTP_FROM || process.env.SMTP_USER || "noreply@catacap.com";
@@ -121,10 +121,10 @@ export async function sendTemplateEmailWithAttachments(
 
     const mailer = getTransporter();
     if (!mailer) {
-      console.log(`[EMAIL] SMTP not configured. Template email for category ${category} would be sent to: ${recipient}`);
-      console.log(`  Subject: ${subject}`);
-      console.log(`  Attachments: ${attachments.map(a => a.filename).join(", ")}`);
-      return true;
+      console.warn(`[EMAIL] SMTP not configured — email NOT sent. Template category ${category} would be sent to: ${recipient}`);
+      console.warn(`  Subject: ${subject}`);
+      console.warn(`  Attachments: ${attachments.map(a => a.filename).join(", ")}`);
+      return false;
     }
 
     const fromEmail = process.env.SMTP_FROM || process.env.SMTP_USER || "noreply@catacap.com";

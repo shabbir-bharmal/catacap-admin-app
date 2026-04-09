@@ -297,7 +297,7 @@ router.delete("/:type/:id", async (req: Request, res: Response) => {
         );
         if (entity.rows.length === 0) { res.json({ success: false, message: "Record not found." }); return; }
         const inUse = await pool.query(
-          `SELECT 1 FROM completed_investments_details WHERE site_configuration_id = $1 LIMIT 1`,
+          `SELECT 1 FROM completed_investment_details WHERE site_configuration_id = $1 LIMIT 1`,
           [id]
         );
         if (inUse.rows.length > 0) { res.json({ success: false, message: "Cannot delete this transaction type, it's being used in investments." }); return; }

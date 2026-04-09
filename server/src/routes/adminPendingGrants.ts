@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
-import { parsePagination, softDeleteFilter } from "../utils/softDelete.js";
+import { parsePagination, softDeleteFilter, handleMissingTableError } from "../utils/softDelete.js";
 import ExcelJS from "exceljs";
 
 const router = Router();
@@ -253,6 +253,7 @@ router.get("/", async (req: Request, res: Response) => {
       res.json({ success: false, message: "Data not found." });
     }
   } catch (err: any) {
+    if (handleMissingTableError(err, res)) return;
     console.error("Error fetching pending grants:", err);
     res.status(500).json({ success: false, message: err.message });
   }
@@ -358,7 +359,7 @@ router.put("/:id", async (req: Request, res: Response) => {
 
       const groupAccountBalances = await client.query(
         `SELECT gab.id, gab.balance, gab.group_id
-         FROM group_account_balance gab
+         FROM group_account_balances gab
          WHERE gab.user_id = $1
          ORDER BY gab.id ASC`,
         [grant.uid]
@@ -449,7 +450,7 @@ router.put("/:id", async (req: Request, res: Response) => {
           );
 
           await client.query(
-            `UPDATE group_account_balance SET balance = balance - $1 WHERE id = $2`,
+            `UPDATE group_account_balances SET balance = balance - $1 WHERE id = $2`,
             [deduction, gab.id]
           );
 

@@ -201,7 +201,7 @@ export default function NewsManagementPage() {
       const res = await fetchNews({
         currentPage,
         perPage: rowsPerPage,
-        sortField: sortField || undefined,
+        sortField: sortField === "medium" ? "type" : sortField || undefined,
         sortDirection: sortDir || undefined,
         searchValue: effectiveSearch.trim() || undefined,
       });

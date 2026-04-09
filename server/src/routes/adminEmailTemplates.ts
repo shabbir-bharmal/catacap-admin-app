@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import { Resend } from "resend";
 import pool from "../db.js";
-import { parsePagination, softDeleteFilter } from "../utils/softDelete.js";
+import { parsePagination, softDeleteFilter, handleMissingTableError } from "../utils/softDelete.js";
 
 const router = Router();
 
@@ -298,7 +298,8 @@ router.get("/", async (req: Request, res: Response) => {
     }
 
     res.json({ totalRecords: parseInt(countResult.rows[0].total) || 0, items });
-  } catch (err) {
+  } catch (err: any) {
+    if (handleMissingTableError(err, res)) return;
     console.error("EmailTemplate GetAll error:", err);
     res.status(500).json({ message: "Internal server error" });
   }
@@ -394,8 +395,11 @@ router.delete("/:id", async (req: Request, res: Response) => {
       return;
     }
 
-    await pool.query(`DELETE FROM email_template_variables WHERE email_template_id = $1`, [id]);
-    await pool.query(`DELETE FROM email_templates WHERE id = $1`, [id]);
+    const userId = req.user?.id || null;
+    await pool.query(
+      `UPDATE email_templates SET is_deleted = true, deleted_at = NOW(), deleted_by = $2 WHERE id = $1`,
+      [id, userId]
+    );
 
     res.json({ success: true, message: "Email template deleted successfully." });
   } catch (err) {

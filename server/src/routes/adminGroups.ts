@@ -431,7 +431,7 @@ router.get("/leaders-and-champions", async (req: Request, res: Response) => {
          FROM users u
          WHERE u.is_active = true
            AND EXISTS (SELECT 1 FROM user_roles ur WHERE ur.user_id = u.id AND ur.role_id = $1)
-           AND ($2 IS NULL OR u.id != $2)
+           AND ($2::text IS NULL OR u.id != $2::text)
            AND LOWER(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) LIKE $3`,
         [groupAdminRoleId, groupOwnerId || null, `%${userName}%`]
       );
@@ -445,7 +445,7 @@ router.get("/leaders-and-champions", async (req: Request, res: Response) => {
          WHERE r.group_to_follow_id = $1
            AND r.status = 'accepted'
            AND u.is_active = true
-           AND ($2 IS NULL OR u.id != $2)
+           AND ($2::text IS NULL OR u.id != $2::text)
            AND LOWER(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) LIKE $3`,
         [groupId, groupOwnerId || null, `%${userName}%`]
       );
@@ -892,7 +892,7 @@ router.get("/:identifier", async (req: Request, res: Response) => {
     }
 
     const completedInvResult = await pool.query(
-      `SELECT COUNT(*) as total FROM completed_investments_details`
+      `SELECT COUNT(*) as total FROM completed_investment_details`
     ).catch(() => ({ rows: [{ total: 0 }] }));
     const completedInvestments = parseInt(completedInvResult.rows[0]?.total) || 0;
 
@@ -963,20 +963,55 @@ router.put("/restore", async (req: Request, res: Response) => {
       return;
     }
 
-    const result = await pool.query(
-      `UPDATE groups SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
-       WHERE id = ANY($1) AND is_deleted = true
-       RETURNING id`,
+    const groupsResult = await pool.query(
+      `SELECT id FROM groups WHERE id = ANY($1) AND is_deleted = true`,
       [ids]
     );
 
-    if (result.rowCount === 0) {
+    if (groupsResult.rows.length === 0) {
       res.json({ success: false, message: "No deleted groups found to restore." });
       return;
     }
 
-    const restoredIds = result.rows.map((r: any) => r.id);
-    for (const gid of restoredIds) {
+    const groupIds = groupsResult.rows.map((r: any) => r.id);
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      await client.query(
+        `UPDATE requests SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE group_to_follow_id = ANY($1) AND is_deleted = true`,
+        [groupIds]
+      );
+
+      await client.query(
+        `UPDATE leader_groups SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE group_id = ANY($1) AND is_deleted = true`,
+        [groupIds]
+      );
+
+      await client.query(
+        `UPDATE group_account_balances SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE group_id = ANY($1) AND is_deleted = true`,
+        [groupIds]
+      );
+
+      await client.query(
+        `UPDATE groups SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE id = ANY($1)`,
+        [groupIds]
+      );
+
+      await client.query("COMMIT");
+    } catch (txErr) {
+      await client.query("ROLLBACK");
+      throw txErr;
+    } finally {
+      client.release();
+    }
+
+    for (const gid of groupIds) {
       await logAudit({
         tableName: "groups",
         recordId: String(gid),
@@ -987,7 +1022,7 @@ router.put("/restore", async (req: Request, res: Response) => {
       });
     }
 
-    res.json({ success: true, message: `${result.rowCount} group(s) restored successfully.` });
+    res.json({ success: true, message: `${groupIds.length} group(s) restored successfully.` });
   } catch (err) {
     console.error("Restore groups error:", err);
     res.status(500).json({ success: false, message: "Internal server error" });
@@ -1164,11 +1199,48 @@ router.delete("/:id", async (req: Request, res: Response) => {
     }
 
     const deletedBy = adminUser?.id || null;
+    const now = new Date().toISOString();
 
-    await pool.query(
-      `UPDATE groups SET is_deleted = true, deleted_at = NOW(), deleted_by = $2 WHERE id = $1`,
-      [id, deletedBy]
-    );
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      await client.query(
+        `UPDATE requests SET is_deleted = true, deleted_at = $1, deleted_by = $2
+         WHERE group_to_follow_id = $3 AND (is_deleted IS NULL OR is_deleted = false)`,
+        [now, deletedBy, id]
+      );
+
+      await client.query(
+        `UPDATE leader_groups SET is_deleted = true, deleted_at = $1, deleted_by = $2
+         WHERE group_id = $3 AND (is_deleted IS NULL OR is_deleted = false)`,
+        [now, deletedBy, id]
+      );
+
+      await client.query(
+        `UPDATE group_account_balances SET is_deleted = true, deleted_at = $1, deleted_by = $2
+         WHERE group_id = $3 AND (is_deleted IS NULL OR is_deleted = false)`,
+        [now, deletedBy, id]
+      );
+
+      await client.query(
+        `UPDATE campaigns SET group_for_private_access_id = NULL
+         WHERE group_for_private_access_id = $1`,
+        [id]
+      );
+
+      await client.query(
+        `UPDATE groups SET is_deleted = true, deleted_at = $1, deleted_by = $2 WHERE id = $3`,
+        [now, deletedBy, id]
+      );
+
+      await client.query("COMMIT");
+    } catch (txErr) {
+      await client.query("ROLLBACK");
+      throw txErr;
+    } finally {
+      client.release();
+    }
 
     await logAudit({
       tableName: "groups",

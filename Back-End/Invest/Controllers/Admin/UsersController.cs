@@ -77,8 +77,8 @@ namespace Invest.Controllers.Admin
                                     ? query.OrderBy(u => u.AccountBalance)
                                     : query.OrderByDescending(u => u.AccountBalance),
                 "datecreated" => isAsc
-                                    ? query.OrderBy(u => u.DateCreated)
-                                    : query.OrderByDescending(u => u.DateCreated),
+                                    ? query.OrderBy(u => u.DateCreated ?? DateTime.MinValue)
+                                    : query.OrderByDescending(u => u.DateCreated ?? DateTime.MinValue),
                 _ => query.OrderBy(u => u.FirstName).ThenBy(u => u.LastName)
             };
 

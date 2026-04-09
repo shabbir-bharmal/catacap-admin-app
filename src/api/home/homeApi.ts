@@ -124,10 +124,10 @@ export async function fetchTopGroups(params?: DashboardTableParams): Promise<Pag
 export interface AuditLogEntry {
     tableName: string;
     identifier: string | null;
-    actionType: string;
-    oldValues: string;
-    newValues: string;
-    changedColumns: string;
+    actionType: string | null;
+    oldValues: string | null;
+    newValues: string | null;
+    changedColumns: string | null;
     updatedBy: string | null;
     updatedAt: string;
 }

@@ -8,6 +8,8 @@ export interface PaginationParams {
   isDeleted?: boolean;
   category?: number;
   isManagement?: boolean;
+  id?: string;
+  type?: string;
 }
 
 const MAX_PER_PAGE = 100;
@@ -48,6 +50,8 @@ export function parsePagination(query: Record<string, unknown>): PaginationParam
     isDeleted,
     category,
     isManagement,
+    id: (query.id || query.Id) as string | undefined,
+    type: (query.type || query.Type) as string | undefined,
   };
 }
 
@@ -61,6 +65,14 @@ export function softDeleteFilter(
   } else {
     conditions.push(`(${tableAlias}.is_deleted IS NULL OR ${tableAlias}.is_deleted = false)`);
   }
+}
+
+export function handleMissingTableError(err: any, res: any): boolean {
+  if (err && (err.code === "42P01" || err.code === "42703")) {
+    res.json({ items: [], totalCount: 0, totalRecords: 0 });
+    return true;
+  }
+  return false;
 }
 
 export function buildSortClause(

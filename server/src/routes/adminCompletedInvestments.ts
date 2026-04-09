@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
-import { parsePagination } from "../utils/softDelete.js";
+import { parsePagination, handleMissingTableError } from "../utils/softDelete.js";
 import ExcelJS from "exceljs";
 import { resolveFileUrl } from "../utils/uploadBase64Image.js";
 
@@ -369,6 +369,7 @@ router.get("/", async (req: Request, res: Response) => {
 
     res.json(response);
   } catch (err: any) {
+    if (handleMissingTableError(err, res)) return;
     console.error("Error fetching completed investments:", err);
     res.status(500).json({ success: false, message: err.message });
   }

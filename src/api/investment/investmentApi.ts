@@ -1,4 +1,4 @@
-import axiosInstance, { getToken, API_ACCESS_TOKEN } from "../axios";
+import axiosInstance, { getToken } from "../axios";
 
 export interface InvestmentParams {
     currentPage?: number;
@@ -97,8 +97,8 @@ export async function updateInvestmentStatus(investmentId: number, status: boole
     return response.data;
 }
 
-export async function fetchInvestmentById(investmentId: number): Promise<any> {
-    const response = await axiosInstance.get(`/api/admin/investment/${investmentId}`);
+export async function fetchInvestmentById(idOrSlug: string | number): Promise<any> {
+    const response = await axiosInstance.get(`/api/admin/investment/${idOrSlug}`);
     return response.data;
 }
 
@@ -178,7 +178,6 @@ export function downloadInvestmentDocument(
         originalPdfFileName,
         stream: "true",
         _token: token,
-        _apiToken: API_ACCESS_TOKEN,
     });
     window.location.href = `/api/admin/investment/document/?${params.toString()}`;
 }

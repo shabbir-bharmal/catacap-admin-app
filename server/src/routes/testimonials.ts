@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
-import { parsePagination, softDeleteFilter } from "../utils/softDelete.js";
+import { parsePagination, softDeleteFilter, handleMissingTableError } from "../utils/softDelete.js";
 import { resolveFileUrl } from "../utils/uploadBase64Image.js";
 
 const router = Router();
@@ -25,6 +25,21 @@ router.get("/", async (req: Request, res: Response) => {
       );
       values.push(`%${params.searchValue.toLowerCase()}%`);
       paramIdx++;
+    }
+
+    const perspectiveText = (req.query.PerspectiveText || req.query.perspectiveText) as string | undefined;
+    if (perspectiveText) {
+      conditions.push(`t.perspective_text ILIKE $${paramIdx}`);
+      values.push(perspectiveText);
+      paramIdx++;
+    }
+
+    if (params.status) {
+      if (params.status.toLowerCase() === "active") {
+        conditions.push(`t.status = true`);
+      } else if (params.status.toLowerCase() === "draft") {
+        conditions.push(`t.status = false`);
+      }
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -101,7 +116,8 @@ router.get("/", async (req: Request, res: Response) => {
     });
 
     res.json({ items, totalCount: parseInt(countResult.rows[0].total) || 0 });
-  } catch (err) {
+  } catch (err: any) {
+    if (handleMissingTableError(err, res)) return;
     console.error("Testimonials GetAll error:", err);
     res.status(500).json({ message: "Internal server error" });
   }

@@ -1,5 +1,4 @@
-import { useState, useEffect } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { fetchAuditLogs, AuditLogEntry } from "../api/home/homeApi";
 import { useQuery } from "@tanstack/react-query";
 import dayjs from "dayjs";
@@ -13,6 +12,58 @@ interface AuditLogModalProps {
   title?: string;
 }
 
+const SYSTEM_FIELDS = ["modifieddate", "modifiedat", "lastmodified", "createddate", "modifiedby"];
+
+function stripHtml(value: string): string {
+  if (!value || typeof value !== "string") return value;
+  if (!/<[^>]+>/.test(value) && !/&[a-zA-Z]+;/.test(value) && !/&#\d+;/.test(value)) return value;
+  let result = value.replace(/<(b|strong)>\s*(.*?)\s*<\/\1>/gi, "@$2");
+  result = result.replace(/<[^>]+>/g, "");
+  const doc = new DOMParser().parseFromString(result, "text/html");
+  result = doc.documentElement.textContent || result;
+  return result.trim();
+}
+
+function formatFieldLabel(field: string): string {
+  let label = field.replace(/_/g, " ");
+  label = label.replace(/([a-z])([A-Z])/g, "$1 $2");
+  label = label
+    .split(" ")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+  return label;
+}
+
+function isDateString(val: any): boolean {
+  if (typeof val !== "string") return false;
+  if (val.length < 8 || val.length > 30) return false;
+  const datePatterns = [
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/,
+    /^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}/,
+    /^\d{2}\/\d{2}\/\d{4}/,
+  ];
+  return datePatterns.some((p) => p.test(val));
+}
+
+function formatDateValue(val: string): string {
+  const d = dayjs(val);
+  if (d.isValid()) {
+    return d.format("DD MMM YYYY hh:mm A");
+  }
+  return val;
+}
+
+function isCreatedAction(actionType: string | null): boolean {
+  if (!actionType) return false;
+  const lower = actionType.toLowerCase();
+  return lower === "created" || lower === "added";
+}
+
+function isDeletedAction(actionType: string | null): boolean {
+  if (!actionType) return false;
+  return actionType.toLowerCase() === "deleted";
+}
+
 export function AuditLogModal({ isOpen, onOpenChange, entityId, entityType, title = "Audit Logs" }: AuditLogModalProps) {
   const {
     data: queryData,
@@ -24,7 +75,7 @@ export function AuditLogModal({ isOpen, onOpenChange, entityId, entityType, titl
       fetchAuditLogs({
         id: entityId,
         type: entityType,
-        PerPage: 100 // Fetch a reasonable amount
+        PerPage: 100
       }),
     enabled: isOpen && !!entityId && !!entityType,
   });
@@ -51,61 +102,75 @@ export function AuditLogModal({ isOpen, onOpenChange, entityId, entityType, titl
   const getActionLabel = (log: AuditLogEntry) => {
     const entityLabel = getEntityLabel(log.tableName);
 
+    if (!log.actionType) return `${entityLabel} updated`;
     if (log.actionType === "Modified") return `${entityLabel} updated`;
-    if (log.actionType === "Created") return `${entityLabel} created`;
-    if (log.actionType === "Deleted") return `${entityLabel} deleted`;
+    if (isCreatedAction(log.actionType)) return `${entityLabel} created`;
+    if (isDeletedAction(log.actionType)) return `${entityLabel} deleted`;
 
     return `${entityLabel} ${log.actionType.toLowerCase()}`;
   };
 
   const parseJson = (str: string) => {
+    if (!str) return {};
     try {
-      return JSON.parse(str);
+      return JSON.parse(str) ?? {};
     } catch {
       return {};
     }
   };
 
-  const parseChangedColumns = (cols: string) => {
+  const parseChangedColumns = (cols: string): string[] => {
     try {
       if (!cols) return [];
       const parsed = JSON.parse(cols);
-      return Array.isArray(parsed) ? parsed : [];
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .map((item: any) => {
+          if (!item) return null;
+          if (typeof item === "string") return item;
+          if (typeof item === "object" && item.name) return item.name;
+          return null;
+        })
+        .filter((x: any): x is string => !!x);
     } catch {
       return [];
     }
   };
 
+  const normalize = (val: any) => {
+    if (val === null || val === undefined || val === "") return null;
+    return val;
+  };
+
   const renderChanges = (log: AuditLogEntry) => {
-    const oldVals = parseJson(log.oldValues);
-    const newVals = parseJson(log.newValues);
-    const changedFields = parseChangedColumns(log.changedColumns);
+    const oldVals = parseJson(log.oldValues) || {};
+    const newVals = parseJson(log.newValues) || {};
+    let changedFields = parseChangedColumns(log.changedColumns);
 
-    // Helper to treat various empty values as identical
-    const normalize = (val: any) => {
-      if (val === null || val === undefined || val === "") return null;
-      return val;
-    };
+    if (changedFields.length === 0) {
+      if (isCreatedAction(log.actionType) && Object.keys(newVals).length > 0) {
+        changedFields = Object.keys(newVals);
+      } else if (isDeletedAction(log.actionType) && Object.keys(oldVals).length > 0) {
+        changedFields = Object.keys(oldVals);
+      }
+    }
 
-    // Filter fields to only those with actual value differences
     const filteredFields = changedFields.filter((field) => {
+      if (!field) return false;
+
+      if (SYSTEM_FIELDS.includes(field.toLowerCase())) return false;
+
       const oldVal = normalize(oldVals[field]);
       const newVal = normalize(newVals[field]);
 
-      // Ignore common system-generated timestamps and noise
-      const systemFields = ["modifieddate", "modifiedat", "lastmodified", "createddate"];
-      if (systemFields.includes(field.toLowerCase())) return false;
-
-      // Only show if normalized values are definitely different
       return JSON.stringify(oldVal) !== JSON.stringify(newVal);
     });
 
-    // Handle cases where no visible data was changed
     if (filteredFields.length === 0) {
-      if (log.actionType === "Created") {
+      if (isCreatedAction(log.actionType)) {
         return <span className="text-[#0ab39c] italic text-[11px] font-semibold uppercase tracking-wider bg-[#0ab39c]/10 px-2 py-0.5 rounded">Record Created</span>;
       }
-      if (log.actionType === "Deleted") {
+      if (isDeletedAction(log.actionType)) {
         return <span className="text-[#f06548] italic text-[11px] font-semibold uppercase tracking-wider bg-[#f06548]/10 px-2 py-0.5 rounded">Record Deleted</span>;
       }
       return <span className="text-muted-foreground italic text-xs">No user-facing changes (system update)</span>;
@@ -124,13 +189,18 @@ export function AuditLogModal({ isOpen, onOpenChange, entityId, entityType, titl
             }
             if (typeof val === "boolean") return val ? "True" : "False";
             if (typeof val === "object") return JSON.stringify(val);
-            return String(val);
+            let strVal = String(val);
+            if (isDateString(strVal)) {
+              strVal = formatDateValue(strVal);
+            }
+            strVal = stripHtml(strVal);
+            return strVal;
           };
 
           return (
             <div key={field} className="text-[13px] leading-relaxed group flex items-start">
-              <span className="font-semibold text-muted-foreground capitalize mr-2 min-w-[120px] shrink-0">
-                {field.replace(/([A-Z])/g, " $1").trim()}:
+              <span className="font-semibold text-muted-foreground mr-2 min-w-[120px] shrink-0">
+                {formatFieldLabel(field)}:
               </span>
               <div className="flex items-center flex-wrap gap-x-2">
                 <span className="text-[#f06548] font-medium bg-[#f06548]/5 px-1.5 py-0.5 rounded border border-[#f06548]/10 break-all">{formatVal(oldVal)}</span>
@@ -149,6 +219,9 @@ export function AuditLogModal({ isOpen, onOpenChange, entityId, entityType, titl
       <DialogContent className="max-w-[95vw] lg:max-w-[1200px] max-h-[90vh] min-h-[400px] flex flex-col p-0 overflow-hidden transition-all duration-300">
         <DialogHeader className="px-6 py-4 border-b">
           <DialogTitle className="text-lg font-semibold">{title}</DialogTitle>
+          <DialogDescription className="sr-only">
+            View audit log history for this record
+          </DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto flex flex-col">
@@ -193,8 +266,8 @@ export function AuditLogModal({ isOpen, onOpenChange, entityId, entityType, titl
                   {logs.map((log, idx) => (
                     <tr key={idx} className="hover:bg-[#f3f6f9] transition-colors bg-white">
                       <td className="px-6 py-4 align-top w-[1px]">
-                        <span className={`inline-flex items-center px-2 py-1 rounded text-[11px] font-semibold tracking-wide whitespace-nowrap ${log.actionType === "Created" ? "bg-[#45cb85] text-white" :
-                          log.actionType === "Modified" ? "bg-[#4b38b3] text-white" :
+                        <span className={`inline-flex items-center px-2 py-1 rounded text-[11px] font-semibold tracking-wide whitespace-nowrap ${isCreatedAction(log.actionType) ? "bg-[#45cb85] text-white" :
+                          log.actionType === "Modified" || !log.actionType ? "bg-[#4b38b3] text-white" :
                             "bg-[#f06548] text-white"
                           }`}>
                           {getActionLabel(log)}

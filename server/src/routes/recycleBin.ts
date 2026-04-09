@@ -4,6 +4,29 @@ import pool from "../db.js";
 
 const router = Router();
 
+async function safeCount(tableName: string): Promise<number> {
+  try {
+    const tableCheck = await pool.query(
+      `SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1`,
+      [tableName]
+    );
+    if (tableCheck.rows.length === 0) return 0;
+
+    const colCheck = await pool.query(
+      `SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 AND column_name = 'is_deleted'`,
+      [tableName]
+    );
+    if (colCheck.rows.length === 0) return 0;
+
+    const result = await pool.query(
+      `SELECT COUNT(*) as cnt FROM ${tableName} WHERE is_deleted = true`
+    );
+    return parseInt(result.rows[0].cnt, 10);
+  } catch {
+    return 0;
+  }
+}
+
 router.get("/summary", async (_req: Request, res: Response) => {
   try {
     const tables = [
@@ -29,19 +52,16 @@ router.get("/summary", async (_req: Request, res: Response) => {
       { key: "users", table: "users" },
     ];
 
-    const countQueries = tables.map((t) =>
-      pool.query(`SELECT COUNT(*) as cnt FROM ${t.table} WHERE is_deleted = true`)
+    const countResults = await Promise.all(
+      tables.map((t) => safeCount(t.table))
     );
-
-    const results = await Promise.all(countQueries);
 
     const summary: Record<string, number> = {};
     let totalDeleted = 0;
 
     tables.forEach((t, i) => {
-      const count = parseInt(results[i].rows[0].cnt, 10);
-      summary[t.key] = count;
-      totalDeleted += count;
+      summary[t.key] = countResults[i];
+      totalDeleted += countResults[i];
     });
 
     summary.totalDeleted = totalDeleted;

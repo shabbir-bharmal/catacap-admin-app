@@ -3,7 +3,6 @@ import cors from "cors";
 import path from "path";
 import { testConnection } from "./db.js";
 import pool from "./db.js";
-import { apiAccessTokenMiddleware } from "./middleware/apiAccessToken.js";
 
 import authRoutes from "./routes/auth.js";
 import adminRoutes from "./routes/admin.js";
@@ -39,7 +38,8 @@ import { jwtAuthMiddleware } from "./middleware/jwtAuth.js";
 import { Router } from "express";
 
 const app = express();
-const PORT = parseInt(process.env.SERVER_PORT || "8200", 10);
+const isProduction = process.env.NODE_ENV === "production";
+const PORT = parseInt(process.env.PORT || process.env.SERVER_PORT || (isProduction ? "5000" : "8200"), 10);
 
 app.use(cors());
 app.use(express.json({ limit: "50mb", strict: false }));
@@ -49,8 +49,6 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.use("/api/uploads", express.static(path.resolve(process.cwd(), "server", "uploads")));
-
-app.use("/api", apiAccessTokenMiddleware);
 
 app.use("/api/userauthentication", authRoutes);
 app.use("/api/event", publicEventRoutes);
@@ -88,6 +86,12 @@ usersAliasRouter.get("/get-all-admin-users", jwtAuthMiddleware, (req, res, next)
   adminUserRoutes(req, res, next);
 });
 app.use("/api/Users", usersAliasRouter);
+
+const distPath = path.resolve(process.cwd(), "dist");
+app.use(express.static(distPath));
+app.get("/{*splat}", (_req, res) => {
+  res.sendFile(path.join(distPath, "index.html"));
+});
 
 async function start() {
   try {

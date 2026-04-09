@@ -679,7 +679,7 @@ CREATE TABLE public.requests (
 );
 CREATE TABLE public.return_details (
   id bigint NOT NULL DEFAULT nextval('returndetails_id_seq'::regclass),
-  return_ma_st_er_id integer NOT NULL,
+  return_master_id integer NOT NULL,
   user_id text NOT NULL,
   investment_amount numeric NOT NULL,
   percentage_of_total_investment numeric NOT NULL,
@@ -690,7 +690,7 @@ CREATE TABLE public.return_details (
   CONSTRAINT return_details_pkey PRIMARY KEY (id),
   CONSTRAINT fk_returndetails_aspnetusers_deletedby FOREIGN KEY (deleted_by) REFERENCES public.users(id),
   CONSTRAINT fk_returndetails_aspnetusers_userid FOREIGN KEY (user_id) REFERENCES public.users(id),
-  CONSTRAINT fk_returndetails_returnmasters_returnmasterid FOREIGN KEY (return_ma_st_er_id) REFERENCES public.return_masters(id)
+  CONSTRAINT fk_returndetails_returnmasters_returnmasterid FOREIGN KEY (return_master_id) REFERENCES public.return_masters(id)
 );
 CREATE TABLE public.return_masters (
   id bigint NOT NULL DEFAULT nextval('returnmasters_id_seq'::regclass),
