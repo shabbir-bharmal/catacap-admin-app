@@ -51,9 +51,9 @@ externalPort = 3003
 
 [deployment]
 deploymentTarget = "autoscale"
-build = ["pnpm", "run", "build"]
+build = ["npm", "run", "build"]
 publicDir = "dist"
-run = ["pnpm", "run", "start"]
+run = ["node", "./dist/index.cjs"]
 
 [postMerge]
 path = "scripts/post-merge.sh"
