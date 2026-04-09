@@ -6,7 +6,7 @@
     "dev": "tsx server/src/index.ts & vite",
     "dev:frontend": "vite",
     "dev:server": "tsx server/src/index.ts",
-    "build": "vite build",
+    "build": "vite build && node esbuild.server.mjs",
     "start": "NODE_ENV=production tsx server/src/index.ts",
     "preview": "vite preview",
     "check": "tsc",

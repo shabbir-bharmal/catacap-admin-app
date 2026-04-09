@@ -612,8 +612,11 @@ router.get("/send-investment-qr-code-email", jwtUserAuthMiddleware, async (req: 
     }
 
     const requestOrigin = process.env.REQUEST_ORIGIN || process.env.VITE_FRONTEND_URL || "";
-    let investmentUrl = investmentTag && investmentTag.trim()
-      ? investmentTag
+    const trimmedTag = investmentTag ? investmentTag.trim() : "";
+    let investmentUrl = trimmedTag
+      ? (trimmedTag.startsWith("http://") || trimmedTag.startsWith("https://")
+        ? trimmedTag
+        : `${requestOrigin}/investments?tag=${encodeURIComponent(trimmedTag)}`)
       : investment.property
         ? `${requestOrigin}/invest/${encodeURIComponent(investment.property)}`
         : null;
@@ -639,7 +642,7 @@ router.get("/send-investment-qr-code-email", jwtUserAuthMiddleware, async (req: 
     let emailSent = false;
     try {
       emailSent = await sendTemplateEmailWithAttachments(
-        22,
+        17,
         investment.contact_info_email_address.trim().toLowerCase(),
         {
           logoUrl,
