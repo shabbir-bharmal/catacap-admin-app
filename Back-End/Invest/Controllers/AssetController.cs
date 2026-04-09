@@ -517,6 +517,8 @@ namespace Invest.Controllers
             var user = await _repositoryManager.UserAuthentication.GetUserByUserName(userName);
             user.IsFreeUser = true;
             user.IsActive = true;
+            if (user.DateCreated == null || user.DateCreated == default(DateTime))
+                user.DateCreated = DateTime.Now;
             await _repositoryManager.UserAuthentication.UpdateUser(user);
             await _repositoryManager.SaveAsync();
 
