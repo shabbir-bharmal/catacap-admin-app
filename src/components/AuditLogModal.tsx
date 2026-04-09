@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { fetchAuditLogs, AuditLogEntry } from "../api/home/homeApi";
 import { useQuery } from "@tanstack/react-query";
 import dayjs from "dayjs";
@@ -150,6 +150,9 @@ export function AuditLogModal({ isOpen, onOpenChange, entityId, entityType, titl
       <DialogContent className="max-w-[95vw] lg:max-w-[1200px] max-h-[90vh] min-h-[400px] flex flex-col p-0 overflow-hidden transition-all duration-300">
         <DialogHeader className="px-6 py-4 border-b">
           <DialogTitle className="text-lg font-semibold">{title}</DialogTitle>
+          <DialogDescription className="sr-only">
+            View audit log history for this record
+          </DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto flex flex-col">
