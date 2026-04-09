@@ -113,23 +113,23 @@ router.get("/", async (req: Request, res: Response) => {
     const values: any[] = [];
 
     if (params.isDeleted === true) {
-      conditions.push(`d.isdeleted = true`);
+      conditions.push(`d.is_deleted = true`);
     } else {
-      conditions.push(`(d.isdeleted IS NULL OR d.isdeleted = false)`);
+      conditions.push(`(d.is_deleted IS NULL OR d.is_deleted = false)`);
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     const queryText = `
-      SELECT d.id, d.receivedate, u.email, d.mobile, d.distributedamount,
+      SELECT d.id, d.receive_date, u.email, d.mobile, d.distributed_amount,
              c.name, c.id AS investment_id, c.property, d.quote, d.status,
-             d.pitchdeck, d.pitchdeckname, d.investmentdocument, d.investmentdocumentname,
-             c.investment_types, d.deletedat,
+             d.pitch_deck, d.pitch_deck_name, d.investment_document, d.investment_document_name,
+             c.investment_types, d.deleted_at,
              du.first_name AS deleted_by_first_name, du.last_name AS deleted_by_last_name
       FROM disbursal_requests d
-      JOIN campaigns c ON d.campaignid = c.id
-      LEFT JOIN users u ON d.userid = u.id
-      LEFT JOIN users du ON d.deletedby = du.id
+      JOIN campaigns c ON d.campaign_id = c.id
+      LEFT JOIN users u ON d.user_id = u.id
+      LEFT JOIN users du ON d.deleted_by = du.id
       ${whereClause}
     `;
 
@@ -165,10 +165,10 @@ router.get("/", async (req: Request, res: Response) => {
           cmp = (a.email || "").localeCompare(b.email || "");
           break;
         case "amount":
-          cmp = (parseFloat(a.distributedamount) || 0) - (parseFloat(b.distributedamount) || 0);
+          cmp = (parseFloat(a.distributed_amount) || 0) - (parseFloat(b.distributed_amount) || 0);
           break;
         case "date":
-          cmp = new Date(a.receivedate || 0).getTime() - new Date(b.receivedate || 0).getTime();
+          cmp = new Date(a.receive_date || 0).getTime() - new Date(b.receive_date || 0).getTime();
           break;
         default:
           cmp = (a.id || 0) - (b.id || 0);
@@ -200,15 +200,15 @@ router.get("/", async (req: Request, res: Response) => {
       quote: x.quote,
       status: x.status,
       statusName: getStatusName(x.status),
-      receiveDate: formatDate(x.receivedate),
-      distributedAmount: parseFloat(x.distributedamount) || 0,
+      receiveDate: formatDate(x.receive_date),
+      distributedAmount: parseFloat(x.distributed_amount) || 0,
       investmentType: resolveInvestmentTypeString(x.investment_types, typeMap),
-      pitchDeck: resolveFileUrl(x.pitchdeck, "disbursal-requests"),
-      pitchDeckName: x.pitchdeckname,
-      investmentDocument: resolveFileUrl(x.investmentdocument, "disbursal-requests"),
-      investmentDocumentName: x.investmentdocumentname,
+      pitchDeck: resolveFileUrl(x.pitch_deck, "disbursal-requests"),
+      pitchDeckName: x.pitch_deck_name,
+      investmentDocument: resolveFileUrl(x.investment_document, "disbursal-requests"),
+      investmentDocumentName: x.investment_document_name,
       hasNotes: notesSet.has(x.id),
-      deletedAt: x.deletedat,
+      deletedAt: x.deleted_at,
       deletedBy: x.deleted_by_first_name
         ? `${x.deleted_by_first_name} ${x.deleted_by_last_name || ""}`.trim()
         : null,
@@ -231,12 +231,12 @@ router.get("/", async (req: Request, res: Response) => {
 router.get("/export", async (_req: Request, res: Response) => {
   try {
     const queryText = `
-      SELECT d.id, d.receivedate, u.email, d.distributedamount,
+      SELECT d.id, d.receive_date, u.email, d.distributed_amount,
              c.name, d.quote, d.status, c.investment_types
       FROM disbursal_requests d
-      JOIN campaigns c ON d.campaignid = c.id
-      LEFT JOIN users u ON d.userid = u.id
-      WHERE (d.isdeleted IS NULL OR d.isdeleted = false)
+      JOIN campaigns c ON d.campaign_id = c.id
+      LEFT JOIN users u ON d.user_id = u.id
+      WHERE (d.is_deleted IS NULL OR d.is_deleted = false)
     `;
     const result = await pool.query(queryText);
     const data = result.rows;
@@ -253,11 +253,11 @@ router.get("/export", async (_req: Request, res: Response) => {
     });
 
     for (const row of data) {
-      const amountCell = formatAmount(row.distributedamount);
+      const amountCell = formatAmount(row.distributed_amount);
       worksheet.addRow([
         row.name || "",
         row.email || "",
-        row.receivedate ? row.receivedate : "",
+        row.receive_date ? row.receive_date : "",
         amountCell,
         resolveInvestmentTypeString(row.investment_types, typeMap),
         getStatusName(row.status),
@@ -297,7 +297,7 @@ router.get("/:id/notes", async (req: Request, res: Response) => {
     }
 
     const parentCheck = await pool.query(
-      `SELECT id FROM disbursal_requests WHERE id = $1 AND (isdeleted IS NULL OR isdeleted = false)`,
+      `SELECT id FROM disbursal_requests WHERE id = $1 AND (is_deleted IS NULL OR is_deleted = false)`,
       [id]
     );
 
@@ -336,14 +336,14 @@ router.get("/:id", async (req: Request, res: Response) => {
 
     const result = await pool.query(
       `SELECT d.id, u.first_name, u.last_name, u.email, d.role, d.mobile,
-              d.status, d.quote, c.name, d.distributedamount, c.property,
-              d.investmentremainopen, d.receivedate, d.pitchdeck, d.pitchdeckname,
-              d.investmentdocument, d.investmentdocumentname,
-              d.impactassetsfundingpreviously, c.investment_types
+              d.status, d.quote, c.name, d.distributed_amount, c.property,
+              d.investment_remain_open, d.receive_date, d.pitch_deck, d.pitch_deck_name,
+              d.investment_document, d.investment_document_name,
+              d.impact_assets_funding_previously, c.investment_types
        FROM disbursal_requests d
-       JOIN campaigns c ON d.campaignid = c.id
-       LEFT JOIN users u ON d.userid = u.id
-       WHERE d.id = $1 AND (d.isdeleted IS NULL OR d.isdeleted = false)`,
+       JOIN campaigns c ON d.campaign_id = c.id
+       LEFT JOIN users u ON d.user_id = u.id
+       WHERE d.id = $1 AND (d.is_deleted IS NULL OR d.is_deleted = false)`,
       [id]
     );
 
@@ -366,15 +366,15 @@ router.get("/:id", async (req: Request, res: Response) => {
       quote: row.quote,
       status: row.status,
       statusName: getStatusName(row.status),
-      distributedAmount: parseFloat(row.distributedamount) || 0,
+      distributedAmount: parseFloat(row.distributed_amount) || 0,
       property: row.property,
-      investmentRemainOpen: row.investmentremainopen,
-      receiveDate: formatDate(row.receivedate),
-      pitchDeck: resolveFileUrl(row.pitchdeck, "disbursal-requests"),
-      pitchDeckName: row.pitchdeckname,
-      investmentDocument: resolveFileUrl(row.investmentdocument, "disbursal-requests"),
-      investmentDocumentName: row.investmentdocumentname,
-      impactAssetsFundingPreviously: row.impactassetsfundingpreviously,
+      investmentRemainOpen: row.investment_remain_open,
+      receiveDate: formatDate(row.receive_date),
+      pitchDeck: resolveFileUrl(row.pitch_deck, "disbursal-requests"),
+      pitchDeckName: row.pitch_deck_name,
+      investmentDocument: resolveFileUrl(row.investment_document, "disbursal-requests"),
+      investmentDocumentName: row.investment_document_name,
+      impactAssetsFundingPreviously: row.impact_assets_funding_previously,
       investmentTypeNames,
     });
   } catch (err: any) {
@@ -394,7 +394,7 @@ router.put("/:id/status", async (req: Request, res: Response) => {
     }
 
     const result = await pool.query(
-      `UPDATE disbursal_requests SET status = $1 WHERE id = $2 AND (isdeleted IS NULL OR isdeleted = false) RETURNING id`,
+      `UPDATE disbursal_requests SET status = $1 WHERE id = $2 AND (is_deleted IS NULL OR is_deleted = false) RETURNING id`,
       [status, id]
     );
 
@@ -422,7 +422,7 @@ router.post("/:id/notes", async (req: Request, res: Response) => {
     }
 
     const disbursalResult = await pool.query(
-      `SELECT id FROM disbursal_requests WHERE id = $1 AND (isdeleted IS NULL OR isdeleted = false)`,
+      `SELECT id FROM disbursal_requests WHERE id = $1 AND (is_deleted IS NULL OR is_deleted = false)`,
       [id]
     );
 
@@ -452,7 +452,7 @@ router.delete("/:id", async (req: Request, res: Response) => {
     const loginUserId = req.user?.id;
 
     const result = await pool.query(
-      `SELECT id FROM disbursal_requests WHERE id = $1 AND (isdeleted IS NULL OR isdeleted = false)`,
+      `SELECT id FROM disbursal_requests WHERE id = $1 AND (is_deleted IS NULL OR is_deleted = false)`,
       [id]
     );
 
@@ -462,7 +462,7 @@ router.delete("/:id", async (req: Request, res: Response) => {
     }
 
     await pool.query(
-      `UPDATE disbursal_requests SET isdeleted = true, deletedat = NOW(), deletedby = $1 WHERE id = $2`,
+      `UPDATE disbursal_requests SET is_deleted = true, deleted_at = NOW(), deleted_by = $1 WHERE id = $2`,
       [loginUserId, id]
     );
 
@@ -483,8 +483,8 @@ router.put("/restore", async (req: Request, res: Response) => {
 
     const placeholders = ids.map((_, i) => `$${i + 1}`).join(", ");
     const result = await pool.query(
-      `UPDATE disbursal_requests SET isdeleted = false, deletedat = NULL, deletedby = NULL
-       WHERE id IN (${placeholders}) AND isdeleted = true
+      `UPDATE disbursal_requests SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+       WHERE id IN (${placeholders}) AND is_deleted = true
        RETURNING id`,
       ids
     );
