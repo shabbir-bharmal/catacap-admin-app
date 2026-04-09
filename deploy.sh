@@ -9,6 +9,3 @@ echo "✅ Git push successful — continuing deployment..."
 # Now only runs if push succeeded
 echo "📦 Building app..."
 pnpm run build
-
-echo "🚀 Starting app..."
-node ./dist/index.cjs
