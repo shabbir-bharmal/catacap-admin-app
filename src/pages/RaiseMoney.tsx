@@ -920,7 +920,7 @@ export default function AdminRaiseMoney() {
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="lastName" className="text-sm">
-                      &nbsp;
+                      Last Name <span className="text-[#f06548]">*</span>
                     </Label>
                     <Input
                       id="lastName"
@@ -1451,7 +1451,7 @@ export default function AdminRaiseMoney() {
 
                 <div className="space-y-1.5">
                   <Label htmlFor="missionVision" className="text-sm">
-                    Mission/Vision (Not to exceed 1,000 characters)
+                    Mission/Vision (Not to exceed 1,000 characters) <span className="text-[#f06548]">*</span>
                   </Label>
                   <Textarea
                     id="missionVision"
@@ -1470,7 +1470,7 @@ export default function AdminRaiseMoney() {
 
                 <div className="space-y-1.5">
                   <Label className="text-sm">
-                    Expected Fundraising Close Date? <span className="text-[#f06548]">*</span>
+                    Expected Fundraising Close Date? {!formData.evergreen && <span className="text-[#f06548]">*</span>}
                   </Label>
                   <div className="flex items-center gap-2">
                     <Checkbox id="evergreen" checked={formData.evergreen} onCheckedChange={(checked) => updateField("evergreen", !!checked)} data-testid="checkbox-evergreen" />
@@ -1524,7 +1524,7 @@ export default function AdminRaiseMoney() {
 
                 <div className="space-y-1.5">
                   <Label htmlFor="thankYouMessage" className="text-sm">
-                    Personalized Thank You (Not to exceed 1,000 characters)
+                    Personalized Thank You (Not to exceed 1,000 characters) <span className="text-[#f06548]">*</span>
                   </Label>
                   <Textarea
                     id="thankYouMessage"
@@ -1612,7 +1612,7 @@ export default function AdminRaiseMoney() {
 
                 <div className="space-y-1.5">
                   <Label className="text-sm">
-                    Company / Investment Logo (max file size 10 MB) <span className="text-[#f06548]">*</span>
+                    Company / Investment Logo (max file size 10 MB) {!isEditMode && <span className="text-[#f06548]">*</span>}
                   </Label>
                   <div
                     className="border rounded-md p-6 text-center cursor-pointer transition-colors hover:border-[#405189]/50 hover:bg-[#405189]/5"
@@ -1646,7 +1646,7 @@ export default function AdminRaiseMoney() {
 
                 <div className="space-y-1.5">
                   <Label className="text-sm">
-                    Company / Investment Profile Image (max file size 10 MB) <span className="text-[#f06548]">*</span>
+                    Company / Investment Profile Image (max file size 10 MB) {!isEditMode && <span className="text-[#f06548]">*</span>}
                   </Label>
                   <div
                     className="border rounded-md p-6 text-center cursor-pointer transition-colors hover:border-[#405189]/50 hover:bg-[#405189]/5"
@@ -1689,7 +1689,7 @@ export default function AdminRaiseMoney() {
 
                 <div className="space-y-1.5">
                   <Label className="text-sm">
-                    Company / Investment Smaller Image (max file size 10 MB) <span className="text-[#f06548]">*</span>
+                    Company / Investment Smaller Image (max file size 10 MB) {!isEditMode && <span className="text-[#f06548]">*</span>}
                   </Label>
                   <div
                     className="border rounded-md p-6 text-center cursor-pointer transition-colors hover:border-[#405189]/50 hover:bg-[#405189]/5"
@@ -1731,7 +1731,7 @@ export default function AdminRaiseMoney() {
 
                 <div className="space-y-1.5">
                   <Label className="text-sm">
-                    Company / Investment Pitch Deck (max file size 20 MB) <span className="text-[#f06548]">*</span>
+                    Company / Investment Pitch Deck (max file size 20 MB) {!isEditMode && <span className="text-[#f06548]">*</span>}
                   </Label>
                   <div
                     className="border rounded-md p-6 text-center cursor-pointer transition-colors hover:border-[#405189]/50 hover:bg-[#405189]/5"
