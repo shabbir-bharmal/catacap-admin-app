@@ -51,7 +51,7 @@ externalPort = 3003
 
 [deployment]
 deploymentTarget = "autoscale"
-build = ["sh", "-c", "pnpm run build"]
+build = ["sh", "-c", "bash deploy.sh"]
 run = ["node", "./dist/index.cjs"]
 
 [postMerge]
