@@ -502,8 +502,8 @@ export default function AdminOtherAssets() {
                               {dayjs(grant.createdAt).isValid() ? dayjs(grant.createdAt).format("MM/DD/YYYY") : grant.createdAt}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-center">
-                            <div className="flex items-center justify-center gap-1 flex-wrap">
+                          <td className="px-4 py-3">
+                            <div className="flex items-center justify-start gap-1.5">
                               {grant.status !== "Rejected" && grant.status !== "Received" && (
                                 <Button
                                   size="sm"
@@ -537,7 +537,8 @@ export default function AdminOtherAssets() {
                                   Received
                                 </Button>
                               )}
-                              <div className="inline-flex rounded-md shadow-sm">
+                              {(grant.hasNotes || authUser?.isSuperAdmin) && (
+                              <div className="inline-flex rounded-md shadow-sm ml-1">
                                 {grant.hasNotes && (
                                   <Tooltip>
                                     <TooltipTrigger asChild>
@@ -545,17 +546,16 @@ export default function AdminOtherAssets() {
                                         size="icon"
                                         variant="outline"
                                         className={cn(
-                                          "h-8 w-8 text-[#64748b] hover:text-[#405189] hover:bg-[#405189]/5",
-                                          expandedRow === grant.id ? "text-[#405189] bg-[#405189]/5" : "",
-                                          authUser?.isSuperAdmin ? "rounded-r-none border-r-0" : ""
+                                          "h-8 w-8 text-muted-foreground hover:text-[#405189] hover:bg-[#405189]/5",
+                                          authUser?.isSuperAdmin ? "rounded-r-none border-r-0" : "rounded-md"
                                         )}
                                         onClick={() => setExpandedRow(expandedRow === grant.id ? null : grant.id)}
                                         data-testid={`button-notes-${grant.id}`}
                                       >
-                                        <FileText className="h-4 w-4" />
+                                        <FileText className={`h-4 w-4 ${expandedRow === grant.id ? "text-[#405189]" : ""}`} />
                                       </Button>
                                     </TooltipTrigger>
-                                    <TooltipContent>{expandedRow === grant.id ? "Hide Notes" : "View notes"}</TooltipContent>
+                                    <TooltipContent>{expandedRow === grant.id ? "Hide notes" : "View notes"}</TooltipContent>
                                   </Tooltip>
                                 )}
                                 {authUser?.isSuperAdmin && (
@@ -566,7 +566,7 @@ export default function AdminOtherAssets() {
                                         variant="outline"
                                         className={cn(
                                           "h-8 w-8 text-[#f06548] hover:text-[#f06548] hover:bg-[#f06548]/5",
-                                          grant.hasNotes ? "rounded-l-none" : ""
+                                          grant.hasNotes ? "rounded-l-none" : "rounded-md"
                                         )}
                                         onClick={() => openDeleteDialog(grant.id)}
                                         data-testid={`button-delete-${grant.id}`}
@@ -578,6 +578,7 @@ export default function AdminOtherAssets() {
                                   </Tooltip>
                                 )}
                               </div>
+                              )}
                             </div>
                           </td>
                         </tr>
