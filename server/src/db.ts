@@ -35,6 +35,37 @@ async function runSoftDeleteMigration(client: pg.PoolClient): Promise<void> {
   }
 }
 
+async function backfillOrphanedUserRoles(client: pg.PoolClient): Promise<void> {
+  const roleCheck = await client.query(
+    `SELECT id FROM roles WHERE name = 'User' LIMIT 1`
+  );
+  if (roleCheck.rows.length > 0) {
+    const userRoleId = roleCheck.rows[0].id;
+    const result = await client.query(
+      `INSERT INTO user_roles (user_id, role_id)
+       SELECT u.id, $1
+       FROM users u
+       LEFT JOIN user_roles ur ON u.id = ur.user_id
+       WHERE ur.user_id IS NULL
+       ON CONFLICT DO NOTHING`,
+      [userRoleId]
+    );
+    if (result.rowCount && result.rowCount > 0) {
+      console.log(`Backfilled user_roles for ${result.rowCount} orphaned user(s).`);
+    }
+  }
+
+  const updateResult = await client.query(
+    `UPDATE users
+     SET is_active = COALESCE(is_active, true),
+         date_created = COALESCE(date_created, NOW())
+     WHERE is_active IS NULL OR date_created IS NULL`
+  );
+  if (updateResult.rowCount && updateResult.rowCount > 0) {
+    console.log(`Backfilled is_active/date_created for ${updateResult.rowCount} user(s).`);
+  }
+}
+
 export async function testConnection(): Promise<void> {
   const client = await pool.connect();
   try {
@@ -52,6 +83,7 @@ export async function testConnection(): Promise<void> {
     }
 
     await runSoftDeleteMigration(client);
+    await backfillOrphanedUserRoles(client);
   } finally {
     client.release();
   }
