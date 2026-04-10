@@ -43,14 +43,13 @@ router.get("/user/by-token", async (req: Request, res: Response) => {
       `SELECT r.id as role_id, r.name as role_name, r.is_super_admin
        FROM user_roles ur
        JOIN roles r ON ur.role_id = r.id
-       WHERE ur.user_id = $1 AND (ur.is_deleted IS NULL OR ur.is_deleted = false)
-       LIMIT 1`,
+       WHERE ur.user_id = $1 AND (ur.is_deleted IS NULL OR ur.is_deleted = false)`,
       [user.id]
     );
 
-    const userRole = roleResult.rows.length > 0 ? roleResult.rows[0] : null;
-    const roleName = userRole?.role_name || "";
-    const isSuperAdmin = userRole?.is_super_admin === true;
+    const userRoles = roleResult.rows;
+    const roleName = userRoles.length > 0 ? (userRoles[0].role_name || "") : "";
+    const isSuperAdmin = userRoles.some((r: { is_super_admin: boolean }) => r.is_super_admin === true);
 
     let permissions: Array<{
       moduleId: number;
@@ -59,21 +58,33 @@ router.get("/user/by-token", async (req: Request, res: Response) => {
       isDelete: boolean;
     }> = [];
 
-    if (userRole && !isSuperAdmin) {
+    if (userRoles.length > 0 && !isSuperAdmin) {
+      const roleIds = userRoles.map((r: { role_id: string }) => r.role_id);
       const permResult = await pool.query(
         `SELECT m.id as module_id, m.name as module_name, map.manage, map.delete
          FROM module_access_permissions map
          JOIN modules m ON map.module_id = m.id
-         WHERE map.role_id = $1`,
-        [userRole.role_id]
+         WHERE map.role_id = ANY($1)`,
+        [roleIds]
       );
 
-      permissions = permResult.rows.map((p) => ({
-        moduleId: Number(p.module_id),
-        moduleName: p.module_name,
-        isManage: p.manage === true,
-        isDelete: p.delete === true,
-      }));
+      const permMap = new Map<number, { moduleId: number; moduleName: string; isManage: boolean; isDelete: boolean }>();
+      for (const p of permResult.rows) {
+        const moduleId = Number(p.module_id);
+        const existing = permMap.get(moduleId);
+        if (existing) {
+          existing.isManage = existing.isManage || p.manage === true;
+          existing.isDelete = existing.isDelete || p.delete === true;
+        } else {
+          permMap.set(moduleId, {
+            moduleId,
+            moduleName: p.module_name,
+            isManage: p.manage === true,
+            isDelete: p.delete === true,
+          });
+        }
+      }
+      permissions = Array.from(permMap.values());
     }
 
     const responseData = {
@@ -83,6 +94,7 @@ router.get("/user/by-token", async (req: Request, res: Response) => {
       pictureFileName: resolveFileUrl(user.picture_file_name, "users") || "",
       userName: user.user_name || "",
       roleName,
+      roles: userRoles.map((r: { role_name: string }) => r.role_name || ""),
       isSuperAdmin,
       isApprouveRequired: user.is_approuve_required ?? true,
       isUserHidden: user.is_user_hidden ?? false,

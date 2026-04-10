@@ -299,30 +299,42 @@ router.get("/by-token", async (req: Request, res: Response) => {
        FROM user_roles ur
        JOIN roles r ON ur.role_id = r.id
        WHERE ur.user_id = $1
-         AND (ur.is_deleted IS NULL OR ur.is_deleted = false)
-       LIMIT 1`,
+         AND (ur.is_deleted IS NULL OR ur.is_deleted = false)`,
       [user.id]
     );
 
-    const userRole = userRoleResult.rows[0] || null;
+    const userRoles = userRoleResult.rows;
+    const isSuperAdmin = userRoles.some((r: { is_super_admin: boolean }) => r.is_super_admin === true);
 
     let permissions: PermissionItem[] = [];
 
-    if (userRole && !userRole.is_super_admin) {
+    if (userRoles.length > 0 && !isSuperAdmin) {
+      const roleIds = userRoles.map((r: { id: string }) => r.id);
       const permResult = await pool.query(
         `SELECT m.id as module_id, m.name as module_name, map.manage, map.delete
          FROM module_access_permissions map
          JOIN modules m ON map.module_id = m.id
-         WHERE map.role_id = $1`,
-        [userRole.id]
+         WHERE map.role_id = ANY($1)`,
+        [roleIds]
       );
 
-      permissions = permResult.rows.map((p: { module_id: number; module_name: string; manage: boolean; delete: boolean }) => ({
-        moduleId: p.module_id,
-        moduleName: p.module_name,
-        isManage: p.manage || false,
-        isDelete: p.delete || false,
-      }));
+      const permMap = new Map<number, PermissionItem>();
+      for (const p of permResult.rows) {
+        const moduleId = Number(p.module_id);
+        const existing = permMap.get(moduleId);
+        if (existing) {
+          existing.isManage = existing.isManage || (p.manage === true);
+          existing.isDelete = existing.isDelete || (p.delete === true);
+        } else {
+          permMap.set(moduleId, {
+            moduleId,
+            moduleName: p.module_name,
+            isManage: p.manage === true,
+            isDelete: p.delete === true,
+          });
+        }
+      }
+      permissions = Array.from(permMap.values());
     }
 
     res.json({
@@ -331,9 +343,10 @@ router.get("/by-token", async (req: Request, res: Response) => {
       lastName: user.last_name || "",
       pictureFileName: resolveFileUrl(user.picture_file_name, "users") || "",
       userName: user.user_name,
-      roleName: userRole?.name || "",
-      isSuperAdmin: userRole ? userRole.is_super_admin === true : false,
-      permissions: userRole?.is_super_admin === true ? [] : permissions,
+      roleName: userRoles.length > 0 ? (userRoles[0].name || "") : "",
+      roles: userRoles.map((r: { name: string }) => r.name || ""),
+      isSuperAdmin,
+      permissions: isSuperAdmin ? [] : permissions,
     });
   } catch (err) {
     console.error("Get user by token error:", err);
@@ -1183,13 +1196,13 @@ router.post("/admin-users", async (req: Request, res: Response) => {
         if (existingRole.rows[0].role_id !== roleId) {
           await pool.query("DELETE FROM user_roles WHERE user_id = $1", [id]);
           await pool.query(
-            "INSERT INTO user_roles (user_id, role_id, discriminator) VALUES ($1, $2, $3)",
+            "INSERT INTO user_roles (user_id, role_id, discriminator, is_deleted) VALUES ($1, $2, $3, false)",
             [id, roleId, "IdentityUserRole<string>"]
           );
         }
       } else {
         await pool.query(
-          "INSERT INTO user_roles (user_id, role_id, discriminator) VALUES ($1, $2, $3)",
+          "INSERT INTO user_roles (user_id, role_id, discriminator, is_deleted) VALUES ($1, $2, $3, false)",
           [id, roleId, "IdentityUserRole<string>"]
         );
       }
@@ -1263,7 +1276,7 @@ router.post("/admin-users", async (req: Request, res: Response) => {
       );
 
       await pool.query(
-        "INSERT INTO user_roles (user_id, role_id, discriminator) VALUES ($1, $2, $3)",
+        "INSERT INTO user_roles (user_id, role_id, discriminator, is_deleted) VALUES ($1, $2, $3, false)",
         [userId, roleId, "IdentityUserRole<string>"]
       );
 

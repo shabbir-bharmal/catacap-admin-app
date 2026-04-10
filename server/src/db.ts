@@ -42,8 +42,8 @@ async function backfillOrphanedUserRoles(client: pg.PoolClient): Promise<void> {
   if (roleCheck.rows.length > 0) {
     const userRoleId = roleCheck.rows[0].id;
     const result = await client.query(
-      `INSERT INTO user_roles (user_id, role_id, discriminator)
-       SELECT u.id, $1, 'IdentityUserRole<string>'
+      `INSERT INTO user_roles (user_id, role_id, discriminator, is_deleted)
+       SELECT u.id, $1, 'IdentityUserRole<string>', false
        FROM users u
        LEFT JOIN user_roles ur ON u.id = ur.user_id
        WHERE ur.user_id IS NULL

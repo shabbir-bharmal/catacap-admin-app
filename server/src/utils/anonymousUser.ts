@@ -51,7 +51,7 @@ export async function findOrCreateAnonymousUser(
     );
     if (roleResult.rows.length > 0) {
       await client.query(
-        `INSERT INTO user_roles (user_id, role_id, discriminator) VALUES ($1, $2, $3)`,
+        `INSERT INTO user_roles (user_id, role_id, discriminator, is_deleted) VALUES ($1, $2, $3, false)`,
         [userId, roleResult.rows[0].id, "IdentityUserRole<string>"]
       );
     } else {
