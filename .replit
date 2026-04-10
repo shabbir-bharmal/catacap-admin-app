@@ -45,10 +45,6 @@ externalPort = 3002
 localPort = 8200
 externalPort = 3001
 
-[[ports]]
-localPort = 9999
-externalPort = 3003
-
 [deployment]
 deploymentTarget = "autoscale"
 build = ["sh", "-c", "bash deploy.sh"]
@@ -63,3 +59,4 @@ timeoutMs = 180000
 [userenv.shared]
 VITE_SUPABASE_URL = "https://rbqtdruqcmikcowrqzoj.supabase.co"
 VITE_SUPABASE_STORAGE_BUCKET = "production"
+VITE_API_ACCESS_TOKEN = "1e0ef86fafe524ca42cda1969b4486740e8fedf61c54416cd0776e215869a81b"
