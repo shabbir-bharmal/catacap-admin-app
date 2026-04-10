@@ -371,6 +371,7 @@ router.put("/:id", async (req: Request, res: Response) => {
       const parsedInvestedSum = parseFloat(grant.invested_sum);
       const investedSum = isNaN(parsedInvestedSum) ? 0 : parsedInvestedSum;
       const fromWallet = investedSum - (pendingGrantAmount + totalGroupBalance);
+      console.log(`[GRANT DEBUG #${id}] userBalance=${userBalance}, investedSum=${investedSum}, pendingGrantAmount=${pendingGrantAmount}, totalGroupBalance=${totalGroupBalance}, fromWallet=${fromWallet}, raw invested_sum=${JSON.stringify(grant.invested_sum)}, raw account_balance=${JSON.stringify(grant.account_balance)}`);
       if (userBalance < fromWallet) {
         await client.query("ROLLBACK");
         res.json({ success: false, message: "User do not have sufficient wallet balance." });
