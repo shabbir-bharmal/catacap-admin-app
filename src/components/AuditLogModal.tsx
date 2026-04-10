@@ -147,10 +147,13 @@ export function AuditLogModal({ isOpen, onOpenChange, entityId, entityType, titl
     const newVals = parseJson(log.newValues) || {};
     let changedFields = parseChangedColumns(log.changedColumns);
 
+    if (isCreatedAction(log.actionType)) {
+      const label = log.identifier ? `${log.identifier} Created` : "Record Created";
+      return <span className="text-[#0ab39c] text-[11px] font-semibold uppercase tracking-wider bg-[#0ab39c]/10 px-2 py-0.5 rounded">{label}</span>;
+    }
+
     if (changedFields.length === 0) {
-      if (isCreatedAction(log.actionType) && Object.keys(newVals).length > 0) {
-        changedFields = Object.keys(newVals);
-      } else if (isDeletedAction(log.actionType) && Object.keys(oldVals).length > 0) {
+      if (isDeletedAction(log.actionType) && Object.keys(oldVals).length > 0) {
         changedFields = Object.keys(oldVals);
       }
     }
@@ -167,9 +170,6 @@ export function AuditLogModal({ isOpen, onOpenChange, entityId, entityType, titl
     });
 
     if (filteredFields.length === 0) {
-      if (isCreatedAction(log.actionType)) {
-        return <span className="text-[#0ab39c] italic text-[11px] font-semibold uppercase tracking-wider bg-[#0ab39c]/10 px-2 py-0.5 rounded">Record Created</span>;
-      }
       if (isDeletedAction(log.actionType)) {
         return <span className="text-[#f06548] italic text-[11px] font-semibold uppercase tracking-wider bg-[#f06548]/10 px-2 py-0.5 rounded">Record Deleted</span>;
       }
@@ -266,7 +266,7 @@ export function AuditLogModal({ isOpen, onOpenChange, entityId, entityType, titl
                   {logs.map((log, idx) => (
                     <tr key={idx} className="hover:bg-[#f3f6f9] transition-colors bg-white">
                       <td className="px-6 py-4 align-top w-[1px]">
-                        <span className={`inline-flex items-center px-2 py-1 rounded text-[11px] font-semibold tracking-wide whitespace-nowrap ${isCreatedAction(log.actionType) ? "bg-[#45cb85] text-white" :
+                        <span className={`inline-flex items-center px-2 py-1 rounded text-[11px] font-semibold tracking-wide whitespace-nowrap ${isCreatedAction(log.actionType) ? "bg-[#F06548] text-white" :
                           log.actionType === "Modified" || !log.actionType ? "bg-[#4b38b3] text-white" :
                             "bg-[#f06548] text-white"
                           }`}>
