@@ -4,9 +4,9 @@ import pool from "../db.js";
 import { parsePagination, softDeleteFilter, buildSortClause, handleMissingTableError } from "../utils/softDelete.js";
 import { sendTemplateEmail } from "../utils/emailService.js";
 import ExcelJS from "exceljs";
-import crypto from "crypto";
 import { uploadBase64Image, resolveFileUrl, extractStoragePath, getSupabaseConfig } from "../utils/uploadBase64Image.js";
 import { logAudit } from "../utils/auditLog.js";
+import { findOrCreateAnonymousUser } from "../utils/anonymousUser.js";
 
 const router = Router();
 
@@ -1083,35 +1083,11 @@ router.post("/", async (req: Request, res: Response) => {
       return;
     }
 
-    const userEmail = campaign.contactInfoEmailAddress.trim().toLowerCase();
-    let userResult = await pool.query(
-      `SELECT id FROM users WHERE LOWER(email) = $1 LIMIT 1`,
-      [userEmail]
+    const { id: userId } = await findOrCreateAnonymousUser(
+      campaign.contactInfoEmailAddress,
+      campaign.firstName,
+      campaign.lastName
     );
-
-    let userId = userResult.rows[0]?.id || null;
-
-    if (!userId) {
-      const firstName = campaign.firstName.trim();
-      const lastName = campaign.lastName.trim();
-      let userName = `${firstName}${lastName}`.replace(/\s/g, "").toLowerCase();
-
-      let existing = await pool.query(`SELECT id FROM users WHERE user_name = $1`, [userName]);
-      while (existing.rows.length > 0) {
-        userName = `${userName}${Math.floor(Math.random() * 100)}`;
-        existing = await pool.query(`SELECT id FROM users WHERE user_name = $1`, [userName]);
-      }
-
-      const newUserResult = await pool.query(
-        `INSERT INTO users (id, first_name, last_name, user_name, email, is_free_user, email_confirmed,
-         phone_number_confirmed, two_factor_enabled, lockout_enabled, access_failed_count,
-         security_stamp, concurrency_stamp)
-         VALUES ($1, $2, $3, $4, $5, true, false, false, false, true, 0, $6, $7)
-         RETURNING id`,
-        [crypto.randomUUID(), firstName, lastName, userName, userEmail, crypto.randomUUID(), crypto.randomUUID()]
-      );
-      userId = newUserResult.rows[0].id;
-    }
 
     let pdfFileName = extractStoragePath(campaign.pdfFileName) || null;
     let imageFileName = extractStoragePath(campaign.imageFileName) || null;
@@ -1548,6 +1524,16 @@ router.put("/:id", async (req: Request, res: Response) => {
       finalGroupForPrivateAccessId = existing.group_for_private_access_id;
     }
 
+    let finalUserId = existing.user_id;
+    if ((campaign.contactInfoEmailAddress || "").trim()) {
+      const { id: resolvedUserId } = await findOrCreateAnonymousUser(
+        campaign.contactInfoEmailAddress,
+        campaign.firstName || campaign.contactInfoFullName?.split(" ")[0] || "",
+        campaign.lastName || campaign.contactInfoFullName?.split(" ").slice(1).join(" ") || ""
+      );
+      finalUserId = resolvedUserId;
+    }
+
     await pool.query(
       `UPDATE campaigns SET
         name = $1, description = $2, themes = $3, approved_by = $4, sdgs = $5,
@@ -1567,8 +1553,9 @@ router.put("/:id", async (req: Request, res: Response) => {
         investment_type_category = $45, equity_valuation = $46, equity_security_type = $47,
         fund_term = $48, equity_target_return = $49, debt_payment_frequency = $50,
         debt_maturity_date = $51, debt_interest_rate = $52,
-        meta_title = $53, meta_description = $54, modified_date = NOW()
-      WHERE id = $55`,
+        user_id = $53,
+        meta_title = $54, meta_description = $55, modified_date = NOW()
+      WHERE id = $56`,
       [
         campaign.name || existing.name,
         campaign.description ?? existing.description,
@@ -1622,6 +1609,7 @@ router.put("/:id", async (req: Request, res: Response) => {
         campaign.debtPaymentFrequency ?? existing.debt_payment_frequency,
         campaign.debtMaturityDate ?? existing.debt_maturity_date,
         campaign.debtInterestRate ?? existing.debt_interest_rate,
+        finalUserId,
         campaign.metaTitle ?? existing.meta_title,
         campaign.metaDescription ?? existing.meta_description,
         id,
