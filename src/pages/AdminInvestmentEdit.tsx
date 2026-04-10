@@ -1501,7 +1501,7 @@ export default function AdminInvestmentEdit() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label className="text-sm">Expected Fundraising Close Date?</Label>
+                    <Label className="text-sm">Expected Fundraising Close Date? <span className="text-[#f06548]">*</span></Label>
                     <div className="flex items-center gap-2 mb-2">
                       <Checkbox id="isEvergreen" checked={formData.isEvergreen} onCheckedChange={(checked) => { upd("isEvergreen", !!checked); if (checked) upd("fundraisingCloseDate", ""); }} data-testid="checkbox-evergreen" />
                       <Label htmlFor="isEvergreen" className="text-sm font-normal cursor-pointer">Evergreen</Label>
@@ -1945,7 +1945,7 @@ export default function AdminInvestmentEdit() {
                   <p className="text-xs text-muted-foreground">
                     This section will appear on your campaign page. Please provide a high-level overview of your company or fund, the progress you've made, and the impact you're driving. Use this section to help donor-investors understand why your work matters and how their support can accelerate your next stage of growth.
                   </p>
-                  <RichTextEditor value={formData.description} onChange={(val) => upd("description", val)} placeholder="Investment Description" data-testid="input-description" />
+                  <RichTextEditor value={formData.description} onChange={(val) => upd("description", val)} placeholder="Investment Description" data-testid="input-description" maxLength={3000} />
                   <p className="text-xs text-muted-foreground text-right">{formData.description.replace(/<[^>]*>/g, "").length} / 3,000 characters</p>
                 </div>
 
@@ -1955,7 +1955,7 @@ export default function AdminInvestmentEdit() {
                   <p className="text-xs text-muted-foreground">
                     Please summarize your investment terms for potential donor-investors. Consider including expected valuation cap (specify if pre- or post-money), any discounts offered, timeline / return expectations, etc.
                   </p>
-                  <RichTextEditor value={formData.terms} onChange={(val) => upd("terms", val)} placeholder="Investment Terms" suggestions={staticTerms} data-testid="input-terms" />
+                  <RichTextEditor value={formData.terms} onChange={(val) => upd("terms", val)} placeholder="Investment Terms" suggestions={staticTerms} data-testid="input-terms" maxLength={2000} />
                 </div>
 
                 {/* NOTE block */}

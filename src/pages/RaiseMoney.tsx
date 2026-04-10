@@ -1223,6 +1223,7 @@ export default function AdminRaiseMoney() {
                     placeholder="Investment Description"
                     className={fieldError("aboutInvestment")}
                     data-testid="input-about-investment"
+                    maxLength={3000}
                   />
                   {fieldErrorMsg("aboutInvestment")}
                   <p className="text-xs text-muted-foreground text-right">{stripHtml(formData.aboutInvestment).length} / 3,000 characters</p>
@@ -1260,12 +1261,14 @@ export default function AdminRaiseMoney() {
                         )}
                         data-testid="select-investment-type"
                       >
-                        {formData.investmentType.length > 0
-                          ? investmentTypes
-                            .filter((t) => formData.investmentType.includes(t.id))
-                            .map((t) => t.name)
-                            .join(", ")
-                          : "Select Investment Type"}
+                        <span className="truncate flex-1 min-w-0 text-left">
+                          {formData.investmentType.length > 0
+                            ? investmentTypes
+                              .filter((t) => formData.investmentType.includes(t.id))
+                              .map((t) => t.name)
+                              .join(", ")
+                            : "Select Investment Type"}
+                        </span>
                         <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                       </Button>
                     </PopoverTrigger>
@@ -1322,6 +1325,7 @@ export default function AdminRaiseMoney() {
                     suggestions={staticTerms}
                     className={fieldError("investmentTerms")}
                     data-testid="input-investment-terms"
+                    maxLength={2000}
                   />
                   {fieldErrorMsg("investmentTerms")}
                   <p className="text-xs text-muted-foreground text-right">{stripHtml(formData.investmentTerms).length} / 2,000 characters</p>
@@ -1390,7 +1394,7 @@ export default function AdminRaiseMoney() {
 
                 <div className="space-y-1.5">
                   <Label className="text-sm">
-                    Expected Fundraising Close Date? {!formData.evergreen && <span className="text-[#f06548]">*</span>}
+                    Expected Fundraising Close Date? <span className="text-[#f06548]">*</span>
                   </Label>
                   <div className="flex items-center gap-2">
                     <Checkbox id="evergreen" checked={formData.evergreen} onCheckedChange={(checked) => updateField("evergreen", !!checked)} data-testid="checkbox-evergreen" />
