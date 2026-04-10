@@ -34,15 +34,33 @@ export async function findOrCreateAnonymousUser(
 
   const userId = crypto.randomUUID();
 
+  const client = await pool.connect();
   try {
-    await pool.query(
+    await client.query("BEGIN");
+
+    await client.query(
       `INSERT INTO users (id, first_name, last_name, user_name, email, is_free_user, email_confirmed,
        phone_number_confirmed, two_factor_enabled, lockout_enabled, access_failed_count,
-       security_stamp, concurrency_stamp)
-       VALUES ($1, $2, $3, $4, $5, true, false, false, false, true, 0, $6, $7)`,
+       security_stamp, concurrency_stamp, is_active, date_created)
+       VALUES ($1, $2, $3, $4, $5, true, false, false, false, true, 0, $6, $7, true, NOW())`,
       [userId, trimmedFirst, trimmedLast, userName, userEmail, crypto.randomUUID(), crypto.randomUUID()]
     );
+
+    const roleResult = await client.query(
+      `SELECT id FROM roles WHERE name = 'User' LIMIT 1`
+    );
+    if (roleResult.rows.length > 0) {
+      await client.query(
+        `INSERT INTO user_roles (user_id, role_id, discriminator, is_deleted) VALUES ($1, $2, $3, false)`,
+        [userId, roleResult.rows[0].id, "IdentityUserRole<string>"]
+      );
+    } else {
+      console.error("CRITICAL: 'User' role not found in roles table. Anonymous user created without role assignment. User will not appear in admin listing.");
+    }
+
+    await client.query("COMMIT");
   } catch (insertErr: any) {
+    await client.query("ROLLBACK");
     if (insertErr.code === "23505") {
       const retryCheck = await pool.query(
         `SELECT id FROM users WHERE LOWER(email) = $1 LIMIT 1`,
@@ -53,6 +71,8 @@ export async function findOrCreateAnonymousUser(
       }
     }
     throw insertErr;
+  } finally {
+    client.release();
   }
 
   const requestOrigin = process.env.REQUEST_ORIGIN || process.env.VITE_FRONTEND_URL || "";

@@ -14,7 +14,13 @@ interface UserRole {
   is_super_admin: boolean;
 }
 
-async function findAdminRole(userId: string): Promise<UserRole | null> {
+interface UserRolesResult {
+  roles: UserRole[];
+  hasAdminAccess: boolean;
+  isSuperAdmin: boolean;
+}
+
+async function findUserRoles(userId: string): Promise<UserRolesResult> {
   const roleResult = await pool.query(
     `SELECT r.id as role_id, r.name as role_name, r.is_super_admin
      FROM user_roles ur
@@ -23,18 +29,43 @@ async function findAdminRole(userId: string): Promise<UserRole | null> {
     [userId]
   );
 
-  for (const row of roleResult.rows) {
-    const name = (row.role_name || "").toLowerCase();
-    if (name === "admin" || name === "superadmin" || row.is_super_admin === true) {
-      return {
-        role_id: row.role_id,
-        role_name: row.role_name || "",
-        is_super_admin: row.is_super_admin === true,
-      };
-    }
+  const roles: UserRole[] = roleResult.rows.map((row: { role_id: string; role_name: string; is_super_admin: boolean }) => ({
+    role_id: row.role_id,
+    role_name: row.role_name || "",
+    is_super_admin: row.is_super_admin === true,
+  }));
+
+  const isSuperAdmin = roles.some(r => r.is_super_admin);
+  const hasAdminAccess = roles.some(r => {
+    const name = r.role_name.toLowerCase();
+    return name === "admin" || name === "superadmin" || r.is_super_admin;
+  });
+
+  return { roles, hasAdminAccess, isSuperAdmin };
+}
+
+async function getPermissionClaims(
+  roleIds: string[],
+  isSuperAdmin: boolean
+): Promise<string[]> {
+  if (isSuperAdmin || roleIds.length === 0) return [];
+
+  const permResult = await pool.query(
+    `SELECT m.name as module_name, map.manage, map.delete
+     FROM module_access_permissions map
+     JOIN modules m ON map.module_id = m.id
+     WHERE map.role_id = ANY($1)`,
+    [roleIds]
+  );
+
+  const claims: string[] = [];
+  for (const p of permResult.rows) {
+    const moduleName = (p.module_name || "").toLowerCase();
+    if (p.manage) claims.push(`${moduleName}.Manage`);
+    if (p.delete) claims.push(`${moduleName}.Delete`);
   }
 
-  return null;
+  return [...new Set(claims)];
 }
 
 router.post("/admin/login", async (req: Request, res: Response) => {
@@ -78,8 +109,8 @@ router.post("/admin/login", async (req: Request, res: Response) => {
       return;
     }
 
-    const adminRole = await findAdminRole(user.id);
-    if (!adminRole) {
+    const { roles, hasAdminAccess, isSuperAdmin } = await findUserRoles(user.id);
+    if (!hasAdminAccess) {
       res.status(401).json({ message: "Access denied. Admin role required." });
       return;
     }
@@ -90,14 +121,17 @@ router.post("/admin/login", async (req: Request, res: Response) => {
       return;
     }
 
-    const permissionClaims = await getPermissionClaims(adminRole.role_id, adminRole.is_super_admin);
+    const roleIds = roles.map(r => r.role_id);
+    const roleNames = roles.map(r => r.role_name);
+    const permissionClaims = await getPermissionClaims(roleIds, isSuperAdmin);
 
     const token = generateToken({
       id: user.id,
       email: user.email,
       name: `${user.first_name || ""} ${user.last_name || ""}`.trim(),
-      role: adminRole.role_name,
-      isSuperAdmin: adminRole.is_super_admin,
+      role: roleNames[0] || "",
+      roles: roleNames,
+      isSuperAdmin,
       permissions: permissionClaims,
     });
 
@@ -152,20 +186,23 @@ router.post("/verify-2fa", async (req: Request, res: Response) => {
       return;
     }
 
-    const adminRole = await findAdminRole(user.id);
-    if (!adminRole) {
+    const { roles, hasAdminAccess, isSuperAdmin } = await findUserRoles(user.id);
+    if (!hasAdminAccess) {
       res.status(401).json({ message: "Access denied. Admin role required." });
       return;
     }
 
-    const permissionClaims = await getPermissionClaims(adminRole.role_id, adminRole.is_super_admin);
+    const roleIds = roles.map(r => r.role_id);
+    const roleNames = roles.map(r => r.role_name);
+    const permissionClaims = await getPermissionClaims(roleIds, isSuperAdmin);
 
     const token = generateToken({
       id: user.id,
       email: user.email,
       name: `${user.first_name || ""} ${user.last_name || ""}`.trim(),
-      role: adminRole.role_name,
-      isSuperAdmin: adminRole.is_super_admin,
+      role: roleNames[0] || "",
+      roles: roleNames,
+      isSuperAdmin,
       permissions: permissionClaims,
     });
 
@@ -175,30 +212,6 @@ router.post("/verify-2fa", async (req: Request, res: Response) => {
     res.status(500).json({ message: "Internal server error" });
   }
 });
-
-async function getPermissionClaims(
-  roleId: string,
-  isSuperAdmin: boolean
-): Promise<string[]> {
-  if (isSuperAdmin) return [];
-
-  const permResult = await pool.query(
-    `SELECT m.name as module_name, map.manage, map.delete
-     FROM module_access_permissions map
-     JOIN modules m ON map.module_id = m.id
-     WHERE map.role_id = $1`,
-    [roleId]
-  );
-
-  const claims: string[] = [];
-  for (const p of permResult.rows) {
-    const moduleName = (p.module_name || "").toLowerCase();
-    if (p.manage) claims.push(`${moduleName}.Manage`);
-    if (p.delete) claims.push(`${moduleName}.Delete`);
-  }
-
-  return [...new Set(claims)];
-}
 
 router.put("/assign-group-admin", jwtAuthMiddleware, async (req: Request, res: Response) => {
   try {
@@ -244,7 +257,7 @@ router.put("/assign-group-admin", jwtAuthMiddleware, async (req: Request, res: R
       message = "Group admin role removed successfully.";
     } else {
       await pool.query(
-        "INSERT INTO user_roles (user_id, role_id, discriminator) VALUES ($1, $2, $3)",
+        "INSERT INTO user_roles (user_id, role_id, discriminator, is_deleted) VALUES ($1, $2, $3, false)",
         [userId, groupAdminRoleId, "IdentityUserRole<string>"]
       );
       message = "Group admin role assigned successfully.";
@@ -302,38 +315,29 @@ router.post("/loginAdminToUser", jwtAuthMiddleware, async (req: Request, res: Re
       `SELECT r.id as role_id, r.name as role_name, r.is_super_admin
        FROM user_roles ur
        JOIN roles r ON ur.role_id = r.id
-       WHERE ur.user_id = $1 AND (ur.is_deleted IS NULL OR ur.is_deleted = false)
-       LIMIT 1`,
+       WHERE ur.user_id = $1 AND (ur.is_deleted IS NULL OR ur.is_deleted = false)`,
       [targetUser.id]
     );
 
-    const role = roleResult.rows[0];
-    const roleName = role?.role_name || "User";
-    const isSuperAdmin = role?.is_super_admin === true;
+    const targetRoles: UserRole[] = roleResult.rows.map((row: { role_id: string; role_name: string; is_super_admin: boolean }) => ({
+      role_id: row.role_id,
+      role_name: row.role_name || "",
+      is_super_admin: row.is_super_admin === true,
+    }));
 
-    let permissionClaims: string[] = [];
-    if (role && !isSuperAdmin) {
-      const permResult = await pool.query(
-        `SELECT m.name as module_name, map.manage, map.delete
-         FROM module_access_permissions map
-         JOIN modules m ON map.module_id = m.id
-         WHERE map.role_id = $1`,
-        [role.role_id]
-      );
-      const claims: string[] = [];
-      for (const p of permResult.rows) {
-        const moduleName = (p.module_name || "").toLowerCase();
-        if (p.manage) claims.push(`${moduleName}.Manage`);
-        if (p.delete) claims.push(`${moduleName}.Delete`);
-      }
-      permissionClaims = [...new Set(claims)];
-    }
+    const roleNames = targetRoles.map(r => r.role_name);
+    const roleName = roleNames[0] || "User";
+    const isSuperAdmin = targetRoles.some(r => r.is_super_admin);
+
+    const roleIds = targetRoles.map(r => r.role_id);
+    const permissionClaims = await getPermissionClaims(roleIds, isSuperAdmin);
 
     const token = generateToken({
       id: targetUser.id,
       email: targetUser.email,
       name: `${targetUser.first_name || ""} ${targetUser.last_name || ""}`.trim(),
       role: roleName,
+      roles: roleNames.length > 0 ? roleNames : ["User"],
       isSuperAdmin,
       permissions: permissionClaims,
     });
@@ -367,7 +371,7 @@ router.post("/assign-role", jwtAuthMiddleware, async (req: Request, res: Respons
     );
 
     await pool.query(
-      "INSERT INTO user_roles (user_id, role_id, discriminator) VALUES ($1, $2, $3)",
+      "INSERT INTO user_roles (user_id, role_id, discriminator, is_deleted) VALUES ($1, $2, $3, false)",
       [userId, roleId, "IdentityUserRole<string>"]
     );
 

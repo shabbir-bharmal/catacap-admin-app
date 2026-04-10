@@ -14,6 +14,7 @@ export interface JwtPayload {
   email: string;
   name: string;
   role: string;
+  roles: string[];
   isSuperAdmin: boolean;
   permissions?: string[];
 }
@@ -23,6 +24,7 @@ interface JwtTokenClaims {
   email: string;
   name: string;
   role: string;
+  roles: string[];
   IsSuperAdmin: string;
   Permission: string[];
   iss?: string;
@@ -49,6 +51,7 @@ export function generateToken(payload: JwtPayload): string {
       email: payload.email,
       name: payload.name,
       role: payload.role,
+      roles: payload.roles,
       IsSuperAdmin: payload.isSuperAdmin.toString(),
       Permission: payload.permissions || [],
     },
@@ -75,6 +78,7 @@ export function verifyToken(token: string): JwtPayload | null {
       email: decoded.email,
       name: decoded.name,
       role: decoded.role,
+      roles: Array.isArray(decoded.roles) ? decoded.roles : [decoded.role],
       isSuperAdmin: decoded.IsSuperAdmin === "True" || decoded.IsSuperAdmin === "true",
       permissions: decoded.Permission || [],
     };

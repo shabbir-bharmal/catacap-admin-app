@@ -486,7 +486,7 @@ router.put("/:id", async (req: Request, res: Response) => {
         }
 
         await client.query(
-          `INSERT INTO user_investments (user_id, payment_type, campaign_name, campaign_id, log_trigger_e_d)
+          `INSERT INTO user_investments (user_id, payment_type, campaign_name, campaign_id, log_triggered)
            VALUES ($1, $2, $3, $4, true)`,
           [grant.uid, `Manually, ${loginUserName}`, grant.campaign_name, grant.camp_id]
         );

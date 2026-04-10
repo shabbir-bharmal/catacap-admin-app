@@ -50,6 +50,7 @@ import { fetchAllAdminUsers, AdminUserItem } from "@/api/user/userApi";
 import { fetchStaticValues, StaticValueItem } from "@/api/site-configuration/siteConfigurationApi";
 import { defaultImage, getUrlBlobContainerImage } from "@/lib/image-utils";
 
+
 const US_STATES = [
   "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut",
   "Delaware", "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa",
@@ -517,7 +518,6 @@ export default function AdminInvestmentEdit() {
   const isAdmin = role === "Admin";
   const campaignId = params.idOrSlug;
   const apiId = resolvedNumericId?.toString() || queryId || campaignId;
-  const isUSA = formData.country === "USA" || formData.country === "United States";
 
   const investmentTagLinks = useMemo(() => {
     const baseUrl = import.meta.env.VITE_FRONTEND_URL || "";
@@ -783,6 +783,8 @@ export default function AdminInvestmentEdit() {
     });
   };
 
+  const ADDRESS_REQUIRED_FIELDS: (keyof FormData)[] = ["address1", "city", "state", "zipCode"];
+
   const validate = (): boolean => {
     const newErrors: Record<string, boolean> = {};
     let valid = true;
@@ -791,9 +793,17 @@ export default function AdminInvestmentEdit() {
       const empty = typeof val === "string" ? val.trim() === "" : !val;
       if (empty) { newErrors[f] = true; valid = false; }
     });
+    if (formData.country) {
+      ADDRESS_REQUIRED_FIELDS.forEach((f) => {
+        const val = formData[f];
+        const empty = typeof val === "string" ? val.trim() === "" : !val;
+        if (empty) { newErrors[f] = true; valid = false; }
+      });
+    }
     setErrors(newErrors);
     if (!valid) {
-      const first = REQUIRED_FIELDS.find((f) => newErrors[f]);
+      const allRequired = [...REQUIRED_FIELDS, ...(formData.country ? ADDRESS_REQUIRED_FIELDS : [])];
+      const first = allRequired.find((f) => newErrors[f]);
       if (first) {
         scrollToField(first);
       }
@@ -984,12 +994,12 @@ export default function AdminInvestmentEdit() {
         noteEmail: taggedUserEmails.length > 0 ? taggedUserEmails : null,
         oldStatus: isStageDirty ? (getStageLabel(savedStage) || null) : null,
         newStatus: isStageDirty ? (getStageLabel(formData.stage) || null) : null,
-        contactInfoAddress: isUSA ? formData.address1?.trim() : "",
-        contactInfoAddress2: isUSA ? formData.address2?.trim() : "",
-        city: isUSA ? formData.city?.trim() : "",
-        state: isUSA ? formData.state?.trim() : "",
-        zipCode: isUSA ? formData.zipCode?.trim() : "",
-        otherCountryAddress: isUSA ? "" : formData.otherCountryAddress?.trim(),
+        contactInfoAddress: formData.address1?.trim() || "",
+        contactInfoAddress2: formData.address2?.trim() || "",
+        city: formData.city?.trim() || "",
+        state: formData.state?.trim() || "",
+        zipCode: formData.zipCode?.trim() || "",
+        otherCountryAddress: "",
       };
 
       const result = await updateInvestment(formData.id!, payload);
@@ -1341,7 +1351,7 @@ export default function AdminInvestmentEdit() {
                                   value={c.name}
                                   onSelect={(curr) => {
                                     upd("country", curr);
-                                    upd("address1", ""); upd("address2", ""); upd("city", ""); upd("state", ""); upd("zipCode", ""); upd("otherCountryAddress", "");
+                                    upd("address1", ""); upd("address2", ""); upd("city", ""); upd("state", ""); upd("zipCode", "");
                                     setCountryOpen(false);
                                   }}
                                 >
@@ -1356,7 +1366,7 @@ export default function AdminInvestmentEdit() {
                                   value={c}
                                   onSelect={(curr) => {
                                     upd("country", curr);
-                                    upd("address1", ""); upd("address2", ""); upd("city", ""); upd("state", ""); upd("zipCode", ""); upd("otherCountryAddress", "");
+                                    upd("address1", ""); upd("address2", ""); upd("city", ""); upd("state", ""); upd("zipCode", "");
                                     setCountryOpen(false);
                                   }}
                                 >
@@ -1373,40 +1383,41 @@ export default function AdminInvestmentEdit() {
                 </div>
 
                 {formData.country && (
-                  isUSA ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="space-y-1.5">
-                        <Label htmlFor="address1" className="text-sm">Address Line 1</Label>
-                        <Input id="address1" value={formData.address1} onChange={(e) => upd("address1", e.target.value)} placeholder="Street address" data-testid="input-address1" />
+                        <Label htmlFor="address1" className="text-sm">Address Line 1 <span className="text-[#f06548]">*</span></Label>
+                        <Input id="address1" value={formData.address1} onChange={(e) => upd("address1", e.target.value)} placeholder="Street address" className={errors.address1 ? "border-[#f06548]" : ""} data-testid="input-address1" />
+                        {errors.address1 && <p className="text-[#f06548] text-xs">Address Line 1 is required.</p>}
                       </div>
                       <div className="space-y-1.5">
                         <Label htmlFor="address2" className="text-sm">Address Line 2</Label>
                         <Input id="address2" value={formData.address2} onChange={(e) => upd("address2", e.target.value)} placeholder="Apt, suite, etc." data-testid="input-address2" />
                       </div>
                       <div className="space-y-1.5">
-                        <Label htmlFor="city" className="text-sm">City</Label>
-                        <Input id="city" value={formData.city} onChange={(e) => upd("city", e.target.value)} placeholder="City" data-testid="input-city" />
+                        <Label htmlFor="city" className="text-sm">City <span className="text-[#f06548]">*</span></Label>
+                        <Input id="city" value={formData.city} onChange={(e) => upd("city", e.target.value)} placeholder="City" className={errors.city ? "border-[#f06548]" : ""} data-testid="input-city" />
+                        {errors.city && <p className="text-[#f06548] text-xs">City is required.</p>}
                       </div>
                       <div className="space-y-1.5">
-                        <Label className="text-sm">State</Label>
-                        <Select value={formData.state} onValueChange={(val) => upd("state", val)}>
-                          <SelectTrigger data-testid="select-state"><SelectValue placeholder="Select state" /></SelectTrigger>
-                          <SelectContent className="max-h-60">
-                            {US_STATES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
+                        <Label htmlFor="state" className="text-sm">State <span className="text-[#f06548]">*</span></Label>
+                        {(formData.country === "USA" || formData.country === "United States") ? (
+                          <Select value={formData.state} onValueChange={(val) => upd("state", val)}>
+                            <SelectTrigger className={errors.state ? "border-[#f06548]" : ""} data-testid="select-state"><SelectValue placeholder="Select state" /></SelectTrigger>
+                            <SelectContent className="max-h-60">
+                              {US_STATES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input id="state" value={formData.state} onChange={(e) => upd("state", e.target.value)} placeholder="State / Province / Region" className={errors.state ? "border-[#f06548]" : ""} data-testid="input-state" />
+                        )}
+                        {errors.state && <p className="text-[#f06548] text-xs">State is required.</p>}
                       </div>
                       <div className="space-y-1.5">
-                        <Label htmlFor="zipCode" className="text-sm">Zip Code</Label>
-                        <Input id="zipCode" value={formData.zipCode} onChange={(e) => upd("zipCode", e.target.value)} placeholder="Zip / Postal Code" data-testid="input-zip" />
+                        <Label htmlFor="zipCode" className="text-sm">Zip Code <span className="text-[#f06548]">*</span></Label>
+                        <Input id="zipCode" value={formData.zipCode} onChange={(e) => upd("zipCode", e.target.value)} placeholder="Zip / Postal Code" className={errors.zipCode ? "border-[#f06548]" : ""} data-testid="input-zip" />
+                        {errors.zipCode && <p className="text-[#f06548] text-xs">Zip Code is required.</p>}
                       </div>
                     </div>
-                  ) : (
-                    <div className="space-y-1.5">
-                      <Label htmlFor="otherCountryAddress" className="text-sm">Address</Label>
-                      <Textarea id="otherCountryAddress" value={formData.otherCountryAddress} onChange={(e) => upd("otherCountryAddress", e.target.value)} placeholder="Enter your full address" rows={3} data-testid="input-other-address" />
-                    </div>
-                  )
                 )}
 
                 <div className="space-y-1.5">
@@ -1490,7 +1501,7 @@ export default function AdminInvestmentEdit() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label className="text-sm">Expected Fundraising Close Date?</Label>
+                    <Label className="text-sm">Expected Fundraising Close Date? <span className="text-[#f06548]">*</span></Label>
                     <div className="flex items-center gap-2 mb-2">
                       <Checkbox id="isEvergreen" checked={formData.isEvergreen} onCheckedChange={(checked) => { upd("isEvergreen", !!checked); if (checked) upd("fundraisingCloseDate", ""); }} data-testid="checkbox-evergreen" />
                       <Label htmlFor="isEvergreen" className="text-sm font-normal cursor-pointer">Evergreen</Label>
@@ -1934,7 +1945,7 @@ export default function AdminInvestmentEdit() {
                   <p className="text-xs text-muted-foreground">
                     This section will appear on your campaign page. Please provide a high-level overview of your company or fund, the progress you've made, and the impact you're driving. Use this section to help donor-investors understand why your work matters and how their support can accelerate your next stage of growth.
                   </p>
-                  <RichTextEditor value={formData.description} onChange={(val) => upd("description", val)} placeholder="Investment Description" data-testid="input-description" />
+                  <RichTextEditor value={formData.description} onChange={(val) => upd("description", val)} placeholder="Investment Description" data-testid="input-description" maxLength={3000} />
                   <p className="text-xs text-muted-foreground text-right">{formData.description.replace(/<[^>]*>/g, "").length} / 3,000 characters</p>
                 </div>
 
@@ -1944,7 +1955,7 @@ export default function AdminInvestmentEdit() {
                   <p className="text-xs text-muted-foreground">
                     Please summarize your investment terms for potential donor-investors. Consider including expected valuation cap (specify if pre- or post-money), any discounts offered, timeline / return expectations, etc.
                   </p>
-                  <RichTextEditor value={formData.terms} onChange={(val) => upd("terms", val)} placeholder="Investment Terms" suggestions={staticTerms} data-testid="input-terms" />
+                  <RichTextEditor value={formData.terms} onChange={(val) => upd("terms", val)} placeholder="Investment Terms" suggestions={staticTerms} data-testid="input-terms" maxLength={2000} />
                 </div>
 
                 {/* NOTE block */}

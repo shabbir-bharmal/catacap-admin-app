@@ -298,6 +298,19 @@ router.delete("/:roleId", async (req: Request, res: Response) => {
       return;
     }
 
+    const assignedUsers = await pool.query(
+      "SELECT COUNT(*) as count FROM user_roles WHERE role_id = $1 AND (is_deleted IS NULL OR is_deleted = false)",
+      [roleId]
+    );
+
+    if (parseInt(assignedUsers.rows[0].count, 10) > 0) {
+      res.status(409).json({
+        success: false,
+        message: "Cannot delete this role because it is currently assigned to users. Please reassign those users to a different role first.",
+      });
+      return;
+    }
+
     await pool.query(
       "DELETE FROM module_access_permissions WHERE role_id = $1",
       [roleId]
