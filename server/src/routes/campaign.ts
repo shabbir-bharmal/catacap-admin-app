@@ -210,7 +210,7 @@ router.post("/save-disbursal", jwtUserAuthMiddleware, async (req: Request, res: 
 
     if (dto.id && dto.id > 0) {
       const existing = await pool.query(
-        `SELECT id FROM disbursal_requests WHERE id = $1 AND userid = $2 AND (isdeleted IS NULL OR isdeleted = false)`,
+        `SELECT id FROM disbursal_requests WHERE id = $1 AND user_id = $2 AND (is_deleted IS NULL OR is_deleted = false)`,
         [dto.id, loginUserId]
       );
 
@@ -246,9 +246,9 @@ router.post("/save-disbursal", jwtUserAuthMiddleware, async (req: Request, res: 
 
     const insertResult = await pool.query(
       `INSERT INTO disbursal_requests
-        (userid, campaignid, role, mobile, quote, distributedamount, status,
-         impactassetsfundingpreviously, investmentremainopen, receivedate,
-         pitchdeck, pitchdeckname, investmentdocument, investmentdocumentname, createdat)
+        (user_id, campaign_id, role, mobile, quote, distributed_amount, status,
+         impact_assets_funding_previously, investment_remain_open, receive_date,
+         pitch_deck, pitch_deck_name, investment_document, investment_document_name, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $8, $9, $10, $11, $12, $13, NOW())
        RETURNING id`,
       [
@@ -315,14 +315,14 @@ router.get("/get-disbursal-request", jwtUserAuthMiddleware, async (req: Request,
 
     const result = await pool.query(
       `SELECT d.id, u.first_name, u.last_name, u.email, d.role, d.mobile,
-              d.status, d.quote, c.name, d.distributedamount, c.property,
-              d.investmentremainopen, d.receivedate, d.pitchdeck,
-              d.pitchdeckname, d.investmentdocument, d.investmentdocumentname,
-              d.impactassetsfundingpreviously, c.investment_types
+              d.status, d.quote, c.name, d.distributed_amount, c.property,
+              d.investment_remain_open, d.receive_date, d.pitch_deck,
+              d.pitch_deck_name, d.investment_document, d.investment_document_name,
+              d.impact_assets_funding_previously, c.investment_types
        FROM disbursal_requests d
-       JOIN campaigns c ON d.campaignid = c.id
-       LEFT JOIN users u ON d.userid = u.id
-       WHERE d.id = $1 AND d.userid = $2 AND (d.isdeleted IS NULL OR d.isdeleted = false)`,
+       JOIN campaigns c ON d.campaign_id = c.id
+       LEFT JOIN users u ON d.user_id = u.id
+       WHERE d.id = $1 AND d.user_id = $2 AND (d.is_deleted IS NULL OR d.is_deleted = false)`,
       [id, loginUserId]
     );
 
@@ -343,18 +343,18 @@ router.get("/get-disbursal-request", jwtUserAuthMiddleware, async (req: Request,
       role: row.role,
       mobile: row.mobile,
       name: row.name,
-      distributedAmount: parseFloat(row.distributedamount) || 0,
+      distributedAmount: parseFloat(row.distributed_amount) || 0,
       property: row.property,
-      investmentRemainOpen: row.investmentremainopen,
-      receiveDate: formatDate(row.receivedate),
-      pitchDeck: resolveFileUrl(row.pitchdeck, "disbursal-requests"),
+      investmentRemainOpen: row.investment_remain_open,
+      receiveDate: formatDate(row.receive_date),
+      pitchDeck: resolveFileUrl(row.pitch_deck, "disbursal-requests"),
       status: row.status,
       statusName: getStatusName(row.status),
       quote: row.quote,
-      pitchDeckName: row.pitchdeckname,
-      investmentDocument: resolveFileUrl(row.investmentdocument, "disbursal-requests"),
-      investmentDocumentName: row.investmentdocumentname,
-      impactAssetsFundingPreviously: row.impactassetsfundingpreviously,
+      pitchDeckName: row.pitch_deck_name,
+      investmentDocument: resolveFileUrl(row.investment_document, "disbursal-requests"),
+      investmentDocumentName: row.investment_document_name,
+      impactAssetsFundingPreviously: row.impact_assets_funding_previously,
       investmentTypeNames,
     });
   } catch (err: any) {
@@ -372,14 +372,14 @@ router.get("/get-disbursal-request-list", jwtUserAuthMiddleware, async (req: Req
     const loginUserId = req.user?.id;
 
     const queryText = `
-      SELECT d.id, d.receivedate, u.email, d.mobile, d.distributedamount,
+      SELECT d.id, d.receive_date, u.email, d.mobile, d.distributed_amount,
              d.status, d.quote, c.name, c.id AS investment_id, c.property,
-             d.pitchdeck, d.pitchdeckname, d.investmentdocument,
-             d.investmentdocumentname, c.investment_types
+             d.pitch_deck, d.pitch_deck_name, d.investment_document,
+             d.investment_document_name, c.investment_types
       FROM disbursal_requests d
-      JOIN campaigns c ON d.campaignid = c.id
-      LEFT JOIN users u ON d.userid = u.id
-      WHERE d.userid = $1 AND (d.isdeleted IS NULL OR d.isdeleted = false)
+      JOIN campaigns c ON d.campaign_id = c.id
+      LEFT JOIN users u ON d.user_id = u.id
+      WHERE d.user_id = $1 AND (d.is_deleted IS NULL OR d.is_deleted = false)
     `;
 
     const allResult = await pool.query(queryText, [loginUserId]);
@@ -407,10 +407,10 @@ router.get("/get-disbursal-request-list", jwtUserAuthMiddleware, async (req: Req
           cmp = (a.email || "").localeCompare(b.email || "");
           break;
         case "amount":
-          cmp = (parseFloat(a.distributedamount) || 0) - (parseFloat(b.distributedamount) || 0);
+          cmp = (parseFloat(a.distributed_amount) || 0) - (parseFloat(b.distributed_amount) || 0);
           break;
         case "date":
-          cmp = new Date(a.receivedate || 0).getTime() - new Date(b.receivedate || 0).getTime();
+          cmp = new Date(a.receive_date || 0).getTime() - new Date(b.receive_date || 0).getTime();
           break;
         default:
           cmp = (a.id || 0) - (b.id || 0);
@@ -442,13 +442,13 @@ router.get("/get-disbursal-request-list", jwtUserAuthMiddleware, async (req: Req
       quote: x.quote,
       status: x.status,
       statusName: getStatusName(x.status),
-      receiveDate: formatDate(x.receivedate),
-      distributedAmount: parseFloat(x.distributedamount) || 0,
+      receiveDate: formatDate(x.receive_date),
+      distributedAmount: parseFloat(x.distributed_amount) || 0,
       investmentType: resolveInvestmentTypeString(x.investment_types, typeMap),
-      pitchDeck: resolveFileUrl(x.pitchdeck, "disbursal-requests"),
-      pitchDeckName: x.pitchdeckname,
-      investmentDocument: resolveFileUrl(x.investmentdocument, "disbursal-requests"),
-      investmentDocumentName: x.investmentdocumentname,
+      pitchDeck: resolveFileUrl(x.pitch_deck, "disbursal-requests"),
+      pitchDeckName: x.pitch_deck_name,
+      investmentDocument: resolveFileUrl(x.investment_document, "disbursal-requests"),
+      investmentDocumentName: x.investment_document_name,
       hasNotes: notesSet.has(x.id),
     }));
 
@@ -469,12 +469,12 @@ router.get("/export-disbursal-request-list", jwtUserAuthMiddleware, async (req: 
   try {
     const loginUserId = req.user?.id;
     const queryText = `
-      SELECT d.id, d.receivedate, u.email, d.distributedamount,
+      SELECT d.id, d.receive_date, u.email, d.distributed_amount,
              c.name, d.quote, d.status, c.investment_types
       FROM disbursal_requests d
-      JOIN campaigns c ON d.campaignid = c.id
-      LEFT JOIN users u ON d.userid = u.id
-      WHERE d.userid = $1 AND (d.isdeleted IS NULL OR d.isdeleted = false)
+      JOIN campaigns c ON d.campaign_id = c.id
+      LEFT JOIN users u ON d.user_id = u.id
+      WHERE d.user_id = $1 AND (d.is_deleted IS NULL OR d.is_deleted = false)
     `;
     const result = await pool.query(queryText, [loginUserId]);
     const data = result.rows;
@@ -491,11 +491,11 @@ router.get("/export-disbursal-request-list", jwtUserAuthMiddleware, async (req: 
     });
 
     for (const row of data) {
-      const amountCell = formatAmount(row.distributedamount);
+      const amountCell = formatAmount(row.distributed_amount);
       worksheet.addRow([
         row.name || "",
         row.email || "",
-        row.receivedate ? row.receivedate : "",
+        row.receive_date ? row.receive_date : "",
         amountCell,
         resolveInvestmentTypeString(row.investment_types, typeMap),
         getStatusName(row.status),
@@ -537,7 +537,7 @@ router.get("/get-disbursal-request-notes", jwtUserAuthMiddleware, async (req: Re
     const loginUserId = req.user?.id;
 
     const ownerCheck = await pool.query(
-      `SELECT id FROM disbursal_requests WHERE id = $1 AND userid = $2 AND (isdeleted IS NULL OR isdeleted = false)`,
+      `SELECT id FROM disbursal_requests WHERE id = $1 AND user_id = $2 AND (is_deleted IS NULL OR is_deleted = false)`,
       [disbursalRequestId, loginUserId]
     );
 
@@ -1132,9 +1132,9 @@ router.post("/investment-request", async (req: Request, res: Response) => {
     const insertResult = await pool.query(
       `INSERT INTO investment_requests (
         current_step, status, country, user_id, website, organization_name,
-        currently_raising, investment_types, investment_themes, t_he_me_description,
+        currently_raising, investment_types, investment_themes, theme_description,
         capital_raised, referenceable_investors, has_donor_commitment, soft_circled_amount,
-        time_li_n_e, campaign_goal, role, referral_source,
+        timeline, campaign_goal, role, referral_source,
         logo, logo_file_name, hero_image, hero_image_file_name,
         pitch_deck, pitch_deck_file_name, investment_terms, why_back_your_investment,
         created_at
