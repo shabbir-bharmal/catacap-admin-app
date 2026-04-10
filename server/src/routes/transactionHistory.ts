@@ -35,7 +35,7 @@ router.get("/", async (req: Request, res: Response) => {
     const hasExplicitSort = params.sortField && sortColumns[params.sortField.toLowerCase()];
     const orderClause = hasExplicitSort
       ? buildSortClause(params.sortField, isAsc, sortColumns, "a.change_date")
-      : "a.change_date DESC";
+      : "a.id DESC";
 
     const countResult = await pool.query(
       `SELECT COUNT(*) AS total
