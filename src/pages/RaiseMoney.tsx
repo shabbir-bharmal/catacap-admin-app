@@ -28,57 +28,16 @@ const STEPS = [
   { id: 1, label: "About the Investment", icon: Briefcase },
   { id: 2, label: "Media", icon: ImageIcon }
 ];
+
 const US_STATES = [
-  "Alabama",
-  "Alaska",
-  "Arizona",
-  "Arkansas",
-  "California",
-  "Colorado",
-  "Connecticut",
-  "Delaware",
-  "Florida",
-  "Georgia",
-  "Hawaii",
-  "Idaho",
-  "Illinois",
-  "Indiana",
-  "Iowa",
-  "Kansas",
-  "Kentucky",
-  "Louisiana",
-  "Maine",
-  "Maryland",
-  "Massachusetts",
-  "Michigan",
-  "Minnesota",
-  "Mississippi",
-  "Missouri",
-  "Montana",
-  "Nebraska",
-  "Nevada",
-  "New Hampshire",
-  "New Jersey",
-  "New Mexico",
-  "New York",
-  "North Carolina",
-  "North Dakota",
-  "Ohio",
-  "Oklahoma",
-  "Oregon",
-  "Pennsylvania",
-  "Rhode Island",
-  "South Carolina",
-  "South Dakota",
-  "Tennessee",
-  "Texas",
-  "Utah",
-  "Vermont",
-  "Virginia",
-  "Washington DC",
-  "West Virginia",
-  "Wisconsin",
-  "Wyoming"
+  "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut",
+  "Delaware", "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa",
+  "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland", "Massachusetts", "Michigan",
+  "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire",
+  "New Jersey", "New Mexico", "New York", "North Carolina", "North Dakota", "Ohio",
+  "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota",
+  "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington DC", "West Virginia",
+  "Wisconsin", "Wyoming",
 ];
 
 const REFERRAL_OPTIONS = ["Search Engine (Google, Bing, etc.)", "LinkedIn", "Friend or Colleague", "Conference or Event", "CataCap Team Member", "Newsletter", "Other"];
@@ -264,11 +223,7 @@ function isStepValid(step: number, data: FormData, editMode = false): boolean {
   if (!basicFieldsValid) return false;
 
   if (step === 0) {
-    if (data.companyLocation === "USA") {
-      return !!(data.address1.trim() && data.city.trim() && data.state && data.zipCode.trim());
-    } else {
-      return !!data.otherCountryAddress.trim();
-    }
+    return !!(data.address1.trim() && data.city.trim() && data.state && data.zipCode.trim());
   }
 
   return true;
@@ -460,48 +415,24 @@ export default function AdminRaiseMoney() {
     const prevCountry = previousCountryRef.current;
     const selectedCountry = formData.companyLocation;
 
-    if (selectedCountry === "USA") {
-      if (prevCountry && prevCountry !== "USA") {
-        setFormData((prev) => ({
-          ...prev,
-          otherCountryAddress: ""
-        }));
-        setErrors((prev) => {
-          const newErrors = { ...prev };
-          delete newErrors.otherCountryAddress;
-          return newErrors;
-        });
-      }
-    } else if (selectedCountry && selectedCountry !== "USA") {
-      if (prevCountry === "USA") {
-        setFormData((prev) => ({
-          ...prev,
-          address1: "",
-          address2: "",
-          city: "",
-          state: "",
-          zipCode: ""
-        }));
-        setErrors((prev) => {
-          const newErrors = { ...prev };
-          delete newErrors.address1;
-          delete newErrors.address2;
-          delete newErrors.city;
-          delete newErrors.state;
-          delete newErrors.zipCode;
-          return newErrors;
-        });
-      } else if (prevCountry && prevCountry !== "USA" && prevCountry !== selectedCountry) {
-        setFormData((prev) => ({
-          ...prev,
-          otherCountryAddress: ""
-        }));
-        setErrors((prev) => {
-          const newErrors = { ...prev };
-          delete newErrors.otherCountryAddress;
-          return newErrors;
-        });
-      }
+    if (prevCountry && prevCountry !== selectedCountry) {
+      setFormData((prev) => ({
+        ...prev,
+        address1: "",
+        address2: "",
+        city: "",
+        state: "",
+        zipCode: ""
+      }));
+      setErrors((prev) => {
+        const newErrors = { ...prev };
+        delete newErrors.address1;
+        delete newErrors.address2;
+        delete newErrors.city;
+        delete newErrors.state;
+        delete newErrors.zipCode;
+        return newErrors;
+      });
     }
 
     previousCountryRef.current = selectedCountry;
@@ -539,13 +470,11 @@ export default function AdminRaiseMoney() {
 
       if (!formData.companyLocation) {
         err("companyLocation", "Country is required");
-      } else if (formData.companyLocation === "USA") {
+      } else {
         if (!formData.address1.trim()) err("address1", "Address Line 1 is required");
         if (!formData.city.trim()) err("city", "City is required");
         if (!formData.state) err("state", "State is required");
         if (!formData.zipCode.trim()) err("zipCode", "Zip Code is required");
-      } else {
-        if (!formData.otherCountryAddress.trim()) err("otherCountryAddress", "Address is required");
       }
     }
 
@@ -727,12 +656,12 @@ export default function AdminRaiseMoney() {
         investmentInformationalEmail: formData.investmentInfoEmail,
         contactInfoPhoneNumber: formData.mobile,
         country: formData.companyLocation,
-        contactInfoAddress: formData.companyLocation === "USA" ? formData.address1 : "",
-        contactInfoAddress2: formData.companyLocation === "USA" ? formData.address2 : "",
-        city: formData.companyLocation === "USA" ? formData.city : "",
-        state: formData.companyLocation === "USA" ? formData.state : "",
-        zipCode: formData.companyLocation === "USA" ? formData.zipCode : "",
-        otherCountryAddress: formData.companyLocation !== "USA" ? formData.otherCountryAddress : "",
+        contactInfoAddress: formData.address1,
+        contactInfoAddress2: formData.address2,
+        city: formData.city,
+        state: formData.state,
+        zipCode: formData.zipCode,
+        otherCountryAddress: "",
         target: formData.fundraisingGoal,
         referredToCataCap: formData.referralSource,
         investmentRole: formData.role,
@@ -1045,7 +974,7 @@ export default function AdminRaiseMoney() {
                   {fieldErrorMsg("companyLocation")}
                 </div>
 
-                {formData.companyLocation === "USA" ? (
+                {formData.companyLocation && (
                   <div className="space-y-4 pt-2">
                     <div className="space-y-1.5">
                       <Label htmlFor="address1" className="text-sm">
@@ -1079,47 +1008,60 @@ export default function AdminRaiseMoney() {
                         <Label className="text-sm">
                           State <span className="text-[#f06548]">*</span>
                         </Label>
-                        <Popover open={stateOpen} onOpenChange={setStateOpen}>
-                          <PopoverTrigger asChild>
-                            <Button
-                              variant="outline"
-                              role="combobox"
-                              aria-expanded={stateOpen}
-                              className={cn(
-                                "flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-normal",
-                                !formData.state && "text-muted-foreground",
-                                fieldError("state")
-                              )}
-                              data-testid="select-state"
-                            >
-                              {formData.state || "Select a state"}
-                              <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="p-0 w-[var(--radix-popover-trigger-width)] bg-popover" align="start">
-                            <Command className="bg-transparent">
-                              <CommandInput placeholder="Search state..." />
-                              <CommandList className="max-h-[280px]">
-                                <CommandEmpty>No state found.</CommandEmpty>
-                                <CommandGroup>
-                                  {US_STATES.map((s) => (
-                                    <CommandItem
-                                      key={s}
-                                      value={s}
-                                      onSelect={(currentValue) => {
-                                        updateField("state", currentValue);
-                                        setStateOpen(false);
-                                      }}
-                                    >
-                                      <Check className={cn("mr-2 h-4 w-4", formData.state === s ? "opacity-100" : "opacity-0")} />
-                                      {s}
-                                    </CommandItem>
-                                  ))}
-                                </CommandGroup>
-                              </CommandList>
-                            </Command>
-                          </PopoverContent>
-                        </Popover>
+                        {formData.companyLocation === "USA" ? (
+                          <>
+                            <Popover open={stateOpen} onOpenChange={setStateOpen}>
+                              <PopoverTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  role="combobox"
+                                  aria-expanded={stateOpen}
+                                  className={cn(
+                                    "flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-normal",
+                                    !formData.state && "text-muted-foreground",
+                                    fieldError("state")
+                                  )}
+                                  data-testid="select-state"
+                                >
+                                  {formData.state || "Select state"}
+                                  <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="p-0 w-[var(--radix-popover-trigger-width)] bg-popover" align="start">
+                                <Command className="bg-transparent">
+                                  <CommandInput placeholder="Search state..." />
+                                  <CommandList className="max-h-[280px]">
+                                    <CommandEmpty>No state found.</CommandEmpty>
+                                    <CommandGroup>
+                                      {US_STATES.map((s) => (
+                                        <CommandItem
+                                          key={s}
+                                          value={s}
+                                          onSelect={(currentValue) => {
+                                            updateField("state", currentValue);
+                                            setStateOpen(false);
+                                          }}
+                                        >
+                                          <Check className={cn("mr-2 h-4 w-4", formData.state === s ? "opacity-100" : "opacity-0")} />
+                                          {s}
+                                        </CommandItem>
+                                      ))}
+                                    </CommandGroup>
+                                  </CommandList>
+                                </Command>
+                              </PopoverContent>
+                            </Popover>
+                          </>
+                        ) : (
+                          <Input
+                            id="state"
+                            value={formData.state}
+                            onChange={(e) => updateField("state", e.target.value)}
+                            placeholder="State / Province / Region"
+                            className={fieldError("state")}
+                            data-testid="input-state"
+                          />
+                        )}
                         {fieldErrorMsg("state")}
                       </div>
                     </div>
@@ -1138,28 +1080,6 @@ export default function AdminRaiseMoney() {
                       {fieldErrorMsg("zipCode")}
                     </div>
                   </div>
-                ) : (
-                  formData.companyLocation && (
-                    <div className="space-y-1.5 pt-2">
-                      <Label htmlFor="otherCountryAddress" className="text-sm">
-                        Address <span className="text-[#f06548]">*</span>
-                      </Label>
-                      <Textarea
-                        id="otherCountryAddress"
-                        value={formData.otherCountryAddress}
-                        onChange={(e) => updateField("otherCountryAddress", e.target.value)}
-                        placeholder="Enter your full address"
-                        rows={3}
-                        maxLength={500}
-                        className={fieldError("otherCountryAddress")}
-                        data-testid="input-other-country-address"
-                      />
-                      <div className="flex justify-between items-center text-[10px] text-muted-foreground mt-1">
-                        <span>{fieldErrorMsg("otherCountryAddress")}</span>
-                        <span>{formData.otherCountryAddress.length}/500</span>
-                      </div>
-                    </div>
-                  )
                 )}
 
                 <div className="space-y-1.5">
