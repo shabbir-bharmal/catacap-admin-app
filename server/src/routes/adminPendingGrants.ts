@@ -440,7 +440,7 @@ router.put("/:id", async (req: Request, res: Response) => {
              VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7, $8)`,
             [
               grant.uid,
-              `Manually, ${loginUserName}`,
+              `Recommendation created using group balance, ${loginUserName}`,
               gabBalance,
               grant.user_name,
               gabBalance - deduction,
