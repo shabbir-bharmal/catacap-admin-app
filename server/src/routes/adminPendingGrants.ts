@@ -368,7 +368,8 @@ router.put("/:id", async (req: Request, res: Response) => {
         (sum: number, r: any) => sum + (parseFloat(r.balance) || 0), 0
       );
 
-      const investedSum = parseFloat(grant.invested_sum) || parseFloat(grant.total_invested_amount) || 0;
+      const parsedInvestedSum = parseFloat(grant.invested_sum);
+      const investedSum = isNaN(parsedInvestedSum) ? 0 : parsedInvestedSum;
       const fromWallet = investedSum - (pendingGrantAmount + totalGroupBalance);
       if (userBalance < fromWallet) {
         await client.query("ROLLBACK");
