@@ -371,7 +371,7 @@ router.put("/:id", async (req: Request, res: Response) => {
       const parsedInvestedSum = parseFloat(grant.invested_sum);
       const investedSum = isNaN(parsedInvestedSum) ? 0 : parsedInvestedSum;
       const fromWallet = investedSum - (pendingGrantAmount + totalGroupBalance);
-      if (fromWallet > 0 && userBalance < fromWallet) {
+      if (userBalance < fromWallet) {
         await client.query("ROLLBACK");
         res.json({ success: false, message: "User do not have sufficient wallet balance." });
         return;
