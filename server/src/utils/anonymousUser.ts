@@ -51,8 +51,8 @@ export async function findOrCreateAnonymousUser(
     );
     if (roleResult.rows.length > 0) {
       await client.query(
-        `INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2)`,
-        [userId, roleResult.rows[0].id]
+        `INSERT INTO user_roles (user_id, role_id, discriminator) VALUES ($1, $2, $3)`,
+        [userId, roleResult.rows[0].id, "IdentityUserRole<string>"]
       );
     } else {
       console.error("CRITICAL: 'User' role not found in roles table. Anonymous user created without role assignment. User will not appear in admin listing.");
