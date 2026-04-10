@@ -67,9 +67,9 @@ namespace Invest.Controllers.Admin
 
             query = sortField switch
             {
-                "changedate" => isAsc ? query.OrderBy(i => i.ChangeDate) : query.OrderByDescending(i => i.ChangeDate),
-                "investmentname" => isAsc ? query.OrderBy(i => i.InvestmentName) : query.OrderByDescending(i => i.InvestmentName),
-                _ => query.OrderByDescending(i => i.ChangeDate)
+                "changedate" => isAsc ? query.OrderBy(i => i.ChangeDate).ThenBy(i => i.Id) : query.OrderByDescending(i => i.ChangeDate).ThenByDescending(i => i.Id),
+                "investmentname" => isAsc ? query.OrderBy(i => i.InvestmentName).ThenBy(i => i.Id) : query.OrderByDescending(i => i.InvestmentName).ThenByDescending(i => i.Id),
+                _ => query.OrderByDescending(i => i.ChangeDate).ThenByDescending(i => i.Id)
             };
 
             int totalCount = await query.CountAsync();
@@ -127,10 +127,11 @@ namespace Invest.Controllers.Admin
         public async Task<IActionResult> Export()
         {
             var items = await _context.AccountBalanceChangeLogs
-                                      .OrderByDescending(i => i.Id)
+                                      .OrderByDescending(i => i.ChangeDate)
+                                      .ThenByDescending(i => i.Id)
                                       .ToListAsync();
 
-            var data = items.OrderByDescending(d => d.Id).ToList();
+            var data = items.ToList();
 
             string contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
             string fileName = "AccountBalanceHistory.xlsx";
