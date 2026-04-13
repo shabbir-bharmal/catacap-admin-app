@@ -44,6 +44,7 @@ router.get("/", async (_req: Request, res: Response) => {
     }
     const result = await pool.query(
       `SELECT id, job_name AS "jobName", description, hour, minute, timezone,
+              COALESCE(is_enabled, true) AS "isEnabled",
               created_at AS "createdAt", updated_at AS "updatedAt"
        FROM scheduler_configurations
        ORDER BY id`
@@ -112,6 +113,7 @@ router.put("/:jobName", async (req: Request, res: Response) => {
        SET hour = $1, minute = $2, timezone = $3, updated_at = NOW()
        WHERE job_name = $4
        RETURNING id, job_name AS "jobName", description, hour, minute, timezone,
+                 COALESCE(is_enabled, true) AS "isEnabled",
                  created_at AS "createdAt", updated_at AS "updatedAt"`,
       [h, m, timezone, jobName]
     );
@@ -132,6 +134,46 @@ router.put("/:jobName", async (req: Request, res: Response) => {
     res.json({ success: true, data: result.rows[0], warning: reloadWarning });
   } catch (err) {
     console.error("Scheduler config update error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+router.patch("/:jobName/toggle", async (req: Request, res: Response) => {
+  try {
+    const { jobName } = req.params;
+    const { isEnabled } = req.body;
+
+    if (typeof isEnabled !== "boolean") {
+      res.status(400).json({ message: "isEnabled (boolean) is required." });
+      return;
+    }
+
+    const result = await pool.query(
+      `UPDATE scheduler_configurations
+       SET is_enabled = $1, updated_at = NOW()
+       WHERE job_name = $2
+       RETURNING id, job_name AS "jobName", description, hour, minute, timezone,
+                 COALESCE(is_enabled, true) AS "isEnabled",
+                 created_at AS "createdAt", updated_at AS "updatedAt"`,
+      [isEnabled, jobName]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ message: "Job not found." });
+      return;
+    }
+
+    let reloadWarning: string | undefined;
+    try {
+      await reloadScheduler();
+    } catch (reloadErr) {
+      console.error("Scheduler reload failed after toggle:", reloadErr);
+      reloadWarning = "Toggle saved but the running scheduler failed to reload. Changes will take effect on next server restart.";
+    }
+
+    res.json({ success: true, data: result.rows[0], warning: reloadWarning });
+  } catch (err) {
+    console.error("Scheduler toggle error:", err);
     res.status(500).json({ message: "Internal server error" });
   }
 });

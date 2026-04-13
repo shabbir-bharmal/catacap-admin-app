@@ -7,6 +7,7 @@ export interface SchedulerConfig {
   hour: number;
   minute: number;
   timezone: string;
+  isEnabled: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -68,6 +69,17 @@ export async function triggerSchedulerJob(
     `/api/admin/scheduler/${jobName}/trigger`
   );
   return response.data;
+}
+
+export async function toggleSchedulerJob(
+  jobName: string,
+  isEnabled: boolean
+): Promise<UpdateSchedulerResult> {
+  const response = await axiosInstance.patch<{ success: boolean; data: SchedulerConfig; warning?: string }>(
+    `/api/admin/scheduler/${jobName}/toggle`,
+    { isEnabled }
+  );
+  return { data: response.data.data, warning: response.data.warning };
 }
 
 export async function fetchSchedulerLogs(

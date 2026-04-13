@@ -69,12 +69,13 @@ interface SchedulerConfigRow {
   hour: number;
   minute: number;
   timezone: string;
+  is_enabled: boolean;
 }
 
 async function loadConfigsFromDb(): Promise<SchedulerConfigRow[]> {
   try {
     const result = await pool.query(
-      `SELECT job_name, hour, minute, timezone FROM scheduler_configurations ORDER BY id`
+      `SELECT job_name, hour, minute, timezone, COALESCE(is_enabled, true) AS is_enabled FROM scheduler_configurations ORDER BY id`
     );
     return result.rows;
   } catch {
@@ -84,19 +85,26 @@ async function loadConfigsFromDb(): Promise<SchedulerConfigRow[]> {
 
 function getDefaultConfigs(): SchedulerConfigRow[] {
   return [
-    { job_name: "SendReminderEmail", hour: 8, minute: 0, timezone: "America/New_York" },
-    { job_name: "DeleteArchivedUsers", hour: 2, minute: 0, timezone: "America/New_York" },
-    { job_name: "DeleteTestUsers", hour: 18, minute: 0, timezone: "Asia/Kolkata" },
+    { job_name: "SendReminderEmail", hour: 8, minute: 0, timezone: "America/New_York", is_enabled: true },
+    { job_name: "DeleteArchivedUsers", hour: 2, minute: 0, timezone: "America/New_York", is_enabled: true },
+    { job_name: "DeleteTestUsers", hour: 18, minute: 0, timezone: "Asia/Kolkata", is_enabled: true },
   ];
 }
 
 function scheduleJob(config: SchedulerConfigRow): void {
-  const { job_name, hour, minute, timezone } = config;
+  const { job_name, hour, minute, timezone, is_enabled } = config;
   const runner = JOB_RUNNERS[job_name];
   const lockKey = LOCK_KEYS[job_name];
 
   if (!runner || lockKey == null) {
     console.log(`[SCHEDULER] Unknown job: ${job_name}, skipping.`);
+    return;
+  }
+
+  if (!is_enabled) {
+    console.log(
+      `  - ${job_name}: DISABLED (skipping cron registration)`
+    );
     return;
   }
 

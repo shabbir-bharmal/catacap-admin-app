@@ -24,11 +24,13 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { Switch } from "@/components/ui/switch";
 import { Play, Save, ChevronDown, ChevronUp, Loader2, Clock, AlertCircle, CheckCircle2 } from "lucide-react";
 import {
   fetchSchedulerConfigs,
   updateSchedulerConfig,
   triggerSchedulerJob,
+  toggleSchedulerJob,
   fetchSchedulerLogs,
   SchedulerConfig,
   SchedulerLog,
@@ -38,6 +40,10 @@ const JOB_DISPLAY_NAMES: Record<string, string> = {
   SendReminderEmail: "Send Reminder Email",
   DeleteArchivedUsers: "Delete Archived Users",
   DeleteTestUsers: "Delete Test Users",
+};
+
+const JOB_DESCRIPTIONS: Record<string, string> = {
+  DeleteTestUsers: "Soft-deletes test user accounts and all associated data (restorable from Archived Records)",
 };
 
 const TIMEZONES = [
@@ -70,6 +76,7 @@ export default function SchedulersTab() {
   const [editStates, setEditStates] = useState<Record<string, EditState>>({});
   const [savingJobs, setSavingJobs] = useState<Record<string, boolean>>({});
   const [triggeringJobs, setTriggeringJobs] = useState<Record<string, boolean>>({});
+  const [togglingJobs, setTogglingJobs] = useState<Record<string, boolean>>({});
   const [triggerResults, setTriggerResults] = useState<Record<string, { success: boolean; message: string }>>({});
   const [expandedLogs, setExpandedLogs] = useState<Record<string, boolean>>({});
   const [jobLogs, setJobLogs] = useState<Record<string, SchedulerLog[]>>({});
@@ -166,6 +173,23 @@ export default function SchedulersTab() {
     }
   };
 
+  const handleToggle = async (jobName: string, currentEnabled: boolean) => {
+    setTogglingJobs((prev) => ({ ...prev, [jobName]: true }));
+    try {
+      const { data: updated, warning } = await toggleSchedulerJob(jobName, !currentEnabled);
+      setConfigs((prev) => prev.map((c) => (c.jobName === jobName ? updated : c)));
+      if (warning) {
+        toast({ title: "Toggled with warning", description: warning, variant: "destructive" });
+      } else {
+        toast({ title: updated.isEnabled ? "Enabled" : "Disabled", description: `${JOB_DISPLAY_NAMES[jobName] || jobName} has been ${updated.isEnabled ? "enabled" : "disabled"}.` });
+      }
+    } catch {
+      toast({ title: "Error", description: `Failed to toggle ${JOB_DISPLAY_NAMES[jobName] || jobName}.`, variant: "destructive" });
+    } finally {
+      setTogglingJobs((prev) => ({ ...prev, [jobName]: false }));
+    }
+  };
+
   const loadLogs = async (jobName: string) => {
     setLogsLoading((prev) => ({ ...prev, [jobName]: true }));
     try {
@@ -231,6 +255,7 @@ export default function SchedulersTab() {
         const edit = editStates[config.jobName];
         const isSaving = savingJobs[config.jobName];
         const isTriggering = triggeringJobs[config.jobName];
+        const isToggling = togglingJobs[config.jobName];
         const result = triggerResults[config.jobName];
         const isExpanded = expandedLogs[config.jobName];
         const logs = jobLogs[config.jobName] || [];
@@ -243,9 +268,14 @@ export default function SchedulersTab() {
               <div className="flex flex-col gap-4">
                 <div className="flex items-start justify-between">
                   <div>
-                    <h3 className="text-lg font-semibold">{JOB_DISPLAY_NAMES[config.jobName] || config.jobName}</h3>
-                    {config.description && (
-                      <p className="text-sm text-muted-foreground mt-1">{config.description}</p>
+                    <div className="flex items-center gap-3">
+                      <h3 className="text-lg font-semibold">{JOB_DISPLAY_NAMES[config.jobName] || config.jobName}</h3>
+                      {!config.isEnabled && (
+                        <Badge variant="secondary" className="text-xs">Disabled</Badge>
+                      )}
+                    </div>
+                    {(JOB_DESCRIPTIONS[config.jobName] || config.description) && (
+                      <p className="text-sm text-muted-foreground mt-1">{JOB_DESCRIPTIONS[config.jobName] || config.description}</p>
                     )}
                     <div className="flex items-center gap-2 mt-2">
                       <Clock className="h-4 w-4 text-muted-foreground" />
@@ -254,19 +284,31 @@ export default function SchedulersTab() {
                       </span>
                     </div>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleTrigger(config.jobName)}
-                    disabled={isTriggering}
-                  >
-                    {isTriggering ? (
-                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                    ) : (
-                      <Play className="h-4 w-4 mr-2" />
-                    )}
-                    Run Now
-                  </Button>
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        {config.isEnabled ? "Enabled" : "Disabled"}
+                      </label>
+                      <Switch
+                        checked={config.isEnabled}
+                        onCheckedChange={() => handleToggle(config.jobName, config.isEnabled)}
+                        disabled={isToggling}
+                      />
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleTrigger(config.jobName)}
+                      disabled={isTriggering || !config.isEnabled}
+                    >
+                      {isTriggering ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      ) : (
+                        <Play className="h-4 w-4 mr-2" />
+                      )}
+                      Run Now
+                    </Button>
+                  </div>
                 </div>
 
                 {result && (

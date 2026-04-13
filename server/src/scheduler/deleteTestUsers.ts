@@ -13,13 +13,35 @@ async function tableExists(
   return result.rows.length > 0;
 }
 
-async function safeDelete(
+async function columnExists(
+  client: PoolClient,
+  tableName: string,
+  columnName: string
+): Promise<boolean> {
+  const result = await client.query(
+    `SELECT 1 FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = $1
+       AND column_name = $2`,
+    [tableName, columnName]
+  );
+  return result.rows.length > 0;
+}
+
+async function safeSoftDelete(
   client: PoolClient,
   table: string,
   where: string,
   params: unknown[]
 ): Promise<number> {
   if (!(await tableExists(client, table))) return 0;
+  if (await columnExists(client, table, "is_deleted")) {
+    const result = await client.query(
+      `UPDATE ${table} SET is_deleted = true, deleted_at = NOW(), deleted_by = NULL WHERE ${where}`,
+      params
+    );
+    return result.rowCount || 0;
+  }
   const result = await client.query(
     `DELETE FROM ${table} WHERE ${where}`,
     params
@@ -356,100 +378,100 @@ export async function runDeleteTestUsers(): Promise<void> {
       }
 
       if (completedInvestmentIds.length > 0) {
-        await safeDelete(client, "completed_investment_notes", "completed_investment_id = ANY($1)", [completedInvestmentIds]);
+        await safeSoftDelete(client, "completed_investment_notes", "completed_investment_id = ANY($1)", [completedInvestmentIds]);
       }
 
       if (returnMasterIds.length > 0) {
-        await safeDelete(client, "return_details", "return_master_id = ANY($1)", [returnMasterIds]);
+        await safeSoftDelete(client, "return_details", "return_master_id = ANY($1)", [returnMasterIds]);
       }
 
       if (pendingGrantIds.length > 0) {
-        await safeDelete(client, "pending_grant_notes", "pending_grant_id = ANY($1)", [pendingGrantIds]);
-        await safeDelete(client, "scheduled_email_logs", "pending_grant_id = ANY($1)", [pendingGrantIds]);
-        await safeDelete(client, "account_balance_change_logs", "pending_grants_id = ANY($1)", [pendingGrantIds]);
+        await safeSoftDelete(client, "pending_grant_notes", "pending_grant_id = ANY($1)", [pendingGrantIds]);
+        await safeSoftDelete(client, "scheduled_email_logs", "pending_grant_id = ANY($1)", [pendingGrantIds]);
+        await safeSoftDelete(client, "account_balance_change_logs", "pending_grants_id = ANY($1)", [pendingGrantIds]);
       }
 
       if (assetRequestIds.length > 0) {
-        await safeDelete(client, "asset_based_payment_request_notes", "request_id = ANY($1)", [assetRequestIds]);
-        await safeDelete(client, "account_balance_change_logs", "asset_based_payment_request_id = ANY($1)", [assetRequestIds]);
+        await safeSoftDelete(client, "asset_based_payment_request_notes", "request_id = ANY($1)", [assetRequestIds]);
+        await safeSoftDelete(client, "account_balance_change_logs", "asset_based_payment_request_id = ANY($1)", [assetRequestIds]);
       }
 
       if (disbursalRequestIds.length > 0) {
-        await safeDelete(client, "disbursal_request_notes", "disbursal_request_id = ANY($1)", [disbursalRequestIds]);
+        await safeSoftDelete(client, "disbursal_request_notes", "disbursal_request_id = ANY($1)", [disbursalRequestIds]);
       }
 
       if (formSubmissionIds.length > 0) {
-        await safeDelete(client, "form_submission_notes", "form_submission_id = ANY($1)", [formSubmissionIds]);
+        await safeSoftDelete(client, "form_submission_notes", "form_submission_id = ANY($1)", [formSubmissionIds]);
       }
 
       if (campaignIds.length > 0) {
-        await safeDelete(client, "investment_notes", "campaign_id = ANY($1)", [campaignIds]);
-        await safeDelete(client, "investment_tag_mappings", "campaign_id = ANY($1)", [campaignIds]);
-        await safeDelete(client, "campaign_groups", "campaigns_id = ANY($1)", [campaignIds]);
-        await safeDelete(client, "ach_payment_requests", "campaign_id = ANY($1)", [campaignIds]);
-        await safeDelete(client, "account_balance_change_logs", "campaign_id = ANY($1)", [campaignIds]);
-        await safeDelete(client, "completed_investment_details", "campaign_id = ANY($1)", [campaignIds]);
-        await safeDelete(client, "return_masters", "campaign_id = ANY($1)", [campaignIds]);
+        await safeSoftDelete(client, "investment_notes", "campaign_id = ANY($1)", [campaignIds]);
+        await safeSoftDelete(client, "investment_tag_mappings", "campaign_id = ANY($1)", [campaignIds]);
+        await safeSoftDelete(client, "campaign_groups", "campaigns_id = ANY($1)", [campaignIds]);
+        await safeSoftDelete(client, "ach_payment_requests", "campaign_id = ANY($1)", [campaignIds]);
+        await safeSoftDelete(client, "account_balance_change_logs", "campaign_id = ANY($1)", [campaignIds]);
+        await safeSoftDelete(client, "completed_investment_details", "campaign_id = ANY($1)", [campaignIds]);
+        await safeSoftDelete(client, "return_masters", "campaign_id = ANY($1)", [campaignIds]);
       }
 
       if (groupIds.length > 0) {
-        await safeDelete(client, "requests", "group_to_follow_id = ANY($1)", [groupIds]);
-        await safeDelete(client, "campaign_groups", "groups_id = ANY($1)", [groupIds]);
+        await safeSoftDelete(client, "requests", "group_to_follow_id = ANY($1)", [groupIds]);
+        await safeSoftDelete(client, "campaign_groups", "groups_id = ANY($1)", [groupIds]);
       }
 
-      await safeDelete(client, "user_stripe_customer_mappings", "user_id = ANY($1)", [testUserIds]);
-      await safeDelete(client, "user_stripe_transaction_mappings", "user_id = ANY($1)", [testUserIds]);
+      await safeSoftDelete(client, "user_stripe_customer_mappings", "user_id = ANY($1)", [testUserIds]);
+      await safeSoftDelete(client, "user_stripe_transaction_mappings", "user_id = ANY($1)", [testUserIds]);
 
-      await safeDelete(client, "pending_grants", "user_id = ANY($1)", [testUserIds]);
+      await safeSoftDelete(client, "pending_grants", "user_id = ANY($1)", [testUserIds]);
 
       if (campaignIds.length > 0) {
-        await safeDelete(client, "asset_based_payment_requests", "user_id = ANY($1) OR campaign_id = ANY($2)", [testUserIds, campaignIds]);
+        await safeSoftDelete(client, "asset_based_payment_requests", "user_id = ANY($1) OR campaign_id = ANY($2)", [testUserIds, campaignIds]);
       } else {
-        await safeDelete(client, "asset_based_payment_requests", "user_id = ANY($1)", [testUserIds]);
+        await safeSoftDelete(client, "asset_based_payment_requests", "user_id = ANY($1)", [testUserIds]);
       }
 
-      await safeDelete(client, "disbursal_requests", "user_id = ANY($1)", [testUserIds]);
-      await safeDelete(client, "form_submissions", "email = ANY($1)", [testUserEmails]);
+      await safeSoftDelete(client, "disbursal_requests", "user_id = ANY($1)", [testUserIds]);
+      await safeSoftDelete(client, "form_submissions", "email = ANY($1)", [testUserEmails]);
 
       if (testUserEmails.length > 0) {
-        await safeDelete(client, "recommendations", "user_id = ANY($1) OR user_email = ANY($2)", [testUserIds, testUserEmails]);
+        await safeSoftDelete(client, "recommendations", "user_id = ANY($1) OR user_email = ANY($2)", [testUserIds, testUserEmails]);
       } else {
-        await safeDelete(client, "recommendations", "user_id = ANY($1)", [testUserIds]);
+        await safeSoftDelete(client, "recommendations", "user_id = ANY($1)", [testUserIds]);
       }
 
-      await safeDelete(client, "user_investments", "user_id = ANY($1)", [testUserIds]);
-      await safeDelete(client, "investment_requests", "user_id = ANY($1)", [testUserIds]);
-      await safeDelete(client, "return_details", "user_id = ANY($1)", [testUserIds]);
-      await safeDelete(client, "investment_feedbacks", "user_id = ANY($1)", [testUserIds]);
-      await safeDelete(client, "user_notifications", "target_user_id = ANY($1)", [testUserIds]);
-      await safeDelete(client, "account_balance_change_logs", "user_id = ANY($1)", [testUserIds]);
-      await safeDelete(client, "scheduled_email_logs", "user_id = ANY($1)", [testUserIds]);
-      await safeDelete(client, "testimonials", "user_id = ANY($1)", [testUserIds]);
+      await safeSoftDelete(client, "user_investments", "user_id = ANY($1)", [testUserIds]);
+      await safeSoftDelete(client, "investment_requests", "user_id = ANY($1)", [testUserIds]);
+      await safeSoftDelete(client, "return_details", "user_id = ANY($1)", [testUserIds]);
+      await safeSoftDelete(client, "investment_feedbacks", "user_id = ANY($1)", [testUserIds]);
+      await safeSoftDelete(client, "user_notifications", "target_user_id = ANY($1)", [testUserIds]);
+      await safeSoftDelete(client, "account_balance_change_logs", "user_id = ANY($1)", [testUserIds]);
+      await safeSoftDelete(client, "scheduled_email_logs", "user_id = ANY($1)", [testUserIds]);
+      await safeSoftDelete(client, "testimonials", "user_id = ANY($1)", [testUserIds]);
 
       if (groupIds.length > 0) {
-        await safeDelete(client, "leader_groups", "user_id = ANY($1) OR group_id = ANY($2)", [testUserIds, groupIds]);
-        await safeDelete(client, "group_account_balances", "user_id = ANY($1) OR group_id = ANY($2)", [testUserIds, groupIds]);
+        await safeSoftDelete(client, "leader_groups", "user_id = ANY($1) OR group_id = ANY($2)", [testUserIds, groupIds]);
+        await safeSoftDelete(client, "group_account_balances", "user_id = ANY($1) OR group_id = ANY($2)", [testUserIds, groupIds]);
       } else {
-        await safeDelete(client, "leader_groups", "user_id = ANY($1)", [testUserIds]);
-        await safeDelete(client, "group_account_balances", "user_id = ANY($1)", [testUserIds]);
+        await safeSoftDelete(client, "leader_groups", "user_id = ANY($1)", [testUserIds]);
+        await safeSoftDelete(client, "group_account_balances", "user_id = ANY($1)", [testUserIds]);
       }
 
       if (groupIds.length > 0) {
         await safeUpdate(client, "campaigns", "group_for_private_access_id = NULL", "group_for_private_access_id = ANY($1) AND user_id != ALL($2)", [groupIds, testUserIds]);
       }
 
-      await safeDelete(client, "groups", "owner_id = ANY($1)", [testUserIds]);
-      await safeDelete(client, "campaigns", "user_id = ANY($1)", [testUserIds]);
+      await safeSoftDelete(client, "groups", "owner_id = ANY($1)", [testUserIds]);
+      await safeSoftDelete(client, "campaigns", "user_id = ANY($1)", [testUserIds]);
 
-      await safeDelete(client, "requests", "request_owner_id = ANY($1) OR user_to_follow_id = ANY($1)", [testUserIds]);
-      await safeDelete(client, "user_roles", "user_id = ANY($1)", [testUserIds]);
+      await safeSoftDelete(client, "requests", "request_owner_id = ANY($1) OR user_to_follow_id = ANY($1)", [testUserIds]);
+      await safeSoftDelete(client, "user_roles", "user_id = ANY($1)", [testUserIds]);
 
-      const deleteCount = await safeDelete(client, "users", "id = ANY($1)", [testUserIds]);
+      const softDeleteCount = await safeSoftDelete(client, "users", "id = ANY($1)", [testUserIds]);
 
       await client.query("COMMIT");
 
       console.log(
-        `[DELETE_TEST_USERS] ${deleteCount} test user(s) deleted successfully.`
+        `[DELETE_TEST_USERS] ${softDeleteCount} test user(s) soft-deleted successfully.`
       );
     } catch (err) {
       await client.query("ROLLBACK");

@@ -784,6 +784,7 @@ CREATE TABLE public.scheduler_configurations (
   hour integer NOT NULL DEFAULT 0,
   minute integer NOT NULL DEFAULT 0,
   timezone text NOT NULL DEFAULT 'America/New_York',
+  is_enabled boolean NOT NULL DEFAULT true,
   created_at timestamp without time zone NOT NULL DEFAULT NOW(),
   updated_at timestamp without time zone NOT NULL DEFAULT NOW(),
   CONSTRAINT scheduler_configurations_pkey PRIMARY KEY (id),
@@ -795,7 +796,7 @@ INSERT INTO public.scheduler_configurations (job_name, description, hour, minute
 VALUES
   ('SendReminderEmail', 'Sends reminder emails for pending grants at Day 3 and Week 2 intervals', 8, 0, 'America/New_York'),
   ('DeleteArchivedUsers', 'Archives and deletes soft-deleted records older than the configured retention period', 2, 0, 'America/New_York'),
-  ('DeleteTestUsers', 'Removes test user accounts and all associated data', 18, 0, 'Asia/Kolkata')
+  ('DeleteTestUsers', 'Soft-deletes test user accounts and all associated data (restorable from Archived Records)', 18, 0, 'Asia/Kolkata')
 ON CONFLICT (job_name) DO NOTHING;
 
 CREATE TABLE public.scheduler_logs (
