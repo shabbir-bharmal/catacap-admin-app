@@ -36,6 +36,7 @@ import recycleBinRoutes from "./routes/recycleBin.js";
 import campaignRoutes from "./routes/campaign.js";
 import { jwtAuthMiddleware } from "./middleware/jwtAuth.js";
 import { Router } from "express";
+import { initScheduler } from "./scheduler/index.js";
 
 const app = express();
 const isProduction = process.env.NODE_ENV === "production";
@@ -104,6 +105,7 @@ async function start() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on port ${PORT}`);
+    initScheduler();
   });
 }
 
