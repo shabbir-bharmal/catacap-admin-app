@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { Plus, Pencil, Trash2, ListPlus, Upload, X, Bold, Italic, Underline, Link as LinkIcon, List, ListOrdered, Strikethrough } from "lucide-react";
+import SchedulersTab from "@/components/SchedulersTab";
 import { getUrlBlobContainerImage, defaultImage, catacapDefaultImageLogo } from "@/lib/image-utils";
 import {
   fetchAllSiteConfigurations,
@@ -42,7 +43,7 @@ import {
   ConfigItemInvestment
 } from "../api/site-configuration/siteConfigurationApi";
 
-const TABS = ["Sourced By", "Themes", "Special Filters", "Configuration", "Transaction Type", "News Type", "News Audience", "Statistics", "Meta Information"] as const;
+const TABS = ["Sourced By", "Themes", "Special Filters", "Configuration", "Transaction Type", "News Type", "News Audience", "Statistics", "Meta Information", "Schedulers"] as const;
 
 type TabKey = (typeof TABS)[number];
 
@@ -392,6 +393,8 @@ export default function SiteConfiguration() {
         return "statistics";
       case "Meta Information":
         return "meta-information";
+      case "Schedulers":
+        throw new Error("Schedulers tab does not use site configuration CRUD operations");
     }
   }
 
@@ -540,6 +543,9 @@ export default function SiteConfiguration() {
               ))}
             </div>
 
+            {activeTab === "Schedulers" ? (
+              <SchedulersTab />
+            ) : (
             <Card>
               <CardContent className="p-0">
                 <div className="flex justify-end p-4">
@@ -1109,6 +1115,7 @@ export default function SiteConfiguration() {
                 </div>
               </CardContent>
             </Card>
+            )}
           </>
         )}
       </div>

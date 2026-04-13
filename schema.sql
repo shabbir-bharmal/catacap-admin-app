@@ -777,6 +777,27 @@ CREATE TABLE public.scheduled_email_logs (
   CONSTRAINT FK_ScheduledEmailLogs_AspNetUsers_DeletedBy FOREIGN KEY (deleted_by) REFERENCES public.users(id),
   CONSTRAINT FK_ScheduledEmailLogs_PendingGrants_PendingGrantId FOREIGN KEY (pending_grant_id) REFERENCES public.pending_grants(id)
 );
+CREATE TABLE public.scheduler_configurations (
+  id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
+  job_name text NOT NULL UNIQUE,
+  description text,
+  hour integer NOT NULL DEFAULT 0,
+  minute integer NOT NULL DEFAULT 0,
+  timezone text NOT NULL DEFAULT 'America/New_York',
+  created_at timestamp without time zone NOT NULL DEFAULT NOW(),
+  updated_at timestamp without time zone NOT NULL DEFAULT NOW(),
+  CONSTRAINT scheduler_configurations_pkey PRIMARY KEY (id),
+  CONSTRAINT scheduler_configurations_hour_check CHECK (hour >= 0 AND hour <= 23),
+  CONSTRAINT scheduler_configurations_minute_check CHECK (minute >= 0 AND minute <= 59)
+);
+
+INSERT INTO public.scheduler_configurations (job_name, description, hour, minute, timezone)
+VALUES
+  ('SendReminderEmail', 'Sends reminder emails for pending grants at Day 3 and Week 2 intervals', 8, 0, 'America/New_York'),
+  ('DeleteArchivedUsers', 'Archives and deletes soft-deleted records older than the configured retention period', 2, 0, 'America/New_York'),
+  ('DeleteTestUsers', 'Removes test user accounts and all associated data', 18, 0, 'Asia/Kolkata')
+ON CONFLICT (job_name) DO NOTHING;
+
 CREATE TABLE public.scheduler_logs (
   id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
   start_time timestamp without time zone NOT NULL,
