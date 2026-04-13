@@ -181,6 +181,9 @@ export function AdminSidebar() {
               <span className="text-[10px] text-muted-foreground uppercase tracking-widest truncate">Admin Panel</span>
             </div>
           </Link>
+          <span className="group-data-[collapsible=icon]:hidden bg-destructive text-destructive-foreground text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0">
+            QA Environment
+          </span>
 
           <Button size="icon" variant="ghost" onClick={toggleSidebar} className="h-7 w-7 shrink-0 group-data-[collapsible=icon]:hidden">
             <PanelLeft className="h-4 w-4" />
