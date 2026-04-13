@@ -12,29 +12,30 @@ const EMAIL_CATEGORY = {
 
 const isProduction = process.env.NODE_ENV === "production";
 const BASE_URL = isProduction
-  ? "https://app.catacap.org"
+  ? "https://catacap.org"
   : "https://qa.catacap.org";
 
-async function getDafLink(
-  dafProviderName: string
-): Promise<string | null> {
+async function getDafLink(dafProviderName: string): Promise<string | null> {
   const result = await pool.query(
     `SELECT provider_url FROM daf_providers
      WHERE LOWER(provider_name) = $1 AND is_active = true
      LIMIT 1`,
-    [dafProviderName.toLowerCase()]
+    [dafProviderName.toLowerCase()],
   );
   return result.rows.length > 0 ? result.rows[0].provider_url : null;
 }
 
 function formatAmount(amount: number): string {
-  return "$" + amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return (
+    "$" +
+    amount.toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })
+  );
 }
 
-function getDAFCategory(
-  reminderType: string,
-  dafProviderName: string
-): number {
+function getDAFCategory(reminderType: string, dafProviderName: string): number {
   if (dafProviderName === "ImpactAssets") {
     return reminderType === "Day3"
       ? EMAIL_CATEGORY.DAFReminderImpactAssetsDay3
@@ -94,7 +95,7 @@ export async function runSendReminderEmail(): Promise<void> {
       const emailList = process.env.EMAIL_LIST_FOR_SCHEDULER;
       if (!emailList) {
         console.log(
-          "[SCHEDULER] EMAIL_LIST_FOR_SCHEDULER not set in non-production. Skipping."
+          "[SCHEDULER] EMAIL_LIST_FOR_SCHEDULER not set in non-production. Skipping.",
         );
         return;
       }
@@ -133,7 +134,7 @@ export async function runSendReminderEmail(): Promise<void> {
           const amount = parseFloat(grant.amount) || 0;
           const category = getDAFCategory(
             reminderType,
-            (grant.daf_provider || "").trim()
+            (grant.daf_provider || "").trim(),
           );
 
           const variables: Record<string, string> = {
@@ -188,13 +189,13 @@ export async function runSendReminderEmail(): Promise<void> {
         const message = err instanceof Error ? err.message : String(err);
         console.error(
           `[SCHEDULER] Error processing grant ${grant.pending_grant_id}:`,
-          message
+          message,
         );
       }
     }
 
     console.log(
-      `[SCHEDULER] SendReminderEmail complete: Day3=${day3Count}, Week2=${week2Count}, emails queued for async delivery`
+      `[SCHEDULER] SendReminderEmail complete: Day3=${day3Count}, Week2=${week2Count}, emails queued for async delivery`,
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.toString() : String(err);
@@ -205,7 +206,7 @@ export async function runSendReminderEmail(): Promise<void> {
       `INSERT INTO scheduler_logs
         (start_time, end_time, day3_email_count, week2_email_count, error_message, job_name)
        VALUES ($1, $2, $3, $4, $5, $6)`,
-      [startTime, new Date(), day3Count, week2Count, errorMessage, jobName]
+      [startTime, new Date(), day3Count, week2Count, errorMessage, jobName],
     );
   }
 }
