@@ -131,29 +131,63 @@ function InlineRichEditor({
     return editorRef.current?.innerText?.replace(/\n$/, "").length || 0;
   }, []);
 
-  const handleInput = useCallback(() => {
-    if (!editorRef.current) return;
-    if (maxLength) {
-      const textLen = getTextLength();
-      if (textLen > maxLength) {
-        const sel = window.getSelection();
-        const range = sel?.getRangeAt(0);
-        const offset = range?.startOffset || 0;
-        editorRef.current.innerHTML = value;
-        try {
-          const newRange = document.createRange();
-          const node = editorRef.current.firstChild || editorRef.current;
-          newRange.setStart(node, Math.min(offset - 1, node.textContent?.length || 0));
-          newRange.collapse(true);
-          sel?.removeAllRanges();
-          sel?.addRange(newRange);
-        } catch { }
-        return;
+  const truncateToMaxLength = useCallback(() => {
+    if (!editorRef.current || !maxLength) return false;
+    const text = editorRef.current.innerText?.replace(/\n$/, "") || "";
+    if (text.length <= maxLength) return false;
+
+    const sel = window.getSelection();
+
+    let charCount = 0;
+    const walker = document.createTreeWalker(editorRef.current, NodeFilter.SHOW_TEXT);
+    let lastNode: Text | null = null;
+    const nodesToRemove: Node[] = [];
+    let trimmed = false;
+
+    while (walker.nextNode()) {
+      const textNode = walker.currentNode as Text;
+      const nodeLen = textNode.textContent?.length || 0;
+      if (!trimmed && charCount + nodeLen > maxLength) {
+        const keep = maxLength - charCount;
+        textNode.textContent = (textNode.textContent || "").slice(0, keep);
+        lastNode = textNode;
+        charCount = maxLength;
+        trimmed = true;
+      } else if (trimmed) {
+        nodesToRemove.push(textNode);
+      } else {
+        charCount += nodeLen;
+        lastNode = textNode;
       }
     }
+
+    for (const node of nodesToRemove) {
+      const parent = node.parentNode;
+      parent?.removeChild(node);
+      if (parent && parent !== editorRef.current && parent.childNodes.length === 0) {
+        parent.parentNode?.removeChild(parent);
+      }
+    }
+
+    try {
+      if (lastNode && sel) {
+        const newRange = document.createRange();
+        newRange.setStart(lastNode, lastNode.textContent?.length || 0);
+        newRange.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(newRange);
+      }
+    } catch { }
+
+    return true;
+  }, [maxLength]);
+
+  const handleInput = useCallback(() => {
+    if (!editorRef.current) return;
+    truncateToMaxLength();
     isInternalChange.current = true;
     onChange(editorRef.current.innerHTML);
-  }, [onChange, maxLength, value, getTextLength]);
+  }, [onChange, truncateToMaxLength]);
 
   const execCommand = useCallback(
     (command: string) => {
@@ -167,6 +201,22 @@ function InlineRichEditor({
     [onChange]
   );
 
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent) => {
+      if (!maxLength) return;
+      e.preventDefault();
+      const pastedText = e.clipboardData.getData("text/plain");
+      const currentLen = getTextLength();
+      const sel = window.getSelection();
+      const selectedLen = sel && !sel.isCollapsed ? (sel.toString().length || 0) : 0;
+      const available = maxLength - currentLen + selectedLen;
+      if (available <= 0) return;
+      const truncated = pastedText.slice(0, available);
+      document.execCommand("insertText", false, truncated);
+    },
+    [maxLength, getTextLength]
+  );
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "b" && (e.metaKey || e.ctrlKey)) {
@@ -178,9 +228,20 @@ function InlineRichEditor({
       } else if (e.key === "u" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         execCommand("underline");
+      } else if (
+        maxLength &&
+        getTextLength() >= maxLength &&
+        e.key.length === 1 &&
+        !e.metaKey &&
+        !e.ctrlKey
+      ) {
+        const sel = window.getSelection();
+        if (!sel || sel.isCollapsed) {
+          e.preventDefault();
+        }
       }
     },
-    [execCommand]
+    [execCommand, maxLength, getTextLength]
   );
 
   const minHeight = rows * 24;
@@ -232,6 +293,7 @@ function InlineRichEditor({
         suppressContentEditableWarning
         onInput={handleInput}
         onKeyDown={handleKeyDown}
+        onPaste={handlePaste}
         data-placeholder={placeholder}
         className="outline-none text-sm min-h-[var(--editor-min-h)] empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground/50 empty:before:pointer-events-none"
         style={{ "--editor-min-h": `${minHeight}px` } as React.CSSProperties}
@@ -336,7 +398,6 @@ export default function AdminGroupEdit() {
             .replace(/<[^>]*>/g, "")
             .trim() || "";
         if (!stripped) error = "Did you know is required";
-        else if (stripped.length > 50) error = "Did you know cannot exceed 50 characters";
       } else if (field === "mediaDescription") {
         const stripped =
           value
