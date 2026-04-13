@@ -186,8 +186,8 @@ export function AdminSidebar() {
             <PanelLeft className="h-4 w-4" />
           </Button>
         </div>
-        <div className="group-data-[collapsible=icon]:hidden mt-1.5">
-          <span className="bg-destructive text-destructive-foreground text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded">
+        <div className="group-data-[collapsible=icon]:hidden mt-2 text-center">
+          <span className="bg-destructive text-destructive-foreground text-[11px] font-bold uppercase tracking-wider px-3 py-1 rounded">
             QA Environment
           </span>
         </div>
