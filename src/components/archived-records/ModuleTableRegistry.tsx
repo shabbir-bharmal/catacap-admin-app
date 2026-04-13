@@ -949,7 +949,7 @@ export const MODULE_TABLE_REGISTRY: Record<string, ModuleTableConfig> = {
         <td className="px-4 py-3 text-sm text-muted-foreground">
           <div className="max-w-[120px] truncate" title={item.typeOfInvestment}>{item.typeOfInvestment || item.typeOfInvestmentName || item.type || "—"}</div>
         </td>
-        <td className="px-4 py-3 text-sm">{item.investmentVehicle || "—"}</td>
+        <td className="px-4 py-3 text-sm">{item.balanceSheet || "—"}</td>
         <td className="px-4 py-3 text-sm">{item.donors || "—"}</td>
         <td className="px-4 py-3 text-sm text-muted-foreground">
           <div className="max-w-[120px] truncate" title={item.themes}>{item.themes || "—"}</div>

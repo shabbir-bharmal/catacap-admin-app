@@ -214,7 +214,7 @@ export default function AdminCompletedInvestments() {
   const [formAmount, setFormAmount] = useState<number | "">("");
   const [formTransactionTypeId, setFormTransactionTypeId] = useState<string>("");
   const [formNote, setFormNote] = useState("");
-  const [formInvestmentVehicle, setFormInvestmentVehicle] = useState("");
+  const [formBalanceSheet, setFormBalanceSheet] = useState("");
   const [pendingRecommendationsAmount, setPendingRecommendationsAmount] = useState(0);
   const [approvedRecommendationsAmount, setApprovedRecommendationsAmount] = useState(0);
   const [afterInvestmentChosen, setAfterInvestmentChosen] = useState(false);
@@ -238,7 +238,7 @@ export default function AdminCompletedInvestments() {
   const [editAmount, setEditAmount] = useState<number | "">("");
   const [editTransactionTypeId, setEditTransactionTypeId] = useState<string>("");
   const [editNote, setEditNote] = useState("");
-  const [editInvestmentVehicle, setEditInvestmentVehicle] = useState("ImpactAssets");
+  const [editBalanceSheet, setEditBalanceSheet] = useState("ImpactAssets");
   const [editErrors, setEditErrors] = useState<Record<string, string | undefined>>({});
 
   // --- Note edit dialog state ---
@@ -348,7 +348,7 @@ export default function AdminCompletedInvestments() {
       return;
     }
     setSelectedInvestment(inv);
-    setFormInvestmentVehicle("ImpactAssets");
+    setFormBalanceSheet("");
     setAfterInvestmentChosen(true);
     if (errors.investment) setErrors((prev) => ({ ...prev, investment: undefined }));
 
@@ -395,7 +395,7 @@ export default function AdminCompletedInvestments() {
     }
     if (!formTransactionTypeId) errs.transactionType = "Please select a transaction type";
     if (!formNote.trim()) errs.note = "Please enter a note";
-    if (!formInvestmentVehicle) errs.investmentVehicle = "Please select an investment vehicle";
+    if (!formBalanceSheet) errs.balanceSheet = "Please select a balance sheet";
 
     setErrors(errs);
     if (Object.keys(errs).length > 0) return;
@@ -422,7 +422,7 @@ export default function AdminCompletedInvestments() {
         typeOfInvestmentIds: formInvestmentTypeIds.join(","),
         typeOfInvestmentName: formCustomType.trim() || undefined,
         note: formNote.trim(),
-        investmentVehicle: formInvestmentVehicle
+        balanceSheet: formBalanceSheet
       });
       toast({
         title: "Completed Investments saved successfully.",
@@ -457,8 +457,7 @@ export default function AdminCompletedInvestments() {
       errs.amount = "Amount must be greater than 0";
     }
     if (!editTransactionTypeId) errs.changeType = "Please select a transaction type";
-    if (!editNote.trim()) errs.note = "Please enter a note";
-    if (!editInvestmentVehicle) errs.editVehicle = "Please select an investment vehicle";
+    if (!editBalanceSheet) errs.editVehicle = "Please select a balance sheet";
 
     setEditErrors(errs);
     if (Object.keys(errs).length > 0) return;
@@ -475,7 +474,7 @@ export default function AdminCompletedInvestments() {
         typeOfInvestmentIds: editTypeIds.join(","),
         typeOfInvestmentName: editCustomType.trim(),
         note: editNote.trim(),
-        investmentVehicle: editInvestmentVehicle
+        balanceSheet: editBalanceSheet
       });
       toast({
         title: "Completed Investment updated successfully.",
@@ -559,7 +558,7 @@ export default function AdminCompletedInvestments() {
     setFormAmount("");
     setFormTransactionTypeId("");
     setFormNote("");
-    setFormInvestmentVehicle("");
+    setFormBalanceSheet("");
     setErrors({});
     setAfterInvestmentChosen(false);
     setPendingRecommendationsAmount(0);
@@ -579,17 +578,17 @@ export default function AdminCompletedInvestments() {
     setEditAmount(item.totalInvestmentAmount !== null && item.totalInvestmentAmount !== undefined ? Number(item.totalInvestmentAmount) : 0);
     setEditNote("");
 
-    if (item.investmentVehicle) {
-      const vehicle = item.investmentVehicle.trim();
-      if (vehicle === "ImpactAssets" || vehicle === "Impact Assets") {
-        setEditInvestmentVehicle("ImpactAssets");
-      } else if (vehicle === "CataCap") {
-        setEditInvestmentVehicle("CataCap");
+    if (item.balanceSheet) {
+      const bs = item.balanceSheet.trim();
+      if (bs === "ImpactAssets" || bs === "Impact Assets") {
+        setEditBalanceSheet("ImpactAssets");
+      } else if (bs === "CataCap") {
+        setEditBalanceSheet("CataCap");
       } else {
-        setEditInvestmentVehicle("");
+        setEditBalanceSheet("");
       }
     } else {
-      setEditInvestmentVehicle("");
+      setEditBalanceSheet("");
     }
 
     // Resolve type IDs
@@ -693,11 +692,11 @@ export default function AdminCompletedInvestments() {
                     {errors.lastInvestment && <p className="text-xs text-red-500 mt-0.5">{errors.lastInvestment}</p>}
                   </div>
                   <div className="w-[180px]">
-                    <Select value={formInvestmentVehicle} onValueChange={(v) => {
-                      setFormInvestmentVehicle(v);
-                      if (errors.investmentVehicle) setErrors(prev => ({ ...prev, investmentVehicle: undefined }));
+                    <Select value={formBalanceSheet} onValueChange={(v) => {
+                      setFormBalanceSheet(v);
+                      if (errors.balanceSheet) setErrors(prev => ({ ...prev, balanceSheet: undefined }));
                     }}>
-                      <SelectTrigger className={cn("text-left", errors.investmentVehicle && "border-red-500")} data-testid="select-vehicle">
+                      <SelectTrigger className={cn("text-left", errors.balanceSheet && "border-red-500")} data-testid="select-vehicle">
                         <SelectValue placeholder="Select Balance Sheet" />
                       </SelectTrigger>
                       <SelectContent>
@@ -705,7 +704,7 @@ export default function AdminCompletedInvestments() {
                         <SelectItem value="CataCap">CataCap</SelectItem>
                       </SelectContent>
                     </Select>
-                    {errors.investmentVehicle && <p className="text-xs text-red-500 mt-0.5">{errors.investmentVehicle}</p>}
+                    {errors.balanceSheet && <p className="text-xs text-red-500 mt-0.5">{errors.balanceSheet}</p>}
                   </div>
                   <div className="flex-1 min-w-[200px]">
                     <Textarea
@@ -918,7 +917,7 @@ export default function AdminCompletedInvestments() {
                           </td>
                           <td className="px-4 py-3">
                             <span className="text-sm" data-testid={`text-vehicle-${item.id}`}>
-                              {item.investmentVehicle || "—"}
+                              {item.balanceSheet || "—"}
                             </span>
                           </td>
                           <td className="px-4 py-3">
@@ -1155,8 +1154,8 @@ export default function AdminCompletedInvestments() {
             </div>
 
             <div className="space-y-2">
-              <Select value={editInvestmentVehicle} onValueChange={(v) => {
-                setEditInvestmentVehicle(v);
+              <Select value={editBalanceSheet} onValueChange={(v) => {
+                setEditBalanceSheet(v);
                 if (editErrors.editVehicle) setEditErrors(prev => ({ ...prev, editVehicle: undefined }));
               }}>
                 <SelectTrigger className={cn(editErrors.editVehicle && "border-red-500")} data-testid="edit-select-vehicle">

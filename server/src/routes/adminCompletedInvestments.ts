@@ -77,7 +77,7 @@ router.get("/", async (req: Request, res: Response) => {
     const detailsResult = await pool.query(`
       SELECT cid.id, cid.date_of_last_investment, cid.campaign_id, cid.investment_detail,
              cid.amount, cid.type_of_investment, cid.donors, cid.themes AS cid_themes,
-             cid.created_on, cid.site_configuration_id, cid.investment_vehicle,
+             cid.created_on, cid.site_configuration_id, cid.balance_sheet,
              cid.deleted_at, cid.is_deleted,
              c.name AS campaign_name, c.tile_image_file_name, c.description AS campaign_description,
              c.target, c.stage, c.property, c.themes AS campaign_themes, c.associated_fund_id,
@@ -260,7 +260,7 @@ router.get("/", async (req: Request, res: Response) => {
         donors: x.donors,
         property: x.property,
         themes: themeNames,
-        investmentVehicle: x.investment_vehicle,
+        balanceSheet: x.balance_sheet,
         hasNotes: completedNoteIds.has(x.id),
         approvedRecommendationsAmount: approvedAmounts[x.campaign_id] || 0,
         latestInvestorAvatars: (avatarLookup[x.campaign_id] || []).map((a: string) => resolveFileUrl(a, "users")).filter(Boolean),
@@ -387,7 +387,7 @@ router.get("/export", async (_req: Request, res: Response) => {
 
     const result = await pool.query(`
       SELECT cid.date_of_last_investment, cid.investment_detail, cid.amount,
-             cid.type_of_investment, cid.donors, cid.investment_vehicle, cid.created_on,
+             cid.type_of_investment, cid.donors, cid.balance_sheet, cid.created_on,
              c.name AS campaign_name, c.stage, c.themes AS campaign_themes, c.associated_fund_id,
              sc.value AS transaction_type_value
       FROM completed_investment_details cid
@@ -443,7 +443,7 @@ router.get("/export", async (_req: Request, res: Response) => {
         row.transaction_type_value || "",
         investmentTypesNames,
         row.donors || 0,
-        row.investment_vehicle || "",
+        row.balance_sheet || "",
         themeNames,
       ]);
     }
@@ -508,14 +508,18 @@ router.get("/details", async (req: Request, res: Response) => {
       ? recs[0]?.date_created || null
       : null;
 
-    const investmentVehicle = req.query.InvestmentVehicle || req.query.investmentVehicle || null;
+    const cidResult = await pool.query(
+      `SELECT balance_sheet FROM completed_investment_details WHERE campaign_id = $1 ORDER BY created_on DESC LIMIT 1`,
+      [investmentId]
+    );
+    const balanceSheet = cidResult.rows.length > 0 ? cidResult.rows[0].balance_sheet : null;
 
     res.json({
       dateOfLastInvestment: lastInvestmentDate,
       typeOfInvestmentIds: campaign?.investment_types || null,
       approvedRecommendationsAmount: totalApprovedAmount,
       pendingRecommendationsAmount: totalPendingAmount,
-      investmentVehicle,
+      balanceSheet,
     });
   } catch (err: any) {
     console.error("Error fetching completed investment details:", err);
@@ -527,7 +531,7 @@ router.post("/", async (req: Request, res: Response) => {
   try {
     const {
       investmentId, investmentDetail, totalInvestmentAmount, transactionTypeId,
-      dateOfLastInvestment, typeOfInvestmentIds, typeOfInvestmentName, note, investmentVehicle, id,
+      dateOfLastInvestment, typeOfInvestmentIds, typeOfInvestmentName, note, balanceSheet, id,
     } = req.body;
 
     if (!investmentId || investmentId <= 0) {
@@ -580,7 +584,7 @@ router.post("/", async (req: Request, res: Response) => {
       const insertResult = await pool.query(
         `INSERT INTO completed_investment_details
           (campaign_id, investment_detail, amount, date_of_last_investment, type_of_investment,
-           site_configuration_id, donors, themes, investment_vehicle, created_by, created_on)
+           site_configuration_id, donors, themes, balance_sheet, created_by, created_on)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
          RETURNING id`,
         [
@@ -592,7 +596,7 @@ router.post("/", async (req: Request, res: Response) => {
           transactionTypeId || null,
           totalInvestors,
           campaign?.themes || null,
-          investmentVehicle || null,
+          balanceSheet || null,
           loginUserId,
         ]
       );
@@ -627,7 +631,7 @@ router.post("/", async (req: Request, res: Response) => {
     await pool.query(
       `UPDATE completed_investment_details
        SET investment_detail = $1, amount = $2, date_of_last_investment = $3,
-           type_of_investment = $4, site_configuration_id = $5, investment_vehicle = $6,
+           type_of_investment = $4, site_configuration_id = $5, balance_sheet = $6,
            modified_on = NOW()
        WHERE id = $7`,
       [
@@ -636,7 +640,7 @@ router.post("/", async (req: Request, res: Response) => {
         dateOfLastInvestment,
         updatedTypeIds,
         transactionTypeId || null,
-        investmentVehicle || null,
+        balanceSheet || null,
         id,
       ]
     );
