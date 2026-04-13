@@ -77,8 +77,8 @@ namespace Invest.Controllers.Admin
                                     ? query.OrderBy(u => u.AccountBalance)
                                     : query.OrderByDescending(u => u.AccountBalance),
                 "datecreated" => isAsc
-                                    ? query.OrderBy(u => u.DateCreated ?? DateTime.MinValue)
-                                    : query.OrderByDescending(u => u.DateCreated ?? DateTime.MinValue),
+                                    ? query.OrderBy(u => u.DateCreated)
+                                    : query.OrderByDescending(u => u.DateCreated),
                 _ => query.OrderBy(u => u.FirstName).ThenBy(u => u.LastName)
             };
 
@@ -114,6 +114,7 @@ namespace Invest.Controllers.Admin
             var emails = users.Select(u => u.Email.ToLower().Trim()).Distinct().ToList();
 
             var recommendationCounts = await _context.Recommendations
+                                                        .ApplySoftDeleteFilter(isDeleted)
                                                         .Where(r => r.Amount > 0 &&
                                                                 (r.Status == "pending" || r.Status == "approved") &&
                                                                 emails.Contains(r.UserEmail!.ToLower().Trim()))
@@ -825,12 +826,20 @@ namespace Invest.Controllers.Admin
 
             _context.AccountBalanceChangeLogs.RemoveRange(
                 _context.AccountBalanceChangeLogs.Where(x =>
+                    x.UserId == id ||
                     campaignIds.Contains(x.CampaignId!) ||
                     assetIds.Contains(x.AssetBasedPaymentRequestId!.Value) ||
                     pendingGrantIds.Contains(x.PendingGrantsId!.Value)));
 
             _context.ScheduledEmailLogs.RemoveRange(_context.ScheduledEmailLogs.Where(x => pendingGrantIds.Contains(x.PendingGrantId)));
-            _context.Recommendations.RemoveRange(_context.Recommendations.Where(x => pendingGrantIds.Contains(x.PendingGrantsId!.Value)));
+
+            _context.Recommendations.RemoveRange(
+                _context.Recommendations.Where(x =>
+                    x.UserId == id ||
+                    (x.PendingGrantsId != null && pendingGrantIds.Contains(x.PendingGrantsId.Value)) ||
+                    (x.CampaignId != null && campaignIds.Contains(x.CampaignId))
+                )
+            );
 
             _context.ReturnDetails.RemoveRange(_context.ReturnDetails.Where(x => returnMasterIds.Contains(x.ReturnMasterId)));
 
@@ -843,8 +852,6 @@ namespace Invest.Controllers.Admin
             _context.ACHPaymentRequests.RemoveRange(_context.ACHPaymentRequests.Where(x => campaignIds.Contains(x.CampaignId)));
             _context.InvestmentTagMapping.RemoveRange(_context.InvestmentTagMapping.Where(x => campaignIds.Contains(x.CampaignId)));
             _context.UserInvestments.RemoveRange(_context.UserInvestments.Where(x => campaignIds.Contains(x.CampaignId)));
-
-            _context.Recommendations.RemoveRange(_context.Recommendations.Where(x => campaignIds.Contains(x.CampaignId)));
 
             var groups = await _context.Groups.Where(x => x.Owner!.Id == id).ToListAsync();
             var groupIds = groups.Select(x => x.Id).ToList();
@@ -917,21 +924,30 @@ namespace Invest.Controllers.Admin
 
             var pendingGrants = await _context.PendingGrants
                 .IgnoreQueryFilters()
-                .Where(x => campaignIds.Contains(x.CampaignId) && x.IsDeleted)
+                .Where(x => (
+                                campaignIds.Contains(x.CampaignId) ||
+                                userIds.Contains(x.UserId)
+                            ) && x.IsDeleted)
                 .ToListAsync();
 
             var pendingGrantIds = pendingGrants.Select(x => x.Id).ToList();
 
             var assets = await _context.AssetBasedPaymentRequest
                 .IgnoreQueryFilters()
-                .Where(x => campaignIds.Contains(x.CampaignId) && x.IsDeleted)
+                .Where(x => (
+                                campaignIds.Contains(x.CampaignId) ||
+                                userIds.Contains(x.UserId)
+                            ) && x.IsDeleted)
                 .ToListAsync();
 
             var assetIds = assets.Select(x => x.Id).ToList();
 
             var disbursals = await _context.DisbursalRequest
                 .IgnoreQueryFilters()
-                .Where(x => campaignIds.Contains(x.CampaignId) && x.IsDeleted)
+                .Where(x => (
+                                campaignIds.Contains(x.CampaignId) ||
+                                userIds.Contains(x.UserId)
+                            ) && x.IsDeleted)
                 .ToListAsync();
 
             var completed = await _context.CompletedInvestmentsDetails
@@ -954,6 +970,7 @@ namespace Invest.Controllers.Admin
             var accountLogs = await _context.AccountBalanceChangeLogs
                 .IgnoreQueryFilters()
                 .Where(x =>
+                    userIds.Contains(x.UserId) ||
                     (x.CampaignId != null && campaignIds.Contains(x.CampaignId.Value)) ||
                     (x.AssetBasedPaymentRequestId != null && assetIds.Contains(x.AssetBasedPaymentRequestId.Value)) ||
                     (x.PendingGrantsId != null && pendingGrantIds.Contains(x.PendingGrantsId.Value)))
@@ -982,6 +999,7 @@ namespace Invest.Controllers.Admin
                 .Where(x => groupIds.Contains(x.GroupId) && x.IsDeleted)
                 .ToListAsync();
 
+            var recommendations = await _context.Recommendations.IgnoreQueryFilters().Where(x => x.UserId != null && userIds.Contains(x.UserId) && x.IsDeleted).ToListAsync();
             var userInvestments = await _context.UserInvestments.IgnoreQueryFilters().Where(x => x.UserId != null && userIds.Contains(x.UserId) && x.IsDeleted).ToListAsync();
             var notifications = await _context.UsersNotifications.IgnoreQueryFilters().Where(x => x.TargetUser != null && userIds.Contains(x.TargetUser.Id) && x.IsDeleted).ToListAsync();
             var forms = await _context.FormSubmission.IgnoreQueryFilters().Where(x => x.Email != null && emails.Contains(x.Email.ToLower().Trim()) && x.IsDeleted).ToListAsync();
@@ -999,6 +1017,7 @@ namespace Invest.Controllers.Admin
             requests.RestoreRange();
             balances.RestoreRange();
             leaderGroups.RestoreRange();
+            recommendations.RestoreRange();
             userInvestments.RestoreRange();
             notifications.RestoreRange();
             forms.RestoreRange();

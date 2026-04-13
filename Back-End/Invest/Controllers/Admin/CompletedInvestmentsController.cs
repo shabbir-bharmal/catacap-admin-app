@@ -511,7 +511,7 @@ namespace Invest.Controllers.Admin
 
                 var headers = new[]
                 {
-                    "Date Of Last Investment", "CataCap Investment", "Stage", "CataCap Fund", "Investment Detail", "Amount", "Transaction Type","Type Of Investment", "Donors", "Investment Vehicle", "Themes"
+                    "Date Of Last Investment", "CataCap Investment", "Stage", "CataCap Fund", "Investment Detail", "Amount", "Transaction Type","Type Of Investment", "Donors", "Balance Sheet", "Themes"
                 };
 
                 for (int col = 0; col < headers.Length; col++)

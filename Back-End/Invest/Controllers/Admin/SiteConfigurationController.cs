@@ -95,6 +95,20 @@ namespace Invest.Controllers.Admin
                                          })
                                          .ToListAsync();
 
+                case "configuration":
+
+                    return await _context.SiteConfiguration
+                                         .ApplySoftDeleteFilter(isDeleted)
+                                         .Where(t => t.Type == SiteConfigurationType.Configuration)
+                                         .OrderBy(x => x.Key)
+                                         .Select(x => new
+                                         {
+                                             x.Id,
+                                             x.Key,
+                                             x.Value
+                                         })
+                                         .ToListAsync();
+
                 case "transaction-type":
 
                     return await _context.SiteConfiguration
@@ -410,6 +424,29 @@ namespace Invest.Controllers.Admin
                         "Configuration created successfully."
                     );
 
+                case "configuration":
+
+                    if (string.IsNullOrWhiteSpace(dto.Key))
+                        return (false, "Key is required.");
+
+                    if (string.IsNullOrWhiteSpace(dto.Value))
+                        return (false, "Value is required.");
+
+                    var configurationEntity = new SiteConfiguration
+                    {
+                        Key = dto.Key.Trim(),
+                        Value = dto.Value.Trim(),
+                        Type = SiteConfigurationType.Configuration
+                    };
+
+                    return await CreateMasterAsync(
+                        _context.SiteConfiguration.Where(x => x.Type == SiteConfigurationType.Configuration),
+                        configurationEntity,
+                        x => x.Key,
+                        "Entered key already exists.",
+                        "Configuration created successfully."
+                    );
+
                 case "meta-information":
 
                     if (string.IsNullOrWhiteSpace(dto.Key))
@@ -608,6 +645,29 @@ namespace Invest.Controllers.Admin
 
                     return await UpdateMasterAsync(
                         _context.SiteConfiguration.Where(x => x.Type == SiteConfigurationType.StaticValue),
+                        dto.Id!.Value,
+                        x => x.Key,
+                        (e, val, img) =>
+                        {
+                            e.Key = dto.Key!.Trim();
+                            e.Value = dto.Value!.Trim();
+                        },
+                        dto.Key,
+                        null,
+                        "Entered key already exists.",
+                        "Configuration updated successfully."
+                    );
+
+                case "configuration":
+
+                    if (string.IsNullOrWhiteSpace(dto.Key))
+                        return (false, "Key is required.");
+
+                    if (string.IsNullOrWhiteSpace(dto.Value))
+                        return (false, "Value is required.");
+
+                    return await UpdateMasterAsync(
+                        _context.SiteConfiguration.Where(x => x.Type == SiteConfigurationType.Configuration),
                         dto.Id!.Value,
                         x => x.Key,
                         (e, val, img) =>

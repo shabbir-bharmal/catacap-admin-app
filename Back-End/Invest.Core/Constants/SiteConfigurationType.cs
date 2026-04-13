@@ -10,5 +10,6 @@
         public const string Interest = "Interest";
         public const string EmailLogo = "EmailLogo";
         public const string MetaInformation = "MetaInformation";
+        public const string Configuration = "Configuration";
     }
 }

@@ -408,8 +408,11 @@ public class AuthController : BaseApiController
     [ServiceFilter(typeof(ValidationFilterAttribute))]
     public async Task<IActionResult> SendCode([FromBody] EmailReceiveDto email)
     {
-        if (!await VerifyCaptcha(email.CaptchaToken!))
-            return BadRequest("CAPTCHA verification failed.");
+        if (!string.IsNullOrWhiteSpace(email.CaptchaToken))
+        {
+            if (!await VerifyCaptcha(email.CaptchaToken))
+                return BadRequest("CAPTCHA verification failed.");
+        }
 
         if (string.IsNullOrEmpty(email.Email))
             return BadRequest();

@@ -1,0 +1,32 @@
+﻿using Invest.Core.Settings;
+using Invest.Service.Interfaces;
+using Microsoft.Data.SqlClient;
+
+namespace Invest.Service.Services
+{
+    public class DeleteTestUsersJobService : IDeleteTestUsersJobService
+    {
+        private readonly AppSecrets _appSecrets;
+
+        public DeleteTestUsersJobService(AppSecrets appSecrets)
+        {
+            _appSecrets = appSecrets;
+        }
+
+        public async Task RunDeleteAsync(CancellationToken cancellationToken = default)
+        {
+            var connectionString = _appSecrets.SqlConnection;
+
+            await using var connection = new SqlConnection(connectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            await using var command = new SqlCommand("dbo.sp_DeleteTestUsers", connection)
+            {
+                CommandType = System.Data.CommandType.StoredProcedure,
+                CommandTimeout = 600 // 10 minutes
+            };
+
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+    }
+}

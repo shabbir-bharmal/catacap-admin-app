@@ -1880,8 +1880,6 @@ namespace Invest.Controllers
 
             var user = await _repository.UserAuthentication.GetUserByUserName(userName);
             user.IsFreeUser = true;
-            if (user.DateCreated == null || user.DateCreated == default(DateTime))
-                user.DateCreated = DateTime.Now;
             await _repository.UserAuthentication.UpdateUser(user);
             await _repository.SaveAsync();
 
@@ -1980,9 +1978,9 @@ namespace Invest.Controllers
                                             <p>In the meantime, our <a href='{preLaunchToolkitUrl}' target='_blank'>Pre-Launch Toolkit</a> is a great place to start. It’s full of tips and resources to help you prepare for your expanded fundraising outreach capabilities with CataCap (pending approval). <b>If you have a donor committed and ready to donate over $10K to invest in your venture please let us know and we can help expedite the review process</b>.</p>
                                             <p><b>Quick reminders:</b></p>
                                             <ul style='list-style-type:disc;'>
-                                                                            <li><b>Partnership model:</b> CataCap serves as a conduit for your network to donate philanthropic capital into your venture. While we provide exposure opportunities at key milestones [<a href='{seePartnerBenefits}' target='_blank'>see Partner Benefits</a>], the strongest traction comes from your own champions and relationships.</li>
-                                                                            <li><b>$50K minimum:</b> Investments must raise at least $50K via CataCap to qualify for disbursement.</li>
-                                                                    </ul>
+							                    <li><b>Partnership model:</b> CataCap serves as a conduit for your network to donate philanthropic capital into your venture. While we provide exposure opportunities at key milestones [<a href='{seePartnerBenefits}' target='_blank'>see Partner Benefits</a>], the strongest traction comes from your own champions and relationships.</li>
+							                    <li><b>$50K minimum:</b> Investments must raise at least $50K via CataCap to qualify for disbursement.</li>
+						                    </ul>
                                             <p>You can also explore our <a href='{faqPage}' target='_blank'>FAQ page</a> for additional guidance. If you have any questions as you review, please let us know.</p>
                                             <p>We’re grateful to be part of your journey and excited for what’s ahead.</p>
                                             <p style='margin-bottom: 0px;'>With gratitude,</p>
@@ -2081,7 +2079,7 @@ namespace Invest.Controllers
             string? investmentUrl = !string.IsNullOrEmpty(investmentTag)
                                     ? investmentTag
                                     : !string.IsNullOrEmpty(investment.Property)
-                                        ? $"{requestOrigin}/invest/{Uri.EscapeDataString(investment.Property)}"
+                                        ? $"{requestOrigin}/investments/{Uri.EscapeDataString(investment.Property)}"
                                         : null;
 
             if (string.IsNullOrWhiteSpace(investmentUrl))

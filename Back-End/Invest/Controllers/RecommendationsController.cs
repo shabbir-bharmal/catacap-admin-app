@@ -322,7 +322,7 @@ namespace Invest.Controllers
                 { "logoUrl", await _imageService.GetImageUrl() },
                 { "campaignName", campaignName! },
                 { "campaignDescription", campaignDescription! },
-                { "campaignUrl", $"{_appSecrets.RequestOrigin}/invest/{campaignIdentifier}" },
+                { "campaignUrl", $"{_appSecrets.RequestOrigin}/investments/{campaignIdentifier}" },
                 { "unsubscribeUrl", $"{_appSecrets.RequestOrigin}/settings" },
                 { "investorDisplayName", conditionalUserName },
                 { "donorName", conditionalDonorName }
@@ -402,7 +402,7 @@ namespace Invest.Controllers
                     { "investmentAmount", formattedOriginalInvestmentAmount },
                     { "totalRaised", formattedtotalDonationAmount },
                     { "totalInvestors", totalInvestors.ToString() },
-                    { "campaignPageUrl", $"{_appSecrets.RequestOrigin}/invest/{campaignIdentifier}" }
+                    { "campaignPageUrl", $"{_appSecrets.RequestOrigin}/investments/{campaignIdentifier}" }
                 };
 
                 _emailQueue.QueueEmail(async (sp) =>

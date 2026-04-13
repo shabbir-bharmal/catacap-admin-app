@@ -52,6 +52,22 @@ namespace Invest.Controllers.Admin
                                                 .ToList();
             var now = DateTime.UtcNow;
 
+            var dafProviders = await _context.DAFProviders
+                                             .Select(x => x.ProviderName!.ToLower().Trim())
+                                             .ToListAsync();
+
+            var providerList = string.IsNullOrEmpty(dafProvider)
+                                ? new List<string>()
+                                : dafProvider.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                                             .Select(x => x.Trim().ToLower())
+                                             .ToList();
+                
+            var hasOther = providerList.Contains("other");
+
+            var selectedProviders = providerList
+                                    .Where(p => p != "other")
+                                    .ToList();
+
             var query = _context.PendingGrants
                                 .ApplySoftDeleteFilter(isDeleted)
                                 .Where(i => (statusList == null || statusList.Count == 0 ||
@@ -65,8 +81,15 @@ namespace Invest.Controllers.Admin
                                                 || (i.User.FirstName + " " + i.User.LastName).ToLower().Contains(pagination.SearchValue.ToLower())
                                                 || i.User.Email.ToLower().Contains(pagination.SearchValue.ToLower())
                                             )
-                                            && (string.IsNullOrEmpty(dafProvider)
-                                                || i.DAFProvider.ToLower().Trim() == dafProvider.ToLower().Trim()
+                                            && (
+                                                providerList.Count == 0
+                                                || selectedProviders.Contains(i.DAFProvider.ToLower().Trim())
+
+                                                || (
+                                                    hasOther
+                                                    && !dafProviders.Contains(i.DAFProvider.ToLower().Trim())
+                                                    && i.DAFProvider.ToLower().Trim() != "foundation grant"
+                                                )
                                             )
                                 )
                                 .Select(i => new

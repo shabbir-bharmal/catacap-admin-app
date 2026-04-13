@@ -32,14 +32,15 @@ namespace Invest.Service.Services
             _imageService = imageService;
         }
 
-        public async Task SendReminderEmailsAsync()
+        public async Task SendReminderEmailsAsync(string jobName)
         {
             int day3Count = 0;
             int week2Count = 0;
 
             var logEntry = new SchedulerLogs
             {
-                StartTime = DateTime.Now
+                StartTime = DateTime.Now,
+                JobName = jobName
             };
 
             try
@@ -165,7 +166,7 @@ namespace Invest.Service.Services
             }
             catch (Exception ex)
             {
-                logEntry.ErrorMessage = ex.Message;
+                logEntry.ErrorMessage = ex.ToString();
             }
             finally
             {
@@ -217,7 +218,7 @@ namespace Invest.Service.Services
                 { "dafProviderLink", dafProviderLink ?? "" },
                 { "dafName", dafName ?? dafProviderName },
                 { "investmentOwnerName", investmentOwnerName },
-                { "investmentUrl", $"{_appSecrets.RequestOrigin}/invest/{investmentSlug}" },
+                { "investmentUrl", $"{_appSecrets.RequestOrigin}/investments/{investmentSlug}" },
                 { "unsubscribeUrl", $"{_appSecrets.RequestOrigin}/settings" }
             };
 
@@ -248,7 +249,7 @@ namespace Invest.Service.Services
                 { "amount", formattedAmount },
                 { "investmentScenario", investmentScenario },
                 { "investmentOwnerName", investmentOwnerName },
-                { "investmentUrl", $"{_appSecrets.RequestOrigin}/invest/{investmentSlug}" },
+                { "investmentUrl", $"{_appSecrets.RequestOrigin}/investments/{investmentSlug}" },
                 { "unsubscribeUrl", $"{_appSecrets.RequestOrigin}/settings" }
             };
 

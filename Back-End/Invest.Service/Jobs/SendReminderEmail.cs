@@ -16,7 +16,7 @@ namespace Invest.Service.Jobs
 
         public async Task Execute(IJobExecutionContext context)
         {
-            await _emailJobService.SendReminderEmailsAsync();
+            await _emailJobService.SendReminderEmailsAsync(context.JobDetail.Key.Name);
         }
     }
 }

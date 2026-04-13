@@ -42,9 +42,9 @@ namespace Invest.Controllers.Admin
 
             if (!string.IsNullOrWhiteSpace(pagination?.Status))
             {
-                if (pagination.Status.ToLower() == "active")
+                if (pagination.Status.ToLower() == "true")
                     query = query.Where(x => x.Status == true);
-                else if (pagination.Status.ToLower() == "inactive")
+                else if (pagination.Status.ToLower() == "false")
                     query = query.Where(x => x.Status == false);
             }
 
