@@ -763,7 +763,7 @@ export default function AdminPendingGrants() {
             setTransitTarget(null);
           }
         }}
-        title="Did you receive the check for this grant?"
+        title="Did you receive confirmation the grant is in transit?"
         noteLabel="Add a note"
         noteValue={transitNote}
         onNoteChange={setTransitNote}
