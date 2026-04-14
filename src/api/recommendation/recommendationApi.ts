@@ -7,7 +7,7 @@ export interface RecommendationParams {
   sortDirection?: string;
   searchValue?: string;
   status?: string;
-  investmentId?: number;
+  investmentId?: string;
   filterByGroup?: boolean;
   stages?: string;
   investmentStatus?: boolean;
@@ -51,7 +51,7 @@ export async function fetchRecommendations(
     if (params.sortDirection) queryParams.SortDirection = params.sortDirection;
     if (params.searchValue !== undefined && params.searchValue !== null) queryParams.SearchValue = params.searchValue;
     if (params.status) queryParams.Status = params.status;
-    if (params.investmentId !== undefined) queryParams.InvestmentId = params.investmentId.toString();
+    if (params.investmentId) queryParams.InvestmentId = params.investmentId;
     if (params.filterByGroup !== undefined) queryParams.FilterByGroup = params.filterByGroup.toString();
     if (params.stages) queryParams.Stages = params.stages;
     if (params.investmentStatus !== undefined) queryParams.InvestmentStatus = params.investmentStatus.toString();

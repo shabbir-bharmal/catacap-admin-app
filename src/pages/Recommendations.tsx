@@ -71,7 +71,7 @@ export default function RecommendationsPage() {
     setCurrentPage(1);
   };
 
-  const [selectedInvestment, setSelectedInvestment] = useState<InvestmentOption | null>(null);
+  const [selectedInvestmentIds, setSelectedInvestmentIds] = useState<number[]>([]);
   const [investmentPopoverOpen, setInvestmentPopoverOpen] = useState(false);
 
   const { data: investmentOptions = [] } = useQuery({
@@ -86,7 +86,7 @@ export default function RecommendationsPage() {
     isLoading,
     error
   } = useQuery({
-    queryKey: ["recommendations", currentPage, rowsPerPage, sortField, sortDir, recommendationStatus, selectedInvestment?.id],
+    queryKey: ["recommendations", currentPage, rowsPerPage, sortField, sortDir, recommendationStatus, selectedInvestmentIds],
     queryFn: () =>
       fetchRecommendations({
         currentPage,
@@ -94,7 +94,7 @@ export default function RecommendationsPage() {
         sortField: sortField ?? undefined,
         sortDirection: sortDir ?? undefined,
         status: recommendationStatus.length < STATUS_OPTIONS.length ? recommendationStatus.join(",") : undefined,
-        investmentId: selectedInvestment?.id ?? undefined
+        investmentId: selectedInvestmentIds.length > 0 ? selectedInvestmentIds.join(",") : undefined
       }),
     staleTime: 0,
     gcTime: 0
@@ -300,11 +300,18 @@ export default function RecommendationsPage() {
                       aria-expanded={investmentPopoverOpen}
                       className={cn(
                         "flex h-9 w-[300px] items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-normal",
-                        !selectedInvestment && "text-muted-foreground"
+                        selectedInvestmentIds.length === 0 && "text-muted-foreground"
                       )}
                       data-testid="select-investment"
                     >
-                      <span className="truncate">{selectedInvestment ? selectedInvestment.name : "Select Investment"}</span>
+                      <span className="truncate">
+                        {selectedInvestmentIds.length === 0
+                          ? "All"
+                          : investmentOptions
+                              .filter((opt) => selectedInvestmentIds.includes(opt.id))
+                              .map((opt) => opt.name)
+                              .join(", ")}
+                      </span>
                       <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                     </Button>
                   </PopoverTrigger>
@@ -316,24 +323,34 @@ export default function RecommendationsPage() {
                         <CommandGroup>
                           <CommandItem
                             onSelect={() => {
-                              setSelectedInvestment(null);
+                              setSelectedInvestmentIds([]);
                               setCurrentPage(1);
-                              setInvestmentPopoverOpen(false);
                             }}
                           >
-                            <Check className={`h-4 w-4 ${!selectedInvestment ? "opacity-100" : "opacity-0"}`} />
+                            <Check className={`h-4 w-4 ${selectedInvestmentIds.length === 0 ? "opacity-100" : "opacity-0"}`} />
                             All Investments
                           </CommandItem>
                           {investmentOptions.map((opt) => (
                             <CommandItem
                               key={opt.id}
                               onSelect={() => {
-                                setSelectedInvestment(opt);
+                                setSelectedInvestmentIds((prev) => {
+                                  const isSelected = prev.includes(opt.id);
+                                  let next: number[];
+                                  if (isSelected) {
+                                    next = prev.filter((id) => id !== opt.id);
+                                  } else {
+                                    next = [...prev, opt.id];
+                                  }
+                                  if (next.length === investmentOptions.length) {
+                                    return [];
+                                  }
+                                  return next;
+                                });
                                 setCurrentPage(1);
-                                setInvestmentPopoverOpen(false);
                               }}
                             >
-                              <Check className={`h-4 w-4 ${selectedInvestment?.id === opt.id ? "opacity-100" : "opacity-0"}`} />
+                              <Check className={`h-4 w-4 ${selectedInvestmentIds.includes(opt.id) ? "opacity-100" : "opacity-0"}`} />
                               {opt.name}
                             </CommandItem>
                           ))}

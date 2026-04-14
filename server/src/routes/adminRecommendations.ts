@@ -15,7 +15,9 @@ router.get("/", async (req: Request, res: Response) => {
     const pageSize = params.perPage;
 
     const investmentIdRaw = req.query.InvestmentId || req.query.investmentId;
-    const investmentId = investmentIdRaw ? parseInt(String(investmentIdRaw), 10) : null;
+    const investmentIds = investmentIdRaw
+      ? String(investmentIdRaw).split(",").map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n))
+      : null;
 
     const statusList = params.status
       ? params.status.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
@@ -38,9 +40,9 @@ router.get("/", async (req: Request, res: Response) => {
     values.push(USER_ROLE);
     paramIdx++;
 
-    if (investmentId) {
-      conditions.push(`r.campaign_id = $${paramIdx}`);
-      values.push(investmentId);
+    if (investmentIds && investmentIds.length > 0) {
+      conditions.push(`r.campaign_id = ANY($${paramIdx}::int[])`);
+      values.push(investmentIds);
       paramIdx++;
     }
 
