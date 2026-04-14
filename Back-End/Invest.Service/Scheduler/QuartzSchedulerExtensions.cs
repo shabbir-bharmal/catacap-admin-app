@@ -10,15 +10,42 @@ namespace Invest.Service.Scheduler
         {
             services.AddQuartz(q =>
             {
-                var jobKey = new JobKey("SendReminderEmail");   
-                q.AddJob<SendReminderEmail>(opts => opts.WithIdentity(jobKey));
+                var emailJobKey = new JobKey("SendReminderEmail");
+                q.AddJob<SendReminderEmail>(opts => opts.WithIdentity(emailJobKey));
 
-                // Run daily at 8:00 AM EST
                 q.AddTrigger(opts => opts
-                    .ForJob(jobKey)
+                    .ForJob(emailJobKey)
                     .WithIdentity("SendReminderEmail-trigger")
                     .WithCronSchedule("0 0 8 * * ?", x => x
-                        .InTimeZone(TimeZoneInfo.FindSystemTimeZoneById("America/New_York"))
+                        .InTimeZone(TimeZoneInfo.FindSystemTimeZoneById("America/New_York"))  // 8:00 AM EST daily
+                    )
+                );
+
+                var deleteArchivedUsersKey = new JobKey("DeleteArchivedUsers");
+                q.AddJob<DeleteArchivedUsersJob>(opts => opts
+                    .WithIdentity(deleteArchivedUsersKey)
+                    .DisallowConcurrentExecution()  // never run two at once
+                );
+
+                q.AddTrigger(opts => opts
+                    .ForJob(deleteArchivedUsersKey)
+                    .WithIdentity("DeleteArchivedUsers-trigger")
+                    .WithCronSchedule("0 0 2 * * ?", x => x
+                        .InTimeZone(TimeZoneInfo.FindSystemTimeZoneById("America/New_York"))  // 2:00 AM EST daily
+                    )
+                );
+
+                var deleteTestUsersJobKey = new JobKey("DeleteTestUsers");
+                q.AddJob<DeleteTestUsersJob>(opts => opts
+                    .WithIdentity(deleteTestUsersJobKey)
+                    .DisallowConcurrentExecution() // never run two at once
+                );
+
+                q.AddTrigger(opts => opts
+                    .ForJob(deleteTestUsersJobKey)
+                    .WithIdentity("DeleteTestUsers-trigger")
+                    .WithCronSchedule("0 0 18 * * ?", x => x
+                        .InTimeZone(TimeZoneInfo.FindSystemTimeZoneById("India Standard Time")) // 6:00 PM IST daily
                     )
                 );
             });

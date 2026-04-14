@@ -368,7 +368,8 @@ router.put("/:id", async (req: Request, res: Response) => {
         (sum: number, r: any) => sum + (parseFloat(r.balance) || 0), 0
       );
 
-      const investedSum = parseFloat(grant.invested_sum) || parseFloat(grant.total_invested_amount) || 0;
+      const parsedInvestedSum = parseFloat(grant.invested_sum);
+      const investedSum = isNaN(parsedInvestedSum) ? 0 : parsedInvestedSum;
       const fromWallet = investedSum - (pendingGrantAmount + totalGroupBalance);
       if (userBalance < fromWallet) {
         await client.query("ROLLBACK");
@@ -439,7 +440,7 @@ router.put("/:id", async (req: Request, res: Response) => {
              VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7, $8)`,
             [
               grant.uid,
-              `Manually, ${loginUserName}`,
+              `Recommendation created using group balance, ${loginUserName}`,
               gabBalance,
               grant.user_name,
               gabBalance - deduction,
@@ -486,7 +487,7 @@ router.put("/:id", async (req: Request, res: Response) => {
         }
 
         await client.query(
-          `INSERT INTO user_investments (user_id, payment_type, campaign_name, campaign_id, log_trigger_e_d)
+          `INSERT INTO user_investments (user_id, payment_type, campaign_name, campaign_id, log_triggered)
            VALUES ($1, $2, $3, $4, true)`,
           [grant.uid, `Manually, ${loginUserName}`, grant.campaign_name, grant.camp_id]
         );

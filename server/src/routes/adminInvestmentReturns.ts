@@ -48,7 +48,7 @@ router.get("/", async (req: Request, res: Response) => {
       LEFT JOIN campaigns c ON rm.campaign_id = c.id
       LEFT JOIN return_details rd ON rd.return_master_id = rm.id
       LEFT JOIN users u ON rd.user_id = u.id
-      LEFT JOIN users du ON du.id = CASE WHEN rd.deleted_by ~ '^\d{1,18}$' THEN rd.deleted_by::bigint END
+      LEFT JOIN users du ON du.id = rd.deleted_by
       ${conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : ""}
     `;
 

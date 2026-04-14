@@ -80,6 +80,7 @@ namespace Invest.Controllers.Admin
                                       Id = x.Id,
                                       Title = x.Title,
                                       Description = x.Description,
+                                      TypeId = x.NewsTypeId,
                                       Type = x.NewsType != null ? x.NewsType.Value : null,
                                       Audience = x.Audience != null ? x.Audience.Value : null,
                                       Theme = x.Theme != null ? x.Theme.Name : null,

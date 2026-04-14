@@ -18,6 +18,7 @@ interface RichTextEditorProps {
   className?: string;
   "data-testid"?: string;
   suggestions?: { id: number; key?: string; value: string }[];
+  maxLength?: number;
 }
 
 export function RichTextEditor({
@@ -27,17 +28,24 @@ export function RichTextEditor({
   className = "",
   "data-testid": testId,
   suggestions = [],
+  maxLength,
 }: RichTextEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
+  const lastValidHtmlRef = useRef<string>(value);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionCoords, setMentionCoords] = useState({ top: 0, left: 0 });
   const [highlightedIndex, setHighlightedIndex] = useState(0);
 
+  const getPlainTextLength = useCallback((el: HTMLElement) => {
+    return el.innerHTML.replace(/<[^>]*>/g, "").length;
+  }, []);
+
   // Set initial HTML only on mount
   useEffect(() => {
     if (editorRef.current) {
       editorRef.current.innerHTML = value;
+      lastValidHtmlRef.current = value;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -47,6 +55,7 @@ export function RichTextEditor({
     const el = editorRef.current;
     if (el && el !== document.activeElement) {
       el.innerHTML = value;
+      lastValidHtmlRef.current = value;
     }
   }, [value]);
 
@@ -65,8 +74,27 @@ export function RichTextEditor({
     }
   }, [execCommand]);
 
+  const enforceMaxLength = useCallback((): boolean => {
+    if (!maxLength || !editorRef.current) return false;
+    if (getPlainTextLength(editorRef.current) > maxLength) {
+      editorRef.current.innerHTML = lastValidHtmlRef.current;
+      const selection = window.getSelection();
+      if (selection) {
+        const range = document.createRange();
+        range.selectNodeContents(editorRef.current);
+        range.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+      return true;
+    }
+    lastValidHtmlRef.current = editorRef.current.innerHTML;
+    return false;
+  }, [maxLength, getPlainTextLength]);
+
   const handleInput = useCallback(() => {
     if (!editorRef.current) return;
+    if (enforceMaxLength()) return;
     const currentHtml = editorRef.current.innerHTML;
     onChange(currentHtml);
 
@@ -97,7 +125,7 @@ export function RichTextEditor({
       }
     }
     setMentionOpen(false);
-  }, [onChange]);
+  }, [onChange, enforceMaxLength]);
 
   const filteredSuggestions = suggestions.filter((s) =>
     (s.key || s.value).toLowerCase().includes(mentionQuery.toLowerCase())
@@ -139,12 +167,12 @@ export function RichTextEditor({
       selection.removeAllRanges();
       selection.addRange(newRange);
 
-      if (editorRef.current) {
+      if (!enforceMaxLength() && editorRef.current) {
         onChange(editorRef.current.innerHTML);
       }
     }
     setMentionOpen(false);
-  }, [onChange]);
+  }, [onChange, enforceMaxLength]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!mentionOpen) return;
@@ -163,6 +191,14 @@ export function RichTextEditor({
       setMentionOpen(false);
     }
   };
+
+  const handlePaste = useCallback(() => {
+    setTimeout(() => {
+      if (!editorRef.current) return;
+      if (enforceMaxLength()) return;
+      onChange(editorRef.current.innerHTML);
+    }, 0);
+  }, [enforceMaxLength, onChange]);
 
   const hasContent = value.replace(/<[^>]*>/g, "").trim().length > 0;
 
@@ -246,6 +282,7 @@ export function RichTextEditor({
           dir="ltr"
           className="min-h-[120px] px-3 py-2 text-sm outline-none focus:ring-0 bg-white dark:bg-background rich-text-editor-content"
           onInput={handleInput}
+          onPaste={handlePaste}
           onKeyDown={handleKeyDown}
           onFocus={handleFocus}
           data-testid={testId ? `${testId}-editor` : "rich-text-content"}

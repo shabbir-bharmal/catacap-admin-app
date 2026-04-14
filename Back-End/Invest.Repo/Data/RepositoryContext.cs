@@ -303,4 +303,5 @@ public class RepositoryContext : IdentityDbContext<User, ApplicationRole, string
     public DbSet<FormSubmissionNotes> FormSubmissionNotes { get; set; } = null!;
     public DbSet<AuditLog> AuditLogs { get; set; }
     public DbSet<Slug> Slug { get; set; }
+    public DbSet<ArchivedUserData> ArchivedUserData { get; set; }
 }

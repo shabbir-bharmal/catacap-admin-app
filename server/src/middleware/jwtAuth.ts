@@ -26,11 +26,38 @@ export function jwtAuthMiddleware(req: Request, res: Response, next: NextFunctio
     return;
   }
 
-  if (!decoded.isSuperAdmin && !ADMIN_ROLES.includes(decoded.role.toLowerCase())) {
+  const hasAdminRole = decoded.isSuperAdmin ||
+    decoded.roles.some(r => ADMIN_ROLES.includes(r.toLowerCase()));
+
+  if (!hasAdminRole) {
     res.status(403).json({ message: "Admin access required" });
     return;
   }
 
   req.user = decoded;
   next();
+}
+
+export function modulePermission(moduleName: string, permissionType: "Manage" | "Delete") {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      res.status(401).json({ message: "Authentication required" });
+      return;
+    }
+
+    if (req.user.isSuperAdmin) {
+      next();
+      return;
+    }
+
+    const requiredPermission = `${moduleName.toLowerCase()}.${permissionType}`;
+    const userPermissions = req.user.permissions || [];
+
+    if (!userPermissions.includes(requiredPermission)) {
+      res.status(403).json({ message: "Insufficient permissions" });
+      return;
+    }
+
+    next();
+  };
 }

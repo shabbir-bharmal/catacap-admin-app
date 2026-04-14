@@ -15,7 +15,7 @@ export interface CompletedInvestmentEntry {
   transactionType: number | null;
   transactionTypeValue: string | null;
   property: string;
-  investmentVehicle?: string | null;
+  balanceSheet?: string | null;
 }
 
 export interface CompletedInvestmentParams {
@@ -124,27 +124,23 @@ export interface UpdateCompletedInvestmentParams {
   TypeOfInvestmentIds: string;
   TypeOfInvestmentName: string;
   Note: string;
-  InvestmentVehicle: string;
+  BalanceSheet: string;
 }
 
 export async function updateCompletedInvestmentDetails(
   params: UpdateCompletedInvestmentParams
 ): Promise<void> {
-  const queryParams: Record<string, string> = {
-    Id: params.Id.toString(),
-    InvestmentId: params.InvestmentId.toString(),
-    InvestmentDetail: params.InvestmentDetail,
-    TotalInvestmentAmount: params.TotalInvestmentAmount.toString(),
-    TransactionTypeId: params.TransactionTypeId.toString(),
-    DateOfLastInvestment: params.DateOfLastInvestment,
-    TypeOfInvestmentIds: params.TypeOfInvestmentIds,
-    TypeOfInvestmentName: params.TypeOfInvestmentName,
-    Note: params.Note,
-    InvestmentVehicle: params.InvestmentVehicle,
-  };
-
-  await axiosInstance.get("/api/admin/completed-investment/details", {
-    params: queryParams,
+  await axiosInstance.post("/api/admin/completed-investment", {
+    id: params.Id,
+    investmentId: params.InvestmentId,
+    investmentDetail: params.InvestmentDetail,
+    totalInvestmentAmount: params.TotalInvestmentAmount,
+    transactionTypeId: params.TransactionTypeId,
+    dateOfLastInvestment: params.DateOfLastInvestment,
+    typeOfInvestmentIds: params.TypeOfInvestmentIds,
+    typeOfInvestmentName: params.TypeOfInvestmentName,
+    note: params.Note,
+    balanceSheet: params.BalanceSheet,
   });
 }
 
@@ -158,7 +154,7 @@ export interface CreateCompletedInvestmentPayload {
   typeOfInvestmentIds: string;
   typeOfInvestmentName?: string;
   note: string;
-  investmentVehicle: string;
+  balanceSheet: string;
 }
 
 export async function createCompletedInvestment(
@@ -172,6 +168,7 @@ export interface CompletedInvestmentDetailsResponse {
   typeOfInvestmentIds?: string;
   pendingRecommendationsAmount?: number;
   approvedRecommendationsAmount?: number;
+  balanceSheet?: string | null;
 }
 
 export async function fetchCompletedInvestmentDetailsByInvestment(

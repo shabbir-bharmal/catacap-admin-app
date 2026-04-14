@@ -283,7 +283,7 @@ router.put("/:id/status", async (req: Request, res: Response) => {
         }
 
         await client.query(
-          `INSERT INTO user_investments (user_id, payment_type, campaign_name, campaign_id, log_trigger_e_d)
+          `INSERT INTO user_investments (user_id, payment_type, campaign_name, campaign_id, log_triggered)
            VALUES ($1, $2, $3, $4, true)`,
           [asset.uid, paymentType, asset.campaign_name, asset.camp_id]
         );

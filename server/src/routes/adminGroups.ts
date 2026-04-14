@@ -1513,7 +1513,7 @@ router.put("/:id/transaction-history", async (req: Request, res: Response) => {
       : `group leader: ${(adminUser?.name || adminUser?.email || "user").trim().toLowerCase()}`;
 
     await pool.query(
-      `INSERT INTO user_investments (user_id, payment_type, log_trigger_e_d)
+      `INSERT INTO user_investments (user_id, payment_type, log_triggered)
        VALUES ($1, $2, false)`,
       [user.id, `Balance updated by ${adminName}`]
     );

@@ -383,9 +383,9 @@ router.get("/export", async (_req: Request, res: Response) => {
     rows.push(["USERS", ""]);
     rows.push(["Total active users", String(data.users.active)]);
     rows.push(["Total inactive users", String(data.users.inactive)]);
-    rows.push(["Total user account balances", `$${data.users.accountBalances.toFixed(2)}`]);
-    rows.push(["Total user investments", `$${data.users.investments.toFixed(2)}`]);
-    rows.push(["TOTAL USER INVESTMENTS PLUS ACCOUNT BALANCES", `$${data.users.investmentsPlusAccountBalances.toFixed(2)}`]);
+    rows.push(["Total user account balances", `$${(data.users.accountBalances ?? 0).toFixed(2)}`]);
+    rows.push(["Total user investments", `$${(data.users.investments ?? 0).toFixed(2)}`]);
+    rows.push(["TOTAL USER INVESTMENTS PLUS ACCOUNT BALANCES", `$${(data.users.investmentsPlusAccountBalances ?? 0).toFixed(2)}`]);
 
     rows.push(["GROUPS", ""]);
     rows.push(["Investment groups (group leaders)", `${data.groups.investments} (${data.groups.leaders})`]);
@@ -393,36 +393,36 @@ router.get("/export", async (_req: Request, res: Response) => {
     rows.push(["Total corporate groups", String(data.groups.corporate)]);
 
     rows.push(["RECOMMENDATIONS", ""]);
-    rows.push(["Total pending", `$${data.recommendations.pending.toFixed(2)}`]);
-    rows.push(["Total approved", `$${data.recommendations.approved.toFixed(2)}`]);
+    rows.push(["Total pending", `$${(data.recommendations.pending ?? 0).toFixed(2)}`]);
+    rows.push(["Total approved", `$${(data.recommendations.approved ?? 0).toFixed(2)}`]);
     rows.push(["Count of approved and pending recommendations", String(data.recommendations.approvedAndPending)]);
-    rows.push(["Total rejected", `$${data.recommendations.rejected.toFixed(2)}`]);
-    rows.push(["TOTAL RECOMMENDATIONS", `$${data.recommendations.total.toFixed(2)}`]);
+    rows.push(["Total rejected", `$${(data.recommendations.rejected ?? 0).toFixed(2)}`]);
+    rows.push(["TOTAL RECOMMENDATIONS", `$${(data.recommendations.total ?? 0).toFixed(2)}`]);
 
     rows.push(["INVESTMENTS", ""]);
-    rows.push(["Average investment amount", `$${data.investments.average.toFixed(2)}`]);
+    rows.push(["Average investment amount", `$${(data.investments.average ?? 0).toFixed(2)}`]);
     rows.push(["Total active investments", String(data.investments.active)]);
     rows.push(["Total active investments over $25K", String(data.investments.over25K)]);
     rows.push(["Total active investments over $50K", String(data.investments.over50K)]);
     rows.push(["Total completed investments", String(data.investments.completed)]);
-    rows.push(["TOTAL CATACAP INVESTMENTS, ACTIVE", `$${data.investments.totalActive.toFixed(2)}`]);
-    rows.push(["TOTAL CATACAP INVESTMENTS, COMPLETED", `$${data.investments.totalCompleted.toFixed(2)}`]);
-    rows.push(["TOTAL CATACAP INVESTMENTS, ACTIVE AND CLOSED", `$${data.investments.totalActiveAndClosed.toFixed(2)}`]);
-    rows.push(["TOTAL CATACAP ASSETS (User account balances + total recommendations)", `$${data.investments.assets.toFixed(2)}`]);
+    rows.push(["TOTAL CATACAP INVESTMENTS, ACTIVE", `$${(data.investments.totalActive ?? 0).toFixed(2)}`]);
+    rows.push(["TOTAL CATACAP INVESTMENTS, COMPLETED", `$${(data.investments.totalCompleted ?? 0).toFixed(2)}`]);
+    rows.push(["TOTAL CATACAP INVESTMENTS, ACTIVE AND CLOSED", `$${(data.investments.totalActiveAndClosed ?? 0).toFixed(2)}`]);
+    rows.push(["TOTAL CATACAP ASSETS (User account balances + total recommendations)", `$${(data.investments.assets ?? 0).toFixed(2)}`]);
 
     rows.push(["INVESTMENTS BY THEME", ""]);
     for (const theme of data.investmentThemes) {
-      rows.push([theme.name, `$${theme.total.toFixed(2)}`]);
+      rows.push([theme.name, `$${(theme.total ?? 0).toFixed(2)}`]);
     }
 
     rows.push(["GRANTS", ""]);
-    rows.push(["Total pending and in transit grants", `$${data.grants.pendingAndInTransit.toFixed(2)}`]);
-    rows.push(["Total pending and in transit other assets", `$${data.grants.pendingAndInTransitOtherAssets.toFixed(2)}`]);
+    rows.push(["Total pending and in transit grants", `$${(data.grants.pendingAndInTransit ?? 0).toFixed(2)}`]);
+    rows.push(["Total pending and in transit other assets", `$${(data.grants.pendingAndInTransitOtherAssets ?? 0).toFixed(2)}`]);
 
     rows.push(["TO BALANCE", ""]);
-    rows.push(["TOTAL RECOMMENDATIONS", `$${data.toBalance.recommendations.toFixed(2)}`]);
-    rows.push(["TOTAL ACTIVE AND CLOSED CATACAP INVESTMENTS", `$${data.toBalance.activeAndClosed.toFixed(2)}`]);
-    rows.push(["DIFFERENCE", `$${data.toBalance.difference.toFixed(2)}`]);
+    rows.push(["TOTAL RECOMMENDATIONS", `$${(data.toBalance.recommendations ?? 0).toFixed(2)}`]);
+    rows.push(["TOTAL ACTIVE AND CLOSED CATACAP INVESTMENTS", `$${(data.toBalance.activeAndClosed ?? 0).toFixed(2)}`]);
+    rows.push(["DIFFERENCE", `$${(data.toBalance.difference ?? 0).toFixed(2)}`]);
 
     let csv = headers.join(",") + "\n";
     for (const row of rows) {

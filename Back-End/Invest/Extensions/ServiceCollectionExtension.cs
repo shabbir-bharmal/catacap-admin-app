@@ -196,6 +196,8 @@ public static class ServiceExtension
                 environment.IsProduction()));
 
         services.AddScoped<IEmailJobService, EmailJobService>();
+        services.AddScoped<IDeleteArchivedUsersJobService, DeleteArchivedUsersJobService>();
+        services.AddScoped<IDeleteTestUsersJobService, DeleteTestUsersJobService>();
         services.AddScoped<IEmailTemplateService, EmailTemplateService>();
         services.AddSingleton<EmailQueue>();
         services.AddMemoryCache();

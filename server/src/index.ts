@@ -36,6 +36,8 @@ import recycleBinRoutes from "./routes/recycleBin.js";
 import campaignRoutes from "./routes/campaign.js";
 import { jwtAuthMiddleware } from "./middleware/jwtAuth.js";
 import { Router } from "express";
+import { initScheduler } from "./scheduler/index.js";
+import adminSchedulerRoutes from "./routes/adminScheduler.js";
 
 const app = express();
 const isProduction = process.env.NODE_ENV === "production";
@@ -77,6 +79,7 @@ app.use("/api/admin/investment-return", jwtAuthMiddleware, adminInvestmentReturn
 app.use("/api/admin/completed-investment", jwtAuthMiddleware, adminCompletedInvestmentRoutes);
 app.use("/api/admin/investment", jwtAuthMiddleware, adminInvestmentRoutes);
 app.use("/api/admin/recycle-bin", jwtAuthMiddleware, recycleBinRoutes);
+app.use("/api/admin/scheduler", jwtAuthMiddleware, adminSchedulerRoutes);
 app.use("/api/Campaign", campaignRoutes);
 app.use("/api/Group", publicGroupRoutes);
 app.use("/api/AccountBalanceHistory", accountHistoryRoutes);
@@ -104,6 +107,7 @@ async function start() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on port ${PORT}`);
+    initScheduler();
   });
 }
 

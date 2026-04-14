@@ -368,7 +368,7 @@ export default function UsersPage() {
                         </td>
                         <td className="px-4 py-3">
                           <span className="text-sm" data-testid={`text-balance-${user.id}`}>
-                            ${user.accountBalance.toFixed(2)}
+                            ${(user.accountBalance ?? 0).toFixed(2)}
                           </span>
                         </td>
                         <td className="px-4 py-3">
