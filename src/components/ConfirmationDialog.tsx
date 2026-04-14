@@ -51,7 +51,7 @@ export function ConfirmationDialog({
         }
       }}
     >
-      <DialogContent className="sm:max-w-[480px]" data-testid={dataTestId}>
+      <DialogContent className="sm:w-[480px]" data-testid={dataTestId}>
         <div className="text-base font-semibold py-2">
           {title}
         </div>
