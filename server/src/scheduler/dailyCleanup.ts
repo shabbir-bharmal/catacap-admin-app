@@ -105,6 +105,19 @@ async function tableExists(
   return result.rows.length > 0;
 }
 
+async function runStep(
+  stepName: string,
+  fn: () => Promise<void>
+): Promise<void> {
+  try {
+    await fn();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[CLEANUP] FAILED at step: ${stepName} — ${message}`);
+    throw new Error(`Step "${stepName}" failed: ${message}`);
+  }
+}
+
 async function archiveAndDelete(
   client: PoolClient,
   tableName: string,
@@ -253,10 +266,140 @@ async function nullifyFkColumn(
   );
 }
 
+async function archiveAndDeleteByUserFK(
+  client: PoolClient,
+  tableName: string,
+  userFkColumn: string,
+  cutoffDate: Date
+): Promise<void> {
+  const pgTable = t(tableName);
+  const pgFk = c(userFkColumn);
+
+  if (!(await tableExists(client, pgTable))) {
+    console.log(`  SKIP (table not found): ${pgTable}`);
+    return;
+  }
+
+  await client.query(
+    `INSERT INTO archived_user_data
+      (source_table, record_id, user_id, deleted_at, days_old, record_json, archived_at)
+     SELECT
+       $1,
+       CAST(ch.id AS TEXT),
+       CAST(ch.${pgFk} AS VARCHAR(450)),
+       u.deleted_at,
+       (CURRENT_DATE - u.deleted_at::date),
+       row_to_json(ch)::TEXT,
+       NOW()
+     FROM ${pgTable} ch
+     JOIN users u
+       ON u.id = ch.${pgFk}
+       AND u.deleted_at IS NOT NULL
+       AND u.deleted_at <= $2
+     WHERE NOT EXISTS (
+       SELECT 1 FROM archived_user_data a
+       WHERE a.source_table = $1
+         AND a.record_id = CAST(ch.id AS TEXT)
+         AND CAST(a.archived_at AS DATE) = CURRENT_DATE
+     )`,
+    [pgTable, cutoffDate]
+  );
+
+  const deleteResult = await client.query(
+    `DELETE FROM ${pgTable} ch
+     USING users u
+     WHERE u.id = ch.${pgFk}
+       AND u.deleted_at IS NOT NULL
+       AND u.deleted_at <= $1`,
+    [cutoffDate]
+  );
+
+  console.log(
+    `  ${pgTable} (by user FK ${pgFk}): archived & deleted ${deleteResult.rowCount} row(s)`
+  );
+}
+
+async function archiveAndDeleteCampaignChildByUser(
+  client: PoolClient,
+  childTable: string,
+  campaignFkColumn: string,
+  cutoffDate: Date
+): Promise<void> {
+  const pgChild = t(childTable);
+  const pgFk = c(campaignFkColumn);
+
+  if (!(await tableExists(client, pgChild))) {
+    console.log(`  SKIP (table not found): ${pgChild}`);
+    return;
+  }
+
+  await client.query(
+    `INSERT INTO archived_user_data
+      (source_table, record_id, user_id, deleted_at, days_old, record_json, archived_at)
+     SELECT
+       $1,
+       CAST(ch.id AS TEXT),
+       NULL,
+       u.deleted_at,
+       (CURRENT_DATE - u.deleted_at::date),
+       row_to_json(ch)::TEXT,
+       NOW()
+     FROM ${pgChild} ch
+     JOIN campaigns cam ON cam.id = ch.${pgFk}
+     JOIN users u
+       ON u.id = cam.user_id
+       AND u.deleted_at IS NOT NULL
+       AND u.deleted_at <= $2
+     WHERE NOT EXISTS (
+       SELECT 1 FROM archived_user_data a
+       WHERE a.source_table = $1
+         AND a.record_id = CAST(ch.id AS TEXT)
+         AND CAST(a.archived_at AS DATE) = CURRENT_DATE
+     )`,
+    [pgChild, cutoffDate]
+  );
+
+  const deleteResult = await client.query(
+    `DELETE FROM ${pgChild} ch
+     USING campaigns cam, users u
+     WHERE cam.id = ch.${pgFk}
+       AND u.id = cam.user_id
+       AND u.deleted_at IS NOT NULL
+       AND u.deleted_at <= $1`,
+    [cutoffDate]
+  );
+
+  console.log(
+    `  ${pgChild} (user-campaign orphan via ${pgFk}): archived & deleted ${deleteResult.rowCount} row(s)`
+  );
+}
+
+async function ensureArchivedUserDataTable(client: PoolClient): Promise<void> {
+  const exists = await tableExists(client, "archived_user_data");
+  if (!exists) {
+    console.log("[CLEANUP] Creating archived_user_data table...");
+    await client.query(`
+      CREATE TABLE archived_user_data (
+        id SERIAL PRIMARY KEY,
+        source_table TEXT NOT NULL,
+        record_id TEXT NOT NULL,
+        user_id TEXT,
+        days_old INTEGER NOT NULL,
+        record_json TEXT NOT NULL,
+        archived_at TIMESTAMP DEFAULT NOW(),
+        deleted_at TIMESTAMP
+      )
+    `);
+    console.log("[CLEANUP] archived_user_data table created.");
+  }
+}
+
 export async function runDailyCleanup(): Promise<void> {
   const client = await pool.connect();
 
   try {
+    await ensureArchivedUserDataTable(client);
+
     const configResult = await client.query(
       `SELECT value FROM site_configurations
        WHERE type = 'Configuration'
@@ -293,114 +436,290 @@ export async function runDailyCleanup(): Promise<void> {
     console.log(`[CLEANUP] Cutoff date: ${cutoffDate.toISOString()}`);
     console.log(`[CLEANUP] Started at: ${new Date().toISOString()}`);
 
+    const preflightResult = await client.query(
+      `SELECT
+         COUNT(*)::int AS total_users,
+         COUNT(*) FILTER (WHERE is_deleted = true)::int AS soft_deleted_total,
+         COUNT(*) FILTER (WHERE deleted_at IS NOT NULL)::int AS has_deleted_at,
+         COUNT(*) FILTER (WHERE deleted_at IS NOT NULL AND deleted_at <= $1)::int AS qualifying
+       FROM users`,
+      [cutoffDate]
+    );
+    const { total_users, soft_deleted_total, has_deleted_at, qualifying } = preflightResult.rows[0];
+    console.log(`[CLEANUP] Total users: ${total_users}`);
+    console.log(`[CLEANUP] Soft-deleted (is_deleted=true): ${soft_deleted_total}`);
+    console.log(`[CLEANUP] With deleted_at set: ${has_deleted_at}`);
+    console.log(`[CLEANUP] Qualifying for deletion (deleted_at <= cutoff): ${qualifying}`);
+
+    if (qualifying === 0) {
+      if (soft_deleted_total > 0 && has_deleted_at === 0) {
+        console.log("[CLEANUP] WARNING: Soft-deleted users exist but have no deleted_at timestamp.");
+      } else if (has_deleted_at > 0) {
+        console.log("[CLEANUP] Soft-deleted users exist but are within the retention period.");
+      }
+      console.log("[CLEANUP] No users qualify for deletion. Exiting early.");
+      return;
+    }
+
     await client.query("BEGIN");
 
     try {
       console.log("-- LEVEL 5: Leaf tables --");
-      await archiveAndDeleteOrphan(client, "PendingGrantNotes", "PendingGrantId", "PendingGrants", "Id", cutoffDate);
-      await archiveAndDeleteOrphan(client, "DisbursalRequestNotes", "DisbursalRequestId", "DisbursalRequest", "Id", cutoffDate);
-      await archiveAndDeleteOrphan(client, "AssetBasedPaymentRequestNotes", "RequestId", "AssetBasedPaymentRequest", "Id", cutoffDate);
-      await archiveAndDeleteOrphan(client, "FormSubmissionNotes", "FormSubmissionId", "FormSubmission", "Id", cutoffDate);
-      await archiveAndDeleteOrphan(client, "InvestmentNotes", "CampaignId", "Campaigns", "Id", cutoffDate);
-      await archiveAndDeleteOrphan(client, "CompletedInvestmentNotes", "CompletedInvestmentId", "CompletedInvestmentsDetails", "Id", cutoffDate);
-      await archiveAndDeleteOrphan(client, "ACHPaymentRequests", "CampaignId", "Campaigns", "Id", cutoffDate);
-      await archiveAndDeleteOrphan(client, "InvestmentTagMapping", "CampaignId", "Campaigns", "Id", cutoffDate);
+      await runStep("Level5: PendingGrantNotes orphan", () =>
+        archiveAndDeleteOrphan(client, "PendingGrantNotes", "PendingGrantId", "PendingGrants", "Id", cutoffDate));
+      await runStep("Level5: DisbursalRequestNotes orphan", () =>
+        archiveAndDeleteOrphan(client, "DisbursalRequestNotes", "DisbursalRequestId", "DisbursalRequest", "Id", cutoffDate));
+      await runStep("Level5: AssetBasedPaymentRequestNotes orphan", () =>
+        archiveAndDeleteOrphan(client, "AssetBasedPaymentRequestNotes", "RequestId", "AssetBasedPaymentRequest", "Id", cutoffDate));
+      await runStep("Level5: FormSubmissionNotes orphan", () =>
+        archiveAndDeleteOrphan(client, "FormSubmissionNotes", "FormSubmissionId", "FormSubmission", "Id", cutoffDate));
+      await runStep("Level5: InvestmentNotes orphan", () =>
+        archiveAndDeleteOrphan(client, "InvestmentNotes", "CampaignId", "Campaigns", "Id", cutoffDate));
+      await runStep("Level5: CompletedInvestmentNotes orphan", () =>
+        archiveAndDeleteOrphan(client, "CompletedInvestmentNotes", "CompletedInvestmentId", "CompletedInvestmentsDetails", "Id", cutoffDate));
+      await runStep("Level5: ACHPaymentRequests orphan", () =>
+        archiveAndDeleteOrphan(client, "ACHPaymentRequests", "CampaignId", "Campaigns", "Id", cutoffDate));
+      await runStep("Level5: InvestmentTagMapping orphan", () =>
+        archiveAndDeleteOrphan(client, "InvestmentTagMapping", "CampaignId", "Campaigns", "Id", cutoffDate));
 
-      await client.query(
-        `DELETE FROM campaign_groups cdg
-         USING campaigns c
-         WHERE c.id = cdg.campaigns_id
-           AND c.deleted_at IS NOT NULL
-           AND c.deleted_at <= $1`,
-        [cutoffDate]
-      );
+      await runStep("Level5: CampaignGroups delete by campaign", async () => {
+        const result = await client.query(
+          `DELETE FROM campaign_groups cdg
+           USING campaigns c
+           WHERE c.id = cdg.campaigns_id
+             AND c.deleted_at IS NOT NULL
+             AND c.deleted_at <= $1`,
+          [cutoffDate]
+        );
+        console.log(`  campaign_groups: deleted ${result.rowCount} row(s)`);
+      });
 
-      await archiveAndDeleteOrphan(client, "ReturnMasters", "CampaignId", "Campaigns", "Id", cutoffDate);
-      await archiveAndDelete(client, "ScheduledEmailLogs", "Id", "UserId", cutoffDate);
+      await runStep("Level5: ReturnMasters orphan", () =>
+        archiveAndDeleteOrphan(client, "ReturnMasters", "CampaignId", "Campaigns", "Id", cutoffDate));
+      await runStep("Level5: ScheduledEmailLogs", () =>
+        archiveAndDelete(client, "ScheduledEmailLogs", "Id", "UserId", cutoffDate));
 
       console.log("-- LEVEL 4: AccountBalanceChangeLogs (all 3 parent FKs) --");
-      await archiveAndDeleteOrphan(client, "AccountBalanceChangeLogs", "AssetBasedPaymentRequestId", "AssetBasedPaymentRequest", "Id", cutoffDate);
-      await archiveAndDeleteOrphan(client, "AccountBalanceChangeLogs", "CampaignId", "Campaigns", "Id", cutoffDate);
-      await archiveAndDeleteOrphan(client, "AccountBalanceChangeLogs", "PendingGrantsId", "PendingGrants", "Id", cutoffDate);
-      await archiveAndDelete(client, "AccountBalanceChangeLogs", "Id", "UserId", cutoffDate);
+      await runStep("Level4: AccountBalanceChangeLogs orphan by ABPR", () =>
+        archiveAndDeleteOrphan(client, "AccountBalanceChangeLogs", "AssetBasedPaymentRequestId", "AssetBasedPaymentRequest", "Id", cutoffDate));
+      await runStep("Level4: AccountBalanceChangeLogs orphan by Campaign", () =>
+        archiveAndDeleteOrphan(client, "AccountBalanceChangeLogs", "CampaignId", "Campaigns", "Id", cutoffDate));
+      await runStep("Level4: AccountBalanceChangeLogs orphan by PendingGrants", () =>
+        archiveAndDeleteOrphan(client, "AccountBalanceChangeLogs", "PendingGrantsId", "PendingGrants", "Id", cutoffDate));
+      await runStep("Level4: AccountBalanceChangeLogs self", () =>
+        archiveAndDelete(client, "AccountBalanceChangeLogs", "Id", "UserId", cutoffDate));
 
-      await archiveAndDelete(client, "CompletedInvestmentsDetails", "Id", null, cutoffDate);
-      await archiveAndDelete(client, "ReturnDetails", "Id", "UserId", cutoffDate);
+      await runStep("Level4: CompletedInvestmentsDetails", () =>
+        archiveAndDelete(client, "CompletedInvestmentsDetails", "Id", null, cutoffDate));
+      await runStep("Level4: ReturnDetails", () =>
+        archiveAndDelete(client, "ReturnDetails", "Id", "UserId", cutoffDate));
 
       console.log("-- LEVEL 3: Mid-level parents --");
-      await archiveAndDelete(client, "AssetBasedPaymentRequest", "Id", "UserId", cutoffDate);
-      await archiveAndDelete(client, "DisbursalRequest", "Id", "UserId", cutoffDate);
-      await archiveAndDelete(client, "PendingGrants", "Id", "UserId", cutoffDate);
-      await archiveAndDelete(client, "Recommendations", "Id", "UserId", cutoffDate);
-      await archiveAndDelete(client, "UserInvestments", "Id", "UserId", cutoffDate);
-      await archiveAndDelete(client, "InvestmentRequest", "Id", "UserId", cutoffDate);
-      await archiveAndDelete(client, "InvestmentFeedback", "Id", "UserId", cutoffDate);
-      await archiveAndDelete(client, "Requests", "Id", "RequestOwnerId", cutoffDate);
-      await archiveAndDelete(client, "LeaderGroup", "Id", "UserId", cutoffDate);
-      await archiveAndDelete(client, "GroupAccountBalance", "Id", "UserId", cutoffDate);
-      await archiveAndDelete(client, "FormSubmission", "Id", null, cutoffDate);
-      await archiveAndDelete(client, "UsersNotifications", "Id", "TargetUserId", cutoffDate);
-      await archiveAndDelete(client, "AspNetUserRoles", "UserId", "UserId", cutoffDate);
+      await runStep("Level3: AssetBasedPaymentRequest", () =>
+        archiveAndDelete(client, "AssetBasedPaymentRequest", "Id", "UserId", cutoffDate));
+      await runStep("Level3: DisbursalRequest", () =>
+        archiveAndDelete(client, "DisbursalRequest", "Id", "UserId", cutoffDate));
+      await runStep("Level3: PendingGrants", () =>
+        archiveAndDelete(client, "PendingGrants", "Id", "UserId", cutoffDate));
+      await runStep("Level3: Recommendations", () =>
+        archiveAndDelete(client, "Recommendations", "Id", "UserId", cutoffDate));
+      await runStep("Level3: UserInvestments", () =>
+        archiveAndDelete(client, "UserInvestments", "Id", "UserId", cutoffDate));
+      await runStep("Level3: InvestmentRequest", () =>
+        archiveAndDelete(client, "InvestmentRequest", "Id", "UserId", cutoffDate));
+      await runStep("Level3: InvestmentFeedback", () =>
+        archiveAndDelete(client, "InvestmentFeedback", "Id", "UserId", cutoffDate));
+      await runStep("Level3: Requests", () =>
+        archiveAndDelete(client, "Requests", "Id", "RequestOwnerId", cutoffDate));
+      await runStep("Level3: LeaderGroup", () =>
+        archiveAndDelete(client, "LeaderGroup", "Id", "UserId", cutoffDate));
+      await runStep("Level3: GroupAccountBalance", () =>
+        archiveAndDelete(client, "GroupAccountBalance", "Id", "UserId", cutoffDate));
+      await runStep("Level3: FormSubmission", () =>
+        archiveAndDelete(client, "FormSubmission", "Id", null, cutoffDate));
+      await runStep("Level3: UsersNotifications", () =>
+        archiveAndDelete(client, "UsersNotifications", "Id", "TargetUserId", cutoffDate));
+      await runStep("Level3: AspNetUserRoles", () =>
+        archiveAndDelete(client, "AspNetUserRoles", "UserId", "UserId", cutoffDate));
 
       console.log("-- LEVEL 2: Top-level domain parents --");
-      await archiveAndDelete(client, "Groups", "Id", "OwnerId", cutoffDate);
-      await archiveAndDelete(client, "Campaigns", "Id", "UserId", cutoffDate);
+      await runStep("Level2: Groups", () =>
+        archiveAndDelete(client, "Groups", "Id", "OwnerId", cutoffDate));
+      await runStep("Level2: Campaigns", () =>
+        archiveAndDelete(client, "Campaigns", "Id", "UserId", cutoffDate));
 
       console.log("-- NULLIFY: Audit FK columns referencing deleted users --");
-      await nullifyFkColumn(client, "AspNetUsers", "DeletedBy", cutoffDate);
+      await runStep("Nullify: AspNetUsers.DeletedBy", () =>
+        nullifyFkColumn(client, "AspNetUsers", "DeletedBy", cutoffDate));
 
-      await nullifyFkColumn(client, "Requests", "DeletedBy", cutoffDate);
-      await nullifyFkColumn(client, "Requests", "RequestOwnerId", cutoffDate);
-      await nullifyFkColumn(client, "Requests", "UserToFollowId", cutoffDate);
+      await runStep("Nullify: Requests.DeletedBy", () =>
+        nullifyFkColumn(client, "Requests", "DeletedBy", cutoffDate));
+      await runStep("Nullify: Requests.RequestOwnerId", () =>
+        nullifyFkColumn(client, "Requests", "RequestOwnerId", cutoffDate));
+      await runStep("Nullify: Requests.UserToFollowId", () =>
+        nullifyFkColumn(client, "Requests", "UserToFollowId", cutoffDate));
 
-      await nullifyFkColumn(client, "AccountBalanceChangeLogs", "DeletedBy", cutoffDate);
-      await nullifyFkColumn(client, "ApprovedBy", "DeletedBy", cutoffDate);
-      await nullifyFkColumn(client, "AssetBasedPaymentRequest", "DeletedBy", cutoffDate);
-      await nullifyFkColumn(client, "AssetBasedPaymentRequest", "UpdatedBy", cutoffDate);
-      await nullifyFkColumn(client, "Campaigns", "DeletedBy", cutoffDate);
-      await nullifyFkColumn(client, "CataCapTeam", "DeletedBy", cutoffDate);
-      await nullifyFkColumn(client, "CataCapTeam", "CreatedBy", cutoffDate);
-      await nullifyFkColumn(client, "CataCapTeam", "ModifiedBy", cutoffDate);
-      await nullifyFkColumn(client, "CompletedInvestmentsDetails", "DeletedBy", cutoffDate);
-      await nullifyFkColumn(client, "CompletedInvestmentsDetails", "CreatedBy", cutoffDate);
-      await nullifyFkColumn(client, "DisbursalRequest", "DeletedBy", cutoffDate);
-      await nullifyFkColumn(client, "EmailTemplate", "DeletedBy", cutoffDate);
-      await nullifyFkColumn(client, "Event", "DeletedBy", cutoffDate);
-      await nullifyFkColumn(client, "Event", "CreatedBy", cutoffDate);
-      await nullifyFkColumn(client, "Event", "ModifiedBy", cutoffDate);
-      await nullifyFkColumn(client, "Faq", "DeletedBy", cutoffDate);
-      await nullifyFkColumn(client, "FormSubmission", "DeletedBy", cutoffDate);
-      await nullifyFkColumn(client, "GroupAccountBalance", "DeletedBy", cutoffDate);
-      await nullifyFkColumn(client, "Groups", "DeletedBy", cutoffDate);
-      await nullifyFkColumn(client, "InvestmentFeedback", "DeletedBy", cutoffDate);
-      await nullifyFkColumn(client, "InvestmentRequest", "DeletedBy", cutoffDate);
-      await nullifyFkColumn(client, "InvestmentRequest", "ModifiedBy", cutoffDate);
-      await nullifyFkColumn(client, "InvestmentTag", "DeletedBy", cutoffDate);
-      await nullifyFkColumn(client, "LeaderGroup", "DeletedBy", cutoffDate);
-      await nullifyFkColumn(client, "ModuleAccessPermission", "UpdatedBy", cutoffDate);
-      await nullifyFkColumn(client, "News", "DeletedBy", cutoffDate);
-      await nullifyFkColumn(client, "PendingGrants", "DeletedBy", cutoffDate);
-      await nullifyFkColumn(client, "PendingGrants", "RejectedBy", cutoffDate);
-      await nullifyFkColumn(client, "Recommendations", "DeletedBy", cutoffDate);
-      await nullifyFkColumn(client, "Recommendations", "RejectedBy", cutoffDate);
-      await nullifyFkColumn(client, "ReturnDetails", "DeletedBy", cutoffDate);
-      await nullifyFkColumn(client, "ReturnMasters", "CreatedBy", cutoffDate);
-      await nullifyFkColumn(client, "ScheduledEmailLogs", "DeletedBy", cutoffDate);
-      await nullifyFkColumn(client, "SiteConfiguration", "DeletedBy", cutoffDate);
-      await nullifyFkColumn(client, "Testimonial", "DeletedBy", cutoffDate);
-      await nullifyFkColumn(client, "Themes", "DeletedBy", cutoffDate);
-      await nullifyFkColumn(client, "UserInvestments", "DeletedBy", cutoffDate);
-      await nullifyFkColumn(client, "UsersNotifications", "DeletedBy", cutoffDate);
+      await runStep("Nullify: AccountBalanceChangeLogs.DeletedBy", () =>
+        nullifyFkColumn(client, "AccountBalanceChangeLogs", "DeletedBy", cutoffDate));
+      await runStep("Nullify: ApprovedBy.DeletedBy", () =>
+        nullifyFkColumn(client, "ApprovedBy", "DeletedBy", cutoffDate));
+      await runStep("Nullify: AssetBasedPaymentRequest.DeletedBy", () =>
+        nullifyFkColumn(client, "AssetBasedPaymentRequest", "DeletedBy", cutoffDate));
+      await runStep("Nullify: AssetBasedPaymentRequest.UpdatedBy", () =>
+        nullifyFkColumn(client, "AssetBasedPaymentRequest", "UpdatedBy", cutoffDate));
+      await runStep("Nullify: Campaigns.DeletedBy", () =>
+        nullifyFkColumn(client, "Campaigns", "DeletedBy", cutoffDate));
+      await runStep("Nullify: CataCapTeam.DeletedBy", () =>
+        nullifyFkColumn(client, "CataCapTeam", "DeletedBy", cutoffDate));
+      await runStep("Nullify: CataCapTeam.CreatedBy", () =>
+        nullifyFkColumn(client, "CataCapTeam", "CreatedBy", cutoffDate));
+      await runStep("Nullify: CataCapTeam.ModifiedBy", () =>
+        nullifyFkColumn(client, "CataCapTeam", "ModifiedBy", cutoffDate));
+      await runStep("Nullify: CompletedInvestmentsDetails.DeletedBy", () =>
+        nullifyFkColumn(client, "CompletedInvestmentsDetails", "DeletedBy", cutoffDate));
+      await runStep("Nullify: DisbursalRequest.DeletedBy", () =>
+        nullifyFkColumn(client, "DisbursalRequest", "DeletedBy", cutoffDate));
+      await runStep("Nullify: EmailTemplate.DeletedBy", () =>
+        nullifyFkColumn(client, "EmailTemplate", "DeletedBy", cutoffDate));
+      await runStep("Nullify: Event.DeletedBy", () =>
+        nullifyFkColumn(client, "Event", "DeletedBy", cutoffDate));
+      await runStep("Nullify: Event.CreatedBy", () =>
+        nullifyFkColumn(client, "Event", "CreatedBy", cutoffDate));
+      await runStep("Nullify: Event.ModifiedBy", () =>
+        nullifyFkColumn(client, "Event", "ModifiedBy", cutoffDate));
+      await runStep("Nullify: Faq.DeletedBy", () =>
+        nullifyFkColumn(client, "Faq", "DeletedBy", cutoffDate));
+      await runStep("Nullify: FormSubmission.DeletedBy", () =>
+        nullifyFkColumn(client, "FormSubmission", "DeletedBy", cutoffDate));
+      await runStep("Nullify: GroupAccountBalance.DeletedBy", () =>
+        nullifyFkColumn(client, "GroupAccountBalance", "DeletedBy", cutoffDate));
+      await runStep("Nullify: Groups.DeletedBy", () =>
+        nullifyFkColumn(client, "Groups", "DeletedBy", cutoffDate));
+      await runStep("Nullify: InvestmentFeedback.DeletedBy", () =>
+        nullifyFkColumn(client, "InvestmentFeedback", "DeletedBy", cutoffDate));
+      await runStep("Nullify: InvestmentRequest.DeletedBy", () =>
+        nullifyFkColumn(client, "InvestmentRequest", "DeletedBy", cutoffDate));
+      await runStep("Nullify: InvestmentRequest.ModifiedBy", () =>
+        nullifyFkColumn(client, "InvestmentRequest", "ModifiedBy", cutoffDate));
+      await runStep("Nullify: InvestmentTag.DeletedBy", () =>
+        nullifyFkColumn(client, "InvestmentTag", "DeletedBy", cutoffDate));
+      await runStep("Nullify: LeaderGroup.DeletedBy", () =>
+        nullifyFkColumn(client, "LeaderGroup", "DeletedBy", cutoffDate));
+      await runStep("Nullify: News.DeletedBy", () =>
+        nullifyFkColumn(client, "News", "DeletedBy", cutoffDate));
+      await runStep("Nullify: PendingGrants.DeletedBy", () =>
+        nullifyFkColumn(client, "PendingGrants", "DeletedBy", cutoffDate));
+      await runStep("Nullify: PendingGrants.RejectedBy", () =>
+        nullifyFkColumn(client, "PendingGrants", "RejectedBy", cutoffDate));
+      await runStep("Nullify: Recommendations.DeletedBy", () =>
+        nullifyFkColumn(client, "Recommendations", "DeletedBy", cutoffDate));
+      await runStep("Nullify: Recommendations.RejectedBy", () =>
+        nullifyFkColumn(client, "Recommendations", "RejectedBy", cutoffDate));
+      await runStep("Nullify: ReturnDetails.DeletedBy", () =>
+        nullifyFkColumn(client, "ReturnDetails", "DeletedBy", cutoffDate));
+      await runStep("Nullify: ScheduledEmailLogs.DeletedBy", () =>
+        nullifyFkColumn(client, "ScheduledEmailLogs", "DeletedBy", cutoffDate));
+      await runStep("Nullify: SiteConfiguration.DeletedBy", () =>
+        nullifyFkColumn(client, "SiteConfiguration", "DeletedBy", cutoffDate));
+      await runStep("Nullify: Testimonial.DeletedBy", () =>
+        nullifyFkColumn(client, "Testimonial", "DeletedBy", cutoffDate));
+      await runStep("Nullify: Themes.DeletedBy", () =>
+        nullifyFkColumn(client, "Themes", "DeletedBy", cutoffDate));
+      await runStep("Nullify: UserInvestments.DeletedBy", () =>
+        nullifyFkColumn(client, "UserInvestments", "DeletedBy", cutoffDate));
+      await runStep("Nullify: UsersNotifications.DeletedBy", () =>
+        nullifyFkColumn(client, "UsersNotifications", "DeletedBy", cutoffDate));
 
-      await nullifyFkColumn(client, "AssetBasedPaymentRequestNotes", "CreatedBy", cutoffDate);
-      await nullifyFkColumn(client, "CompletedInvestmentNotes", "CreatedBy", cutoffDate);
-      await nullifyFkColumn(client, "DisbursalRequestNotes", "CreatedBy", cutoffDate);
-      await nullifyFkColumn(client, "FormSubmissionNotes", "CreatedBy", cutoffDate);
-      await nullifyFkColumn(client, "InvestmentNotes", "CreatedBy", cutoffDate);
-      await nullifyFkColumn(client, "PendingGrantNotes", "CreatedBy", cutoffDate);
+      await runStep("Nullify: AssetBasedPaymentRequestNotes.CreatedBy", () =>
+        nullifyFkColumn(client, "AssetBasedPaymentRequestNotes", "CreatedBy", cutoffDate));
+      await runStep("Nullify: CompletedInvestmentNotes.CreatedBy", () =>
+        nullifyFkColumn(client, "CompletedInvestmentNotes", "CreatedBy", cutoffDate));
+      await runStep("Nullify: DisbursalRequestNotes.CreatedBy", () =>
+        nullifyFkColumn(client, "DisbursalRequestNotes", "CreatedBy", cutoffDate));
+      await runStep("Nullify: FormSubmissionNotes.CreatedBy", () =>
+        nullifyFkColumn(client, "FormSubmissionNotes", "CreatedBy", cutoffDate));
+      await runStep("Nullify: InvestmentNotes.CreatedBy", () =>
+        nullifyFkColumn(client, "InvestmentNotes", "CreatedBy", cutoffDate));
+      await runStep("Nullify: PendingGrantNotes.CreatedBy", () =>
+        nullifyFkColumn(client, "PendingGrantNotes", "CreatedBy", cutoffDate));
+
+      console.log("-- FK RESOLUTION: Remove non-deleted records blocking user deletion --");
+
+      await runStep("FK-resolve: completed_investment_notes via completed_investment_details→campaigns→users", async () => {
+        await client.query(
+          `INSERT INTO archived_user_data
+            (source_table, record_id, user_id, deleted_at, days_old, record_json, archived_at)
+           SELECT
+             'completed_investment_notes',
+             CAST(cn.id AS TEXT),
+             NULL,
+             u.deleted_at,
+             (CURRENT_DATE - u.deleted_at::date),
+             row_to_json(cn)::TEXT,
+             NOW()
+           FROM completed_investment_notes cn
+           JOIN completed_investment_details cid ON cid.id = cn.completed_investment_id
+           JOIN campaigns cam ON cam.id = cid.campaign_id
+           JOIN users u ON u.id = cam.user_id
+             AND u.deleted_at IS NOT NULL
+             AND u.deleted_at <= $1
+           WHERE NOT EXISTS (
+             SELECT 1 FROM archived_user_data a
+             WHERE a.source_table = 'completed_investment_notes'
+               AND a.record_id = CAST(cn.id AS TEXT)
+               AND CAST(a.archived_at AS DATE) = CURRENT_DATE
+           )`,
+          [cutoffDate]
+        );
+        const deleteResult = await client.query(
+          `DELETE FROM completed_investment_notes cn
+           USING completed_investment_details cid, campaigns cam, users u
+           WHERE cid.id = cn.completed_investment_id
+             AND cam.id = cid.campaign_id
+             AND u.id = cam.user_id
+             AND u.deleted_at IS NOT NULL
+             AND u.deleted_at <= $1`,
+          [cutoffDate]
+        );
+        console.log(`  completed_investment_notes (user-campaign-cid orphan): archived & deleted ${deleteResult.rowCount} row(s)`);
+      });
+
+      await runStep("FK-resolve: InvestmentNotes via user-campaign", () =>
+        archiveAndDeleteCampaignChildByUser(client, "InvestmentNotes", "CampaignId", cutoffDate));
+      await runStep("FK-resolve: ACHPaymentRequests via user-campaign", () =>
+        archiveAndDeleteCampaignChildByUser(client, "ACHPaymentRequests", "CampaignId", cutoffDate));
+      await runStep("FK-resolve: InvestmentTagMapping via user-campaign", () =>
+        archiveAndDeleteCampaignChildByUser(client, "InvestmentTagMapping", "CampaignId", cutoffDate));
+
+      await runStep("FK-resolve: CampaignGroups via user-campaign", async () => {
+        const result = await client.query(
+          `DELETE FROM campaign_groups cdg
+           USING campaigns cam, users u
+           WHERE cam.id = cdg.campaigns_id
+             AND u.id = cam.user_id
+             AND u.deleted_at IS NOT NULL
+             AND u.deleted_at <= $1`,
+          [cutoffDate]
+        );
+        console.log(`  campaign_groups (user-campaign orphan): deleted ${result.rowCount} row(s)`);
+      });
+
+      await runStep("FK-resolve: ReturnMasters via user-campaign", () =>
+        archiveAndDeleteCampaignChildByUser(client, "ReturnMasters", "CampaignId", cutoffDate));
+      await runStep("FK-resolve: CompletedInvestmentsDetails via user-campaign", () =>
+        archiveAndDeleteCampaignChildByUser(client, "CompletedInvestmentsDetails", "CampaignId", cutoffDate));
+      await runStep("FK-resolve: AccountBalanceChangeLogs via user-campaign", () =>
+        archiveAndDeleteCampaignChildByUser(client, "AccountBalanceChangeLogs", "CampaignId", cutoffDate));
+
+      await runStep("FK-resolve: Campaigns by user_id", () =>
+        archiveAndDeleteByUserFK(client, "Campaigns", "UserId", cutoffDate));
+
+      await runStep("FK-resolve: GroupAccountBalance by user_id", () =>
+        archiveAndDeleteByUserFK(client, "GroupAccountBalance", "UserId", cutoffDate));
 
       console.log("-- LEVEL 1: Root --");
-      await archiveAndDelete(client, "AspNetUsers", "Id", "Id", cutoffDate);
+      await runStep("Level1: AspNetUsers", () =>
+        archiveAndDelete(client, "AspNetUsers", "Id", "Id", cutoffDate));
 
       await client.query("COMMIT");
       console.log(`[CLEANUP] Cleanup finished at ${new Date().toISOString()}`);
