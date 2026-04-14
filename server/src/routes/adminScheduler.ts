@@ -92,15 +92,20 @@ router.put("/:jobName", async (req: Request, res: Response) => {
       return;
     }
 
-    const h = parseInt(String(hour), 10);
-    const m = parseInt(String(minute), 10);
-
-    if (isNaN(h) || h < 0 || h > 23) {
-      res.status(400).json({ message: "hour must be between 0 and 23." });
+    if (typeof hour !== "number" || typeof minute !== "number") {
+      res.status(400).json({ message: "hour and minute must be numbers." });
       return;
     }
-    if (isNaN(m) || m < 0 || m > 59) {
-      res.status(400).json({ message: "minute must be between 0 and 59." });
+
+    const h = Math.trunc(hour);
+    const m = Math.trunc(minute);
+
+    if (!Number.isInteger(hour) || h < 0 || h > 23) {
+      res.status(400).json({ message: "hour must be an integer between 0 and 23." });
+      return;
+    }
+    if (!Number.isInteger(minute) || m < 0 || m > 59) {
+      res.status(400).json({ message: "minute must be an integer between 0 and 59 (displayed as two-digit format 00-59)." });
       return;
     }
     if (!isValidTimezone(timezone)) {
