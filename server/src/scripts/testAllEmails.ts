@@ -142,6 +142,19 @@ const templateConfigs: Record<number, TemplateConfig> = {
       investmentOwnerName: "CataCap Foundation",
       investmentUrl: INVEST_URL,
       unsubscribeUrl: UNSUBSCRIBE_URL,
+      donationRecipientSection: `<ol>
+  <li><b>Log in </b>to your <a href='https://www.fidelitycharitable.org' target='_blank'>Fidelity Charitable</a> account</li>
+  <li><b>Initiate a donation </b>using the following details:</li>
+  <ul style='list-style-type: disc; padding-left: 10px; margin-left: 0;'>
+    <li><b>Donation Recipient:</b> Impactree Foundation</li>
+    <li><b>Project Name/ Grant Purpose:</b> CataCap</li>
+    <li><b>Amount:</b> $1,500.00</li>
+    <li><b>EIN:</b> 86-2370923</li>
+    <li><b>Email:</b> <a href='mailto:support@catacap.org'>support@catacap.org</a></li>
+    <li><b>Address:</b> 3749 Buchanan St Unit 475207, San Francisco, CA 94147</li>
+  </ul>
+  <li><b>Forward the confirmation email</b> to <b><a href='mailto:support@catacap.org'>support@catacap.org</a></b> so we can apply your investment right away.</li>
+</ol>`,
     },
   },
   11: {
@@ -154,6 +167,17 @@ const templateConfigs: Record<number, TemplateConfig> = {
       investmentOwnerName: "CataCap Foundation",
       investmentUrl: INVEST_URL,
       unsubscribeUrl: UNSUBSCRIBE_URL,
+      donationRecipientSection: `<ol>
+  <li>Prepare your foundation check using the following details:</li>
+  <ul style='list-style-type:disc;'>
+    <li><b>Donation Recipient:</b> Impactree Foundation</li>
+    <li><b>Amount:</b> $1,500.00</li>
+    <li><b>EIN:</b> 86-2370923</li>
+    <li><b>Email:</b> <a href='mailto:support@catacap.org'>support@catacap.org</a></li>
+    <li><b>Address:</b> 3749 Buchanan Street Unit 475207, San Francisco, CA 94147</li>
+  </ul>
+  <li><b>Forward your grant confirmation</b> to <a href='mailto:support@catacap.org'>support@catacap.org</a> so we can apply your investment without delay.</li>
+</ol>`,
     },
   },
   12: {
@@ -393,6 +417,15 @@ const templateConfigs: Record<number, TemplateConfig> = {
       investmentOwnerName: "CataCap Foundation",
       investmentUrl: INVEST_URL,
       unsubscribeUrl: UNSUBSCRIBE_URL,
+      donationRecipientSection: `<ol>
+  <li><b>Initiate a grant </b>using the details below:</li>
+  <p style='margin-top: 0px;'>Email ImpactAssets at <a href='mailto:clientservice@impactassets.org'>clientservice@impactassets.org</a> and CC <a href='mailto:support@catacap.org'>support@catacap.org</a></p>
+  <p style='margin-bottom: 0px;'>Transfer Email Details:</p>
+  <p style='margin-top: 0px;'>&ldquo;Please transfer from my DAF at ImpactAssets, ImpactAssets, to CataCap DAF #439888 the amount of $1,500.00.&rdquo;</p>
+  <p>We will, upon receipt of the CC email to <a href='mailto:support@catacap.org'>support@catacap.org</a>, immediately apply your account contribution and - if targeted to a specific investment - also to that investment on CataCap.</p>
+  <p>Thank you.</p>
+  <li><b>Forward the confirmation email</b> to <b><a href='mailto:support@catacap.org'>support@catacap.org</a></b></li>
+</ol>`,
     },
   },
   32: {
@@ -408,6 +441,15 @@ const templateConfigs: Record<number, TemplateConfig> = {
       investmentOwnerName: "CataCap Foundation",
       investmentUrl: INVEST_URL,
       unsubscribeUrl: UNSUBSCRIBE_URL,
+      donationRecipientSection: `<ol>
+  <li><b>Initiate a grant </b>using the details below:</li>
+  <p style='margin-top: 0px;'>Email ImpactAssets at <a href='mailto:clientservice@impactassets.org'>clientservice@impactassets.org</a> and CC <a href='mailto:support@catacap.org'>support@catacap.org</a></p>
+  <p style='margin-bottom: 0px;'>Transfer Email Details:</p>
+  <p style='margin-top: 0px;'>&ldquo;Please transfer from my DAF at ImpactAssets, ImpactAssets, to CataCap DAF #439888 the amount of $1,500.00.&rdquo;</p>
+  <p>We will, upon receipt of the CC email to <a href='mailto:support@catacap.org'>support@catacap.org</a>, immediately apply your account contribution and - if targeted to a specific investment - also to that investment on CataCap.</p>
+  <p>Thank you.</p>
+  <li><b>Forward the confirmation email</b> to <b><a href='mailto:support@catacap.org'>support@catacap.org</a></b></li>
+</ol>`,
     },
   },
   33: {
@@ -423,6 +465,19 @@ const templateConfigs: Record<number, TemplateConfig> = {
       investmentOwnerName: "CataCap Foundation",
       investmentUrl: INVEST_URL,
       unsubscribeUrl: UNSUBSCRIBE_URL,
+      donationRecipientSection: `<ol>
+  <li><b>Log in </b>to your <a href='https://www.fidelitycharitable.org' target='_blank'>Fidelity Charitable</a> account</li>
+  <li><b>Initiate a donation </b>using the following details:</li>
+  <ul style='list-style-type: disc; padding-left: 10px; margin-left: 0;'>
+    <li><b>Donation Recipient:</b> Impactree Foundation</li>
+    <li><b>Project Name/ Grant Purpose:</b> CataCap</li>
+    <li><b>Amount:</b> $1,500.00</li>
+    <li><b>EIN:</b> 86-2370923</li>
+    <li><b>Email:</b> <a href='mailto:support@catacap.org'>support@catacap.org</a></li>
+    <li><b>Address:</b> 3749 Buchanan St Unit 475207, San Francisco, CA 94147</li>
+  </ul>
+  <li><b>Forward the confirmation email</b> to <b><a href='mailto:support@catacap.org'>support@catacap.org</a></b> so we can apply your investment right away.</li>
+</ol>`,
     },
   },
   34: {
@@ -435,6 +490,17 @@ const templateConfigs: Record<number, TemplateConfig> = {
       investmentOwnerName: "CataCap Foundation",
       investmentUrl: INVEST_URL,
       unsubscribeUrl: UNSUBSCRIBE_URL,
+      donationRecipientSection: `<ol>
+  <li>Prepare your foundation check using the following details:</li>
+  <ul style='list-style-type:disc;'>
+    <li><b>Donation Recipient:</b> Impactree Foundation</li>
+    <li><b>Amount:</b> $1,500.00</li>
+    <li><b>EIN:</b> 86-2370923</li>
+    <li><b>Email:</b> <a href='mailto:support@catacap.org'>support@catacap.org</a></li>
+    <li><b>Address:</b> 3749 Buchanan Street Unit 475207, San Francisco, CA 94147</li>
+  </ul>
+  <li><b>Forward your grant confirmation</b> to <a href='mailto:support@catacap.org'>support@catacap.org</a> so we can apply your investment without delay.</li>
+</ol>`,
     },
   },
   35: {
