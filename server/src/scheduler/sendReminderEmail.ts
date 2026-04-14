@@ -176,52 +176,15 @@ export async function runSendReminderEmail(): Promise<void> {
       );
     }
 
-    const existingLogs = await pool.query(
-      `SELECT pending_grant_id, reminder_type
-       FROM scheduled_email_logs
-       WHERE pending_grant_id = ANY($1::int[])
-         AND error_message IS NULL`,
-      [
-        pendingGrants.rows.map(
-          (g: { pending_grant_id: number }) => g.pending_grant_id,
-        ),
-      ],
-    );
-
-    const sentReminders = new Set<string>();
-    for (const log of existingLogs.rows) {
-      sentReminders.add(`${log.pending_grant_id}_${log.reminder_type}`);
-    }
-
-    console.log(
-      `[SCHEDULER] Found ${sentReminders.size} existing successful log entries for these grants`,
-    );
-
-    let skippedCount = 0;
     for (const grant of pendingGrants.rows) {
       const daysDiff = parseInt(grant.days_diff, 10);
 
       const reminderTypes: string[] = [];
-      if (
-        daysDiff >= 14 &&
-        !sentReminders.has(`${grant.pending_grant_id}_Week2`)
-      ) {
+      if (daysDiff >= 14) {
         reminderTypes.push("Week2");
       }
-      if (
-        daysDiff >= 3 &&
-        !sentReminders.has(`${grant.pending_grant_id}_Day3`)
-      ) {
+      if (daysDiff >= 3) {
         reminderTypes.push("Day3");
-      }
-
-      if (reminderTypes.length === 0) {
-        const dafProvider = (grant.daf_provider || "").trim();
-        console.log(
-          `[SCHEDULER] Skipping grant ${grant.pending_grant_id} (days=${daysDiff}, provider="${dafProvider}") — already sent: Day3=${sentReminders.has(`${grant.pending_grant_id}_Day3`)}, Week2=${sentReminders.has(`${grant.pending_grant_id}_Week2`)}`,
-        );
-        skippedCount++;
-        continue;
       }
 
       for (const reminderType of reminderTypes) {
@@ -319,7 +282,7 @@ export async function runSendReminderEmail(): Promise<void> {
     }
 
     console.log(
-      `[SCHEDULER] SendReminderEmail complete: Day3=${day3Count}, Week2=${week2Count}, skipped=${skippedCount}, emails queued for async delivery`,
+      `[SCHEDULER] SendReminderEmail complete: Day3=${day3Count}, Week2=${week2Count}, emails queued for async delivery`,
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.toString() : String(err);
