@@ -123,7 +123,7 @@ async function archiveAndDelete(
   tableName: string,
   pkColumn: string,
   userIdColumn: string | null,
-  cutoffDate: Date
+  cutoffDate: string
 ): Promise<void> {
   const pgTable = t(tableName);
   const pgPk = c(pkColumn);
@@ -183,7 +183,7 @@ async function archiveAndDeleteOrphan(
   fkColumn: string,
   parentTable: string,
   parentPkCol: string,
-  cutoffDate: Date
+  cutoffDate: string
 ): Promise<void> {
   const pgChild = t(childTable);
   const pgParent = t(parentTable);
@@ -243,7 +243,7 @@ async function nullifyFkColumn(
   client: PoolClient,
   childTable: string,
   fkColumn: string,
-  cutoffDate: Date
+  cutoffDate: string
 ): Promise<void> {
   const pgChild = t(childTable);
   const pgFk = c(fkColumn);
@@ -270,7 +270,7 @@ async function archiveAndDeleteByUserFK(
   client: PoolClient,
   tableName: string,
   userFkColumn: string,
-  cutoffDate: Date
+  cutoffDate: string
 ): Promise<void> {
   const pgTable = t(tableName);
   const pgFk = c(userFkColumn);
@@ -323,7 +323,7 @@ async function archiveAndDeleteCampaignChildByUser(
   client: PoolClient,
   childTable: string,
   campaignFkColumn: string,
-  cutoffDate: Date
+  cutoffDate: string
 ): Promise<void> {
   const pgChild = t(childTable);
   const pgFk = c(campaignFkColumn);
@@ -430,11 +430,51 @@ export async function runDailyCleanup(): Promise<void> {
       now.getUTCMinutes(),
       now.getUTCSeconds(),
       now.getUTCMilliseconds()
-    ));
+    )).toISOString();
 
     console.log(`[CLEANUP] Retention days: ${retentionDays}`);
-    console.log(`[CLEANUP] Cutoff date: ${cutoffDate.toISOString()}`);
+    console.log(`[CLEANUP] Cutoff date: ${cutoffDate}`);
     console.log(`[CLEANUP] Started at: ${new Date().toISOString()}`);
+
+    const backfillTables = [
+      "users", "campaigns", "groups", "pending_grants", "pending_grant_notes",
+      "disbursal_requests", "disbursal_request_notes", "asset_based_payment_requests",
+      "asset_based_payment_request_notes", "form_submissions", "form_submission_notes",
+      "investment_notes", "completed_investment_details", "completed_investment_notes",
+      "scheduled_email_logs", "account_balance_change_logs", "return_details",
+      "recommendations", "user_investments", "investment_requests", "investment_feedbacks",
+      "requests", "leader_groups", "group_account_balances", "user_notifications",
+      "user_roles", "return_masters", "testimonials", "events", "catacap_teams",
+    ];
+
+    console.log("[CLEANUP] -- Backfilling missing deleted_at timestamps --");
+    for (const tbl of backfillTables) {
+      if (!(await tableExists(client, tbl))) continue;
+      if (!(await columnExists(client, tbl, "is_deleted"))) continue;
+      if (!(await columnExists(client, tbl, "deleted_at"))) continue;
+
+      const hasCreatedAt = await columnExists(client, tbl, "created_at");
+      const hasUpdatedAt = await columnExists(client, tbl, "updated_at");
+
+      let fallbackExpr: string;
+      if (hasCreatedAt && hasUpdatedAt) {
+        fallbackExpr = "COALESCE(created_at, updated_at, NOW())";
+      } else if (hasCreatedAt) {
+        fallbackExpr = "COALESCE(created_at, NOW())";
+      } else if (hasUpdatedAt) {
+        fallbackExpr = "COALESCE(updated_at, NOW())";
+      } else {
+        fallbackExpr = "NOW()";
+      }
+
+      const backfillResult = await client.query(
+        `UPDATE ${tbl} SET deleted_at = ${fallbackExpr}
+         WHERE is_deleted = true AND deleted_at IS NULL`
+      );
+      if (backfillResult.rowCount && backfillResult.rowCount > 0) {
+        console.log(`[CLEANUP]   ${tbl}: backfilled deleted_at on ${backfillResult.rowCount} row(s)`);
+      }
+    }
 
     const preflightResult = await client.query(
       `SELECT
@@ -446,18 +486,48 @@ export async function runDailyCleanup(): Promise<void> {
       [cutoffDate]
     );
     const { total_users, soft_deleted_total, has_deleted_at, qualifying } = preflightResult.rows[0];
-    console.log(`[CLEANUP] Total users: ${total_users}`);
-    console.log(`[CLEANUP] Soft-deleted (is_deleted=true): ${soft_deleted_total}`);
-    console.log(`[CLEANUP] With deleted_at set: ${has_deleted_at}`);
-    console.log(`[CLEANUP] Qualifying for deletion (deleted_at <= cutoff): ${qualifying}`);
+    console.log(`[CLEANUP] -- Users preflight --`);
+    console.log(`[CLEANUP]   Total users: ${total_users}`);
+    console.log(`[CLEANUP]   Soft-deleted (is_deleted=true): ${soft_deleted_total}`);
+    console.log(`[CLEANUP]   With deleted_at set: ${has_deleted_at}`);
+    console.log(`[CLEANUP]   Qualifying for deletion (deleted_at <= cutoff): ${qualifying}`);
 
     if (qualifying === 0) {
       if (soft_deleted_total > 0 && has_deleted_at === 0) {
-        console.log("[CLEANUP] WARNING: Soft-deleted users exist but have no deleted_at timestamp.");
+        console.log("[CLEANUP]   WARNING: Soft-deleted users exist but have no deleted_at timestamp.");
       } else if (has_deleted_at > 0) {
-        console.log("[CLEANUP] Soft-deleted users exist but are within the retention period.");
+        console.log("[CLEANUP]   Soft-deleted users exist but are within the retention period.");
       }
-      console.log("[CLEANUP] No users qualify for deletion. Exiting early.");
+    }
+
+    const preflightCheckTables = [
+      "users", "campaigns", "groups", "pending_grants", "disbursal_requests",
+      "asset_based_payment_requests", "form_submissions", "scheduled_email_logs",
+      "account_balance_change_logs", "return_details", "recommendations",
+      "user_investments", "investment_requests", "investment_feedbacks",
+      "requests", "leader_groups", "group_account_balances", "user_notifications",
+      "completed_investment_details", "user_roles",
+    ];
+
+    let totalQualifying = 0;
+    console.log(`[CLEANUP] -- Per-table qualifying record counts --`);
+    for (const tbl of preflightCheckTables) {
+      if (!(await tableExists(client, tbl))) continue;
+      if (!(await columnExists(client, tbl, "deleted_at"))) continue;
+
+      const countResult = await client.query(
+        `SELECT COUNT(*)::int AS cnt FROM ${tbl}
+         WHERE deleted_at IS NOT NULL AND deleted_at <= $1`,
+        [cutoffDate]
+      );
+      const cnt = countResult.rows[0].cnt;
+      console.log(`[CLEANUP]   ${tbl}: ${cnt} record(s) qualifying`);
+      totalQualifying += cnt;
+    }
+    console.log(`[CLEANUP] Total qualifying records across all tables: ${totalQualifying}`);
+
+    if (totalQualifying === 0) {
+      console.log("[CLEANUP] No records qualify for deletion across any table. Exiting early.");
       return;
     }
 
