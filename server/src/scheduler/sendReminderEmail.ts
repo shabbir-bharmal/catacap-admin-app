@@ -140,10 +140,7 @@ export async function runSendReminderEmail(): Promise<void> {
       LEFT JOIN campaigns c ON c.id = pg.campaign_id
       WHERE LOWER(pg.status) = 'pending'
         AND pg.created_date IS NOT NULL
-        AND (
-          (CURRENT_DATE - pg.created_date::date) = 3
-          OR (CURRENT_DATE - pg.created_date::date) = 14
-        )
+        AND (CURRENT_DATE - pg.created_date::date) >= 3
         AND (pg.is_deleted = false OR pg.is_deleted IS NULL)
     `;
 
@@ -160,8 +157,8 @@ export async function runSendReminderEmail(): Promise<void> {
       const diagnosticResult = await pool.query(`
         SELECT 
           COUNT(*) AS total_pending,
-          COUNT(*) FILTER (WHERE (CURRENT_DATE - pg.created_date::date) = 3) AS day3_count,
-          COUNT(*) FILTER (WHERE (CURRENT_DATE - pg.created_date::date) = 14) AS week2_count,
+          COUNT(*) FILTER (WHERE (CURRENT_DATE - pg.created_date::date) >= 3) AS day3_eligible,
+          COUNT(*) FILTER (WHERE (CURRENT_DATE - pg.created_date::date) >= 14) AS week2_eligible,
           MIN(CURRENT_DATE - pg.created_date::date) AS min_days_diff,
           MAX(CURRENT_DATE - pg.created_date::date) AS max_days_diff
         FROM pending_grants pg
@@ -172,15 +169,38 @@ export async function runSendReminderEmail(): Promise<void> {
       const diag = diagnosticResult.rows[0];
       console.log(
         `[SCHEDULER] Diagnostics: total pending grants=${diag.total_pending}, ` +
-          `day3=${diag.day3_count}, week2=${diag.week2_count}, ` +
+          `day3_eligible=${diag.day3_eligible}, week2_eligible=${diag.week2_eligible}, ` +
           `days range=${diag.min_days_diff}-${diag.max_days_diff}`,
       );
     }
 
+    const existingLogs = await pool.query(
+      `SELECT pending_grant_id, reminder_type
+       FROM scheduled_email_logs
+       WHERE pending_grant_id = ANY($1::int[])
+         AND error_message IS NULL`,
+      [pendingGrants.rows.map((g: { pending_grant_id: number }) => g.pending_grant_id)],
+    );
+
+    const sentReminders = new Set<string>();
+    for (const log of existingLogs.rows) {
+      sentReminders.add(`${log.pending_grant_id}_${log.reminder_type}`);
+    }
+
     for (const grant of pendingGrants.rows) {
       const daysDiff = parseInt(grant.days_diff, 10);
-      const reminderType = daysDiff === 3 ? "Day3" : "Week2";
 
+      const reminderTypes: string[] = [];
+      if (daysDiff >= 14 && !sentReminders.has(`${grant.pending_grant_id}_Week2`)) {
+        reminderTypes.push("Week2");
+      }
+      if (daysDiff >= 3 && !sentReminders.has(`${grant.pending_grant_id}_Day3`)) {
+        reminderTypes.push("Day3");
+      }
+
+      if (reminderTypes.length === 0) continue;
+
+      for (const reminderType of reminderTypes) {
       if (reminderType === "Day3") day3Count++;
       if (reminderType === "Week2") week2Count++;
 
@@ -257,9 +277,10 @@ export async function runSendReminderEmail(): Promise<void> {
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         console.error(
-          `[SCHEDULER] Error processing grant ${grant.pending_grant_id}:`,
+          `[SCHEDULER] Error processing grant ${grant.pending_grant_id} (${reminderType}):`,
           message,
         );
+      }
       }
     }
 
