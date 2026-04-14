@@ -9,6 +9,15 @@ function getResendClient(): Resend | null {
   return new Resend(apiKey);
 }
 
+function applyTestOverride(recipient: string, subject: string, bodyHtml: string): { recipient: string; subject: string; bodyHtml: string } {
+  const testEmail = process.env.TEST_EMAIL_OVERRIDE;
+  if (!testEmail) return { recipient, subject, bodyHtml };
+  const overriddenSubject = `[TEST] ${subject} (Original recipient: ${recipient})`;
+  const notice = `<div style="background:#fff3cd;border:1px solid #ffc107;padding:10px;margin-bottom:15px;font-size:13px;color:#856404;border-radius:4px;"><strong>TEST MODE:</strong> This email was originally intended for <strong>${recipient}</strong></div>`;
+  const overriddenBody = notice + bodyHtml;
+  return { recipient: testEmail, subject: overriddenSubject, bodyHtml: overriddenBody };
+}
+
 export async function sendTemplateEmail(
   category: number,
   toEmail: string,
@@ -38,7 +47,11 @@ export async function sendTemplateEmail(
       subject = subject.replace(regex, value);
     }
 
-    const recipient = toEmail || template.receiver;
+    const originalRecipient = toEmail || template.receiver;
+    const overridden = applyTestOverride(originalRecipient, subject, bodyHtml);
+    const recipient = overridden.recipient;
+    subject = overridden.subject;
+    bodyHtml = overridden.bodyHtml;
 
     const resend = getResendClient();
     if (!resend) {
@@ -60,7 +73,7 @@ export async function sendTemplateEmail(
       return false;
     }
 
-    console.log(`[EMAIL] Template email sent for category ${category} to: ${recipient} (id: ${data?.id})`);
+    console.log(`[EMAIL] Template email sent for category ${category} to: ${recipient}${recipient !== originalRecipient ? ` (original: ${originalRecipient})` : ''} (id: ${data?.id})`);
     return true;
   } catch (err: any) {
     console.error(`[EMAIL] Error sending template email for category ${category}:`, err.message);
@@ -104,7 +117,11 @@ export async function sendTemplateEmailWithAttachments(
       subject = subject.replace(regex, value);
     }
 
-    const recipient = toEmail || template.receiver;
+    const originalRecipient = toEmail || template.receiver;
+    const overridden = applyTestOverride(originalRecipient, subject, bodyHtml);
+    const recipient = overridden.recipient;
+    subject = overridden.subject;
+    bodyHtml = overridden.bodyHtml;
 
     const resend = getResendClient();
     if (!resend) {
@@ -130,7 +147,7 @@ export async function sendTemplateEmailWithAttachments(
       return false;
     }
 
-    console.log(`[EMAIL] Template email with attachments sent for category ${category} to: ${recipient} (id: ${data?.id})`);
+    console.log(`[EMAIL] Template email with attachments sent for category ${category} to: ${recipient}${recipient !== originalRecipient ? ` (original: ${originalRecipient})` : ''} (id: ${data?.id})`);
     return true;
   } catch (err: any) {
     console.error(`[EMAIL] Error sending template email with attachments for category ${category}:`, err.message);
