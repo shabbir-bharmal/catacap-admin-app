@@ -94,7 +94,9 @@ function buildDafDonationRecipientSection(
 </ol>`;
 }
 
-function buildFoundationDonationRecipientSection(formattedAmount: string): string {
+function buildFoundationDonationRecipientSection(
+  formattedAmount: string,
+): string {
   return `<ol>
   <li>Prepare your foundation check using the following details:</li>
   <ul style='list-style-type:disc;'>
@@ -150,7 +152,7 @@ export async function runSendReminderEmail(): Promise<void> {
         : await pool.query(pendingGrantsQuery);
 
     console.log(
-      `[SCHEDULER] SendReminderEmail query returned ${pendingGrants.rows.length} pending grant(s)`,
+      `[SCHEDULER] -> SendReminderEmail query returned ${pendingGrants.rows.length} pending grant(s)`,
     );
 
     if (pendingGrants.rows.length === 0) {
@@ -179,7 +181,11 @@ export async function runSendReminderEmail(): Promise<void> {
        FROM scheduled_email_logs
        WHERE pending_grant_id = ANY($1::int[])
          AND error_message IS NULL`,
-      [pendingGrants.rows.map((g: { pending_grant_id: number }) => g.pending_grant_id)],
+      [
+        pendingGrants.rows.map(
+          (g: { pending_grant_id: number }) => g.pending_grant_id,
+        ),
+      ],
     );
 
     const sentReminders = new Set<string>();
@@ -187,105 +193,133 @@ export async function runSendReminderEmail(): Promise<void> {
       sentReminders.add(`${log.pending_grant_id}_${log.reminder_type}`);
     }
 
+    console.log(
+      `[SCHEDULER] Found ${sentReminders.size} existing successful log entries for these grants`,
+    );
+
+    let skippedCount = 0;
     for (const grant of pendingGrants.rows) {
       const daysDiff = parseInt(grant.days_diff, 10);
 
       const reminderTypes: string[] = [];
-      if (daysDiff >= 14 && !sentReminders.has(`${grant.pending_grant_id}_Week2`)) {
+      if (
+        daysDiff >= 14 &&
+        !sentReminders.has(`${grant.pending_grant_id}_Week2`)
+      ) {
         reminderTypes.push("Week2");
       }
-      if (daysDiff >= 3 && !sentReminders.has(`${grant.pending_grant_id}_Day3`)) {
+      if (
+        daysDiff >= 3 &&
+        !sentReminders.has(`${grant.pending_grant_id}_Day3`)
+      ) {
         reminderTypes.push("Day3");
       }
 
-      if (reminderTypes.length === 0) continue;
+      if (reminderTypes.length === 0) {
+        const dafProvider = (grant.daf_provider || "").trim();
+        console.log(
+          `[SCHEDULER] Skipping grant ${grant.pending_grant_id} (days=${daysDiff}, provider="${dafProvider}") — already sent: Day3=${sentReminders.has(`${grant.pending_grant_id}_Day3`)}, Week2=${sentReminders.has(`${grant.pending_grant_id}_Week2`)}`,
+        );
+        skippedCount++;
+        continue;
+      }
 
       for (const reminderType of reminderTypes) {
-      if (reminderType === "Day3") day3Count++;
-      if (reminderType === "Week2") week2Count++;
+        try {
+          const dafProvider = (grant.daf_provider || "").trim().toLowerCase();
 
-      try {
-        const dafProvider = (grant.daf_provider || "").trim().toLowerCase();
+          if (dafProvider && dafProvider !== "foundation grant") {
+            const dafProviderLink = await getDafLink(dafProvider);
+            const amount = parseFloat(grant.amount) || 0;
+            const category = getDAFCategory(
+              reminderType,
+              (grant.daf_provider || "").trim(),
+            );
 
-        if (dafProvider && dafProvider !== "foundation grant") {
-          const dafProviderLink = await getDafLink(dafProvider);
-          const amount = parseFloat(grant.amount) || 0;
-          const category = getDAFCategory(
-            reminderType,
-            (grant.daf_provider || "").trim(),
+            const resolvedDafName =
+              grant.daf_name ?? (grant.daf_provider || "").trim();
+            const trimmedProvider = (grant.daf_provider || "").trim();
+            const donationRecipientSection = buildDafDonationRecipientSection(
+              trimmedProvider,
+              dafProviderLink,
+              resolvedDafName,
+              formatAmount(amount),
+            );
+
+            const variables: Record<string, string> = {
+              logoUrl: process.env.LOGO_URL || "",
+              firstName: grant.user_first_name || "",
+              amount: formatAmount(amount),
+              investmentScenario: grant.campaign_name || "",
+              dafProviderName: trimmedProvider,
+              dafProviderLink: dafProviderLink || "",
+              dafName: resolvedDafName,
+              investmentOwnerName: grant.campaign_contact_name || "",
+              investmentUrl: `${BASE_URL}/investments/${grant.campaign_property || ""}`,
+              unsubscribeUrl: `${BASE_URL}/settings`,
+              donationRecipientSection,
+            };
+
+            if (reminderType === "Day3") day3Count++;
+            if (reminderType === "Week2") week2Count++;
+
+            queueEmail({
+              category,
+              toEmail: grant.user_email,
+              variables,
+              pendingGrantId: grant.pending_grant_id,
+              userId: grant.user_id,
+              reminderType,
+            });
+          } else if (dafProvider === "foundation grant") {
+            const amount = parseFloat(grant.amount) || 0;
+            const category = getFoundationCategory(reminderType);
+
+            const investmentScenario = grant.campaign_name
+              ? `to <b>${grant.campaign_name}</b>`
+              : "to CataCap";
+
+            const variables: Record<string, string> = {
+              logoUrl: process.env.LOGO_URL || "",
+              firstName: grant.user_first_name || "",
+              amount: formatAmount(amount),
+              investmentScenario,
+              investmentOwnerName: grant.campaign_contact_name || "",
+              investmentUrl: `${BASE_URL}/investments/${grant.campaign_property || ""}`,
+              unsubscribeUrl: `${BASE_URL}/settings`,
+              donationRecipientSection: buildFoundationDonationRecipientSection(
+                formatAmount(amount),
+              ),
+            };
+
+            if (reminderType === "Day3") day3Count++;
+            if (reminderType === "Week2") week2Count++;
+
+            queueEmail({
+              category,
+              toEmail: grant.user_email,
+              variables,
+              pendingGrantId: grant.pending_grant_id,
+              userId: grant.user_id,
+              reminderType,
+            });
+          } else {
+            console.log(
+              `[SCHEDULER] Grant ${grant.pending_grant_id} has no/unrecognized daf_provider="${grant.daf_provider}", skipping ${reminderType} reminder`,
+            );
+          }
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(
+            `[SCHEDULER] Error processing grant ${grant.pending_grant_id} (${reminderType}):`,
+            message,
           );
-
-          const resolvedDafName = grant.daf_name ?? (grant.daf_provider || "").trim();
-          const trimmedProvider = (grant.daf_provider || "").trim();
-          const donationRecipientSection = buildDafDonationRecipientSection(
-            trimmedProvider,
-            dafProviderLink,
-            resolvedDafName,
-            formatAmount(amount),
-          );
-
-          const variables: Record<string, string> = {
-            logoUrl: process.env.LOGO_URL || "",
-            firstName: grant.user_first_name || "",
-            amount: formatAmount(amount),
-            investmentScenario: grant.campaign_name || "",
-            dafProviderName: trimmedProvider,
-            dafProviderLink: dafProviderLink || "",
-            dafName: resolvedDafName,
-            investmentOwnerName: grant.campaign_contact_name || "",
-            investmentUrl: `${BASE_URL}/investments/${grant.campaign_property || ""}`,
-            unsubscribeUrl: `${BASE_URL}/settings`,
-            donationRecipientSection,
-          };
-
-          queueEmail({
-            category,
-            toEmail: grant.user_email,
-            variables,
-            pendingGrantId: grant.pending_grant_id,
-            userId: grant.user_id,
-            reminderType,
-          });
-        } else if (dafProvider === "foundation grant") {
-          const amount = parseFloat(grant.amount) || 0;
-          const category = getFoundationCategory(reminderType);
-
-          const investmentScenario = grant.campaign_name
-            ? `to <b>${grant.campaign_name}</b>`
-            : "to CataCap";
-
-          const variables: Record<string, string> = {
-            logoUrl: process.env.LOGO_URL || "",
-            firstName: grant.user_first_name || "",
-            amount: formatAmount(amount),
-            investmentScenario,
-            investmentOwnerName: grant.campaign_contact_name || "",
-            investmentUrl: `${BASE_URL}/investments/${grant.campaign_property || ""}`,
-            unsubscribeUrl: `${BASE_URL}/settings`,
-            donationRecipientSection: buildFoundationDonationRecipientSection(formatAmount(amount)),
-          };
-
-          queueEmail({
-            category,
-            toEmail: grant.user_email,
-            variables,
-            pendingGrantId: grant.pending_grant_id,
-            userId: grant.user_id,
-            reminderType,
-          });
         }
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.error(
-          `[SCHEDULER] Error processing grant ${grant.pending_grant_id} (${reminderType}):`,
-          message,
-        );
-      }
       }
     }
 
     console.log(
-      `[SCHEDULER] SendReminderEmail complete: Day3=${day3Count}, Week2=${week2Count}, emails queued for async delivery`,
+      `[SCHEDULER] SendReminderEmail complete: Day3=${day3Count}, Week2=${week2Count}, skipped=${skippedCount}, emails queued for async delivery`,
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.toString() : String(err);
