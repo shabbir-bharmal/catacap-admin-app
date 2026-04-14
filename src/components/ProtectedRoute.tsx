@@ -31,15 +31,29 @@ export function ProtectedRoute({ path, component: Component, moduleName, require
         );
     }
 
+    if (isLoggedIn && user && (!user.permissions || user.permissions.length === 0)) {
+        return (
+            <Route path={path}>
+                <div className="flex items-center justify-center min-h-screen">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                </div>
+            </Route>
+        );
+    }
+
     if (moduleName && !hasActionPermission(moduleName, "manage")) {
         return (
-            <AdminNotFound />
+            <Route path={path}>
+                <AdminNotFound />
+            </Route>
         );
     }
 
     if (requiresSuperAdmin && !user?.isSuperAdmin) {
         return (
-            <AdminNotFound />
+            <Route path={path}>
+                <AdminNotFound />
+            </Route>
         );
     }
 
