@@ -283,3 +283,34 @@ export async function deleteGroup(id: number): Promise<any> {
     const response = await axiosInstance.delete(`/api/admin/group/${id}`);
     return response.data;
 }
+
+export interface GroupInvestmentCampaign {
+    id: number;
+    name: string;
+    stage: number;
+    stageLabel: string;
+    imageFileName: string | null;
+    raised?: number;
+    investorCount?: number;
+    investorAvatars?: string[];
+}
+
+export interface GroupInvestmentsResponse {
+    groupCampaigns: GroupInvestmentCampaign[];
+    publicCampaigns: GroupInvestmentCampaign[];
+    completedCampaigns: GroupInvestmentCampaign[];
+}
+
+export async function fetchGroupInvestments(groupId: number): Promise<GroupInvestmentsResponse> {
+    const response = await axiosInstance.get<GroupInvestmentsResponse>("/api/admin/group/group-investments", {
+        params: { groupId }
+    });
+    return response.data;
+}
+
+export async function updateGroupInvestments(groupId: number, campaignIds: number[]): Promise<any> {
+    const response = await axiosInstance.put("/api/admin/group/update-group-investments", campaignIds, {
+        params: { groupId }
+    });
+    return response.data;
+}
