@@ -227,6 +227,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           } else if (attempt < maxRetries) {
             retryTimer = setTimeout(() => attemptFetch(attempt + 1), retryDelays[attempt]);
           } else {
+            setUser(null);
+            clearPersistedStorage();
             setIsLoadingUser(false);
           }
         }).catch(() => {
@@ -234,6 +236,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (attempt < maxRetries) {
             retryTimer = setTimeout(() => attemptFetch(attempt + 1), retryDelays[attempt]);
           } else {
+            setUser(null);
+            clearPersistedStorage();
             setIsLoadingUser(false);
           }
         });
