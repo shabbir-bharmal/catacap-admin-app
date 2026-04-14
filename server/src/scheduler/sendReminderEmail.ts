@@ -82,7 +82,7 @@ export async function runSendReminderEmail(): Promise<void> {
       FROM pending_grants pg
       JOIN users u ON u.id = pg.user_id
       LEFT JOIN campaigns c ON c.id = pg.campaign_id
-      WHERE pg.status = 'pending'
+      WHERE LOWER(pg.status) = 'pending'
         AND pg.created_date IS NOT NULL
         AND (
           (CURRENT_DATE - pg.created_date::date) = 3
@@ -91,33 +91,35 @@ export async function runSendReminderEmail(): Promise<void> {
         AND (pg.is_deleted = false OR pg.is_deleted IS NULL)
     `;
 
-    if (!isProduction) {
-      const emailList = process.env.EMAIL_LIST_FOR_SCHEDULER;
-      if (!emailList) {
-        console.log(
-          "[SCHEDULER] EMAIL_LIST_FOR_SCHEDULER not set in non-production. Skipping.",
-        );
-        return;
-      }
-      const emails: string[] = emailList
-        .split(",")
-        .map((e) => e.trim().toLowerCase())
-        .filter(Boolean);
-
-      if (emails.length === 0) {
-        console.log("[SCHEDULER] EMAIL_LIST_FOR_SCHEDULER is empty. Skipping.");
-        return;
-      }
-
-      paramIndex++;
-      pendingGrantsQuery += ` AND LOWER(u.email) = ANY($${paramIndex})`;
-      queryParams.push(emails);
-    }
-
     const pendingGrants =
       queryParams.length > 0
         ? await pool.query(pendingGrantsQuery, queryParams)
         : await pool.query(pendingGrantsQuery);
+
+    console.log(
+      `[SCHEDULER] SendReminderEmail query returned ${pendingGrants.rows.length} pending grant(s)`,
+    );
+
+    if (pendingGrants.rows.length === 0) {
+      const diagnosticResult = await pool.query(`
+        SELECT 
+          COUNT(*) AS total_pending,
+          COUNT(*) FILTER (WHERE (CURRENT_DATE - pg.created_date::date) = 3) AS day3_count,
+          COUNT(*) FILTER (WHERE (CURRENT_DATE - pg.created_date::date) = 14) AS week2_count,
+          MIN(CURRENT_DATE - pg.created_date::date) AS min_days_diff,
+          MAX(CURRENT_DATE - pg.created_date::date) AS max_days_diff
+        FROM pending_grants pg
+        WHERE LOWER(pg.status) = 'pending'
+          AND pg.created_date IS NOT NULL
+          AND (pg.is_deleted = false OR pg.is_deleted IS NULL)
+      `);
+      const diag = diagnosticResult.rows[0];
+      console.log(
+        `[SCHEDULER] Diagnostics: total pending grants=${diag.total_pending}, ` +
+          `day3=${diag.day3_count}, week2=${diag.week2_count}, ` +
+          `days range=${diag.min_days_diff}-${diag.max_days_diff}`,
+      );
+    }
 
     for (const grant of pendingGrants.rows) {
       const daysDiff = parseInt(grant.days_diff, 10);
@@ -138,7 +140,7 @@ export async function runSendReminderEmail(): Promise<void> {
           );
 
           const variables: Record<string, string> = {
-            logoUrl: "",
+            logoUrl: process.env.LOGO_URL || "",
             firstName: grant.user_first_name || "",
             amount: formatAmount(amount),
             investmentScenario: grant.campaign_name || "",
@@ -167,7 +169,7 @@ export async function runSendReminderEmail(): Promise<void> {
             : "to CataCap";
 
           const variables: Record<string, string> = {
-            logoUrl: "",
+            logoUrl: process.env.LOGO_URL || "",
             firstName: grant.user_first_name || "",
             amount: formatAmount(amount),
             investmentScenario,
