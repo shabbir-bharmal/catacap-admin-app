@@ -60,3 +60,5 @@ timeoutMs = 180000
 VITE_SUPABASE_URL = "https://rbqtdruqcmikcowrqzoj.supabase.co"
 VITE_SUPABASE_STORAGE_BUCKET = "production"
 VITE_API_ACCESS_TOKEN = "1e0ef86fafe524ca42cda1969b4486740e8fedf61c54416cd0776e215869a81b"
+
+[userenv.development]
