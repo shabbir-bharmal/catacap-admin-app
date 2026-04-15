@@ -61,11 +61,10 @@ router.get("/", async (req: Request, res: Response) => {
 
     let rows = result.rows.filter((r: any) => r.detail_id !== null);
 
-    if (params.isDeleted !== undefined) {
-      rows = rows.filter((r: any) => {
-        const isDeleted = r.is_deleted === true;
-        return isDeleted === params.isDeleted;
-      });
+    if (params.isDeleted === true) {
+      rows = rows.filter((r: any) => r.is_deleted === true);
+    } else {
+      rows = rows.filter((r: any) => r.is_deleted !== true);
     }
 
     rows.sort((a: any, b: any) => {

@@ -8,6 +8,7 @@ export interface InvestmentReturnParams {
 }
 
 export interface InvestmentReturnEntry {
+  id: number;
   investmentName: string;
   firstName: string;
   lastName: string;
