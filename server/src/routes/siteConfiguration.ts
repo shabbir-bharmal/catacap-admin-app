@@ -642,8 +642,8 @@ async function createByType(type: string, dto: any): Promise<{ success: boolean;
       }
 
       await pool.query(
-        `INSERT INTO themes (name, image_file_name, description) VALUES ($1, $2, $3)`,
-        [dto.value.trim(), themeImageFileName, dto.description || null]
+        `INSERT INTO themes (name, image_file_name, description, mandatory) VALUES ($1, $2, $3, $4)`,
+        [dto.value.trim(), themeImageFileName, dto.description || null, true]
       );
       return { success: true, message: "Theme created successfully." };
     }
