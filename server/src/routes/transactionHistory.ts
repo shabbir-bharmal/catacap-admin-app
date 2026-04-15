@@ -121,7 +121,7 @@ router.delete("/:id", async (req: Request, res: Response) => {
     }
 
     const adminUser = (req as any).user;
-    const deletedBy = adminUser ? `${adminUser.name || adminUser.email || "admin"}` : "admin";
+    const deletedBy = adminUser?.id || null;
 
     await pool.query(
       `UPDATE account_balance_change_logs
