@@ -743,7 +743,6 @@ router.get("/:id/recommendations/export", async (req: Request, res: Response) =>
        LEFT JOIN pending_grants pg ON r.pending_grants_id = pg.id
        WHERE r.campaign_id = $1
          AND (LOWER(TRIM(r.status)) = 'pending' OR LOWER(TRIM(r.status)) = 'approved')
-         AND (r.is_deleted IS NULL OR r.is_deleted = false)
        ORDER BY r.id DESC`,
       [id]
     );
@@ -761,16 +760,19 @@ router.get("/:id/recommendations/export", async (req: Request, res: Response) =>
 
     for (const r of recResult.rows) {
       const isInTransit = r.pending_grant_status && r.pending_grant_status.toLowerCase().trim() === "in transit" ? "Yes" : "";
-      worksheet.addRow([
+      const dataRow = worksheet.addRow([
         r.user_full_name || "",
         r.campaign_name || "",
         parseFloat(r.amount) || 0,
-        r.date_created || "",
+        r.date_created ? new Date(r.date_created) : "",
         isInTransit,
       ]);
+      dataRow.getCell(3).numFmt = "$#,##0.00";
+      dataRow.getCell(4).numFmt = "MM/dd/yy HH:mm";
     }
 
     worksheet.columns.forEach((col) => {
+      col.alignment = { horizontal: "left" };
       let maxLen = 10;
       col.eachCell?.({ includeEmpty: false }, (cell) => {
         const len = String(cell.value || "").length;

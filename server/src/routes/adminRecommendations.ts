@@ -289,7 +289,7 @@ router.get("/export", async (req: Request, res: Response) => {
     });
 
     for (const row of result.rows) {
-      worksheet.addRow([
+      const dataRow = worksheet.addRow([
         row.id,
         row.user_full_name,
         row.user_email,
@@ -301,15 +301,21 @@ router.get("/export", async (req: Request, res: Response) => {
         row.rejected_by_name,
         row.rejection_date,
       ]);
+      const rejectionDateCell = dataRow.getCell(10);
+      if (row.rejection_date) {
+        rejectionDateCell.value = new Date(row.rejection_date);
+        rejectionDateCell.numFmt = "MM/dd/yyyy";
+      }
     }
 
     worksheet.columns.forEach((col) => {
+      col.alignment = { horizontal: "left" };
       let maxLen = 10;
       col.eachCell?.({ includeEmpty: false }, (cell) => {
         const len = String(cell.value || "").length;
         if (len > maxLen) maxLen = len;
       });
-      col.width = maxLen + 4;
+      col.width = maxLen + 10;
     });
 
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
