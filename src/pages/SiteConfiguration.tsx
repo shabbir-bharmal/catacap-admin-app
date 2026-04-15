@@ -392,6 +392,9 @@ export default function SiteConfiguration() {
           setContactInfo(await fetchContactInfo());
           break;
       }
+      toast({
+        title: `${activeTab} saved successfully`,
+      });
       setDialogOpen(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to save item. Please try again.";
@@ -482,6 +485,9 @@ export default function SiteConfiguration() {
           setContactInfo((prev) => prev.filter((i) => i.id !== id));
           break;
       }
+      toast({
+        title: `${activeTab} deleted successfully`,
+      });
       setDeleteDialogOpen(false);
       setDeleteTarget(null);
     } catch (err) {
