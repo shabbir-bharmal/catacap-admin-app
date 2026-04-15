@@ -81,6 +81,7 @@ router.get("/", async (req: Request, res: Response) => {
       JOIN user_roles ur ON u.id = ur.user_id
       JOIN roles r ON ur.role_id = r.id
       WHERE r.name = 'User'
+      AND (ur.is_deleted IS NULL OR ur.is_deleted = false)
       ${softDeleteFilter}
     `;
     const params: (string | number)[] = [];
@@ -163,13 +164,17 @@ router.get("/", async (req: Request, res: Response) => {
     const emails = [...new Set(users.map((u: UserRow) => (u.email || "").toLowerCase().trim()))];
     const userIds = users.map((u: UserRow) => u.id);
 
+    const recSoftDeleteFilter = isDeletedParam === "true"
+      ? `AND is_deleted = true`
+      : `AND (is_deleted IS NULL OR is_deleted = false)`;
+
     const recCountResult = await pool.query(
       `SELECT LOWER(TRIM(user_email)) as email, COUNT(*) as count
        FROM recommendations
        WHERE amount > 0
          AND (status = 'pending' OR status = 'approved')
          AND LOWER(TRIM(user_email)) = ANY($1)
-         AND (is_deleted IS NULL OR is_deleted = false)
+         ${recSoftDeleteFilter}
        GROUP BY LOWER(TRIM(user_email))`,
       [emails]
     );
@@ -483,7 +488,7 @@ router.get("/export", async (_req: Request, res: Response) => {
     );
     const users = usersResult.rows;
     const userIds = users.map((u: { id: string }) => u.id);
-    const userEmails = users.map((u: { email: string }) => u.email);
+    const userEmails = users.map((u: { email: string }) => (u.email || "").toLowerCase().trim());
 
     const groupsResult = await pool.query(
       `SELECT id, name, owner_id FROM groups
@@ -495,7 +500,7 @@ router.get("/export", async (_req: Request, res: Response) => {
     const investmentsResult = await pool.query(
       `SELECT LOWER(TRIM(user_email)) as email, SUM(amount) as amount
        FROM recommendations
-       WHERE user_email = ANY($1)
+       WHERE LOWER(TRIM(user_email)) = ANY($1)
          AND (status = 'approved' OR status = 'pending')
          AND (is_deleted IS NULL OR is_deleted = false)
        GROUP BY LOWER(TRIM(user_email))`,
@@ -543,7 +548,7 @@ router.get("/export", async (_req: Request, res: Response) => {
        FROM recommendations
        WHERE amount > 0
          AND (status = 'pending' OR status = 'approved')
-         AND user_email = ANY($1)
+         AND LOWER(TRIM(user_email)) = ANY($1)
          AND (is_deleted IS NULL OR is_deleted = false)
        GROUP BY LOWER(TRIM(user_email))`,
       [userEmails]
