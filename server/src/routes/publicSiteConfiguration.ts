@@ -10,6 +10,7 @@ const SITE_CONFIG_TYPES = {
   TransactionType: "TransactionType",
   Statistics: "Statistics",
   MetaInformation: "MetaInformation",
+  ContactInfo: "ContactInfo",
 } as const;
 
 router.get("/site-configuration", async (req: Request, res: Response) => {
@@ -94,6 +95,25 @@ router.get("/site-configuration", async (req: Request, res: Response) => {
           image: resolveFileUrl(r.image, "site-configurations"),
           imageName: resolveFileUrl(r.imageName, "site-configurations"),
         })));
+        return;
+      }
+
+      case "contact-info": {
+        const result = await pool.query(
+          `SELECT id, key, value,
+                  additional_details AS "description",
+                  REPLACE(type, 'ContactInfo-', '') AS type
+           FROM site_configurations
+           WHERE type LIKE $1
+           ORDER BY type, key`,
+          [`${SITE_CONFIG_TYPES.ContactInfo}-%`]
+        );
+        const structured: Record<string, Record<string, string>> = {};
+        for (const row of result.rows) {
+          if (!structured[row.type]) structured[row.type] = {};
+          structured[row.type][row.key] = row.value;
+        }
+        res.json(structured);
         return;
       }
 

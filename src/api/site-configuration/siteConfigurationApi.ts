@@ -12,6 +12,7 @@ export type SiteConfigType =
     | "news-audience"
     | "statistics"
     | "meta-information"
+    | "contact-info"
     | "Configuration";
 
 // ─── Raw API response shapes (match actual server JSON) ───────────────────────
@@ -90,6 +91,14 @@ export interface MetaInformationItem {
     additionalDetails: string;
     image?: string;
     imageName?: string;
+}
+
+export interface ContactInfoItem {
+    id: number;
+    key: string;
+    value: string;
+    type: string;
+    description?: string;
 }
 
 // ─── Internal helper ───────────────────────────────────────────────────────────
@@ -173,6 +182,10 @@ interface RawMetaInformationItem {
     imageName?: string;
 }
 
+export async function fetchContactInfo(): Promise<ContactInfoItem[]> {
+    return fetchRaw<ContactInfoItem>("contact-info");
+}
+
 // ─── Combined fetch ────────────────────────────────────────────────────────────
 
 export interface AllSiteConfigurations {
@@ -186,6 +199,7 @@ export interface AllSiteConfigurations {
     newsAudiences: NewsAudienceItem[];
     statistics: StatisticsItem[];
     metaInformation: MetaInformationItem[];
+    contactInfo: ContactInfoItem[];
 }
 
 /**
@@ -193,7 +207,7 @@ export interface AllSiteConfigurations {
  * Individual failures are swallowed – the section returns an empty array.
  */
 export async function fetchAllSiteConfigurations(): Promise<AllSiteConfigurations> {
-    const [sourcedByRes, themesRes, specialFiltersRes, transactionTypesRes, staticValuesRes, configurationsRes, newsTypesRes, newsAudiencesRes, statisticsRes, metaInformationRes] =
+    const [sourcedByRes, themesRes, specialFiltersRes, transactionTypesRes, staticValuesRes, configurationsRes, newsTypesRes, newsAudiencesRes, statisticsRes, metaInformationRes, contactInfoRes] =
         await Promise.allSettled([
             fetchSourcedBy(),
             fetchThemes(),
@@ -205,6 +219,7 @@ export async function fetchAllSiteConfigurations(): Promise<AllSiteConfiguration
             fetchNewsAudiences(),
             fetchStatistics(),
             fetchMetaInformation(),
+            fetchContactInfo(),
         ]);
 
     return {
@@ -218,6 +233,7 @@ export async function fetchAllSiteConfigurations(): Promise<AllSiteConfiguration
         newsAudiences: newsAudiencesRes.status === "fulfilled" ? newsAudiencesRes.value : [],
         statistics: statisticsRes.status === "fulfilled" ? statisticsRes.value : [],
         metaInformation: metaInformationRes.status === "fulfilled" ? metaInformationRes.value : [],
+        contactInfo: contactInfoRes.status === "fulfilled" ? contactInfoRes.value : [],
     };
 }
 

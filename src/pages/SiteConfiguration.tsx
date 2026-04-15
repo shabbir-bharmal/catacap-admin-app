@@ -25,6 +25,7 @@ import {
   fetchNewsAudiences,
   fetchStatistics,
   fetchMetaInformation,
+  fetchContactInfo,
   deleteSiteConfigItem,
   saveSiteConfigItem,
   fetchConfigItemInvestments,
@@ -38,12 +39,19 @@ import {
   NewsAudienceItem,
   StatisticsItem,
   MetaInformationItem,
+  ContactInfoItem,
   SiteConfigType,
   SiteConfigSavePayload,
   ConfigItemInvestment
 } from "../api/site-configuration/siteConfigurationApi";
 
-const TABS = ["Sourced By", "Themes", "Special Filters", "Configuration", "Transaction Type", "News Type", "News Audience", "Statistics", "Meta Information", "Schedulers"] as const;
+const TABS = ["Sourced By", "Themes", "Special Filters", "Configuration", "Contact Info", "Transaction Type", "News Type", "News Audience", "Statistics", "Meta Information", "Schedulers"] as const;
+
+const CONTACT_INFO_SECTIONS = [
+  { key: "emails", label: "Emails" },
+  { key: "people", label: "People" },
+  { key: "organization", label: "Organization" },
+] as const;
 
 type TabKey = (typeof TABS)[number];
 
@@ -65,6 +73,7 @@ export default function SiteConfiguration() {
   const [newsAudiences, setNewsAudiences] = useState<NewsAudienceItem[]>([]);
   const [statistics, setStatistics] = useState<StatisticsItem[]>([]);
   const [metaInformation, setMetaInformation] = useState<MetaInformationItem[]>([]);
+  const [contactInfo, setContactInfo] = useState<ContactInfoItem[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -101,6 +110,7 @@ export default function SiteConfiguration() {
         setNewsAudiences(data.newsAudiences);
         setStatistics(data.statistics);
         setMetaInformation(data.metaInformation);
+        setContactInfo(data.contactInfo);
       })
       .catch(() => setFetchError("Failed to load site configuration. Please try again."))
       .finally(() => setLoading(false));
@@ -202,11 +212,17 @@ export default function SiteConfiguration() {
         return "Add Statistic";
       case "Meta Information":
         return "Add Meta Information";
+      case "Contact Info":
+        return "Add Contact Info";
     }
   }
 
   function openAdd() {
-    setEditingItem({ id: null, field1: "", field2: "", field3: "", imagePreview: "", imageFileName: "", configType: getApiType(activeTab) });
+    setEditingItem({
+      id: null, field1: "", field2: "", field3: "", imagePreview: "",
+      imageFileName: activeTab === "Contact Info" ? "emails" : "",
+      configType: getApiType(activeTab)
+    });
     setDialogOpen(true);
   }
 
@@ -273,6 +289,19 @@ export default function SiteConfiguration() {
           });
         break;
       }
+      case "Contact Info": {
+        const item = contactInfo.find((i) => i.id === id);
+        if (item)
+          setEditingItem({
+            id,
+            field1: item.key,
+            field2: item.value,
+            field3: item.description || "",
+            imagePreview: "",
+            imageFileName: ""
+          });
+        break;
+      }
     }
     setDialogOpen(true);
   }
@@ -300,6 +329,14 @@ export default function SiteConfiguration() {
       payload.key = field1.trim();
       if (activeTab === "Statistics") {
         payload.itemType = editingItem.field3.trim();
+      }
+    }
+    if (activeTab === "Contact Info") {
+      payload.key = field1.trim();
+      payload.value = editingItem.field2.trim();
+      payload.additionalDetails = editingItem.field3.trim();
+      if (!id) {
+        payload.itemType = editingItem.imageFileName || "emails";
       }
     }
     if (activeTab === "Meta Information") {
@@ -351,6 +388,9 @@ export default function SiteConfiguration() {
         case "Meta Information":
           setMetaInformation(await fetchMetaInformation());
           break;
+        case "Contact Info":
+          setContactInfo(await fetchContactInfo());
+          break;
       }
       setDialogOpen(false);
     } catch (err) {
@@ -393,6 +433,8 @@ export default function SiteConfiguration() {
         return "statistics";
       case "Meta Information":
         return "meta-information";
+      case "Contact Info":
+        return "contact-info";
       case "Schedulers":
         throw new Error("Schedulers tab does not use site configuration CRUD operations");
     }
@@ -436,6 +478,9 @@ export default function SiteConfiguration() {
         case "Meta Information":
           setMetaInformation((prev) => prev.filter((i) => i.id !== id));
           break;
+        case "Contact Info":
+          setContactInfo((prev) => prev.filter((i) => i.id !== id));
+          break;
       }
       setDeleteDialogOpen(false);
       setDeleteTarget(null);
@@ -472,6 +517,8 @@ export default function SiteConfiguration() {
         return `${action} Statistic`;
       case "Meta Information":
         return `${action} Meta Information`;
+      case "Contact Info":
+        return "Edit Contact Info";
     }
   }
 
@@ -480,6 +527,7 @@ export default function SiteConfiguration() {
       case "Special Filters":
         return "Tag";
       case "Configuration":
+      case "Contact Info":
         return "Key";
       case "Meta Information":
         return "Identifier";
@@ -545,6 +593,101 @@ export default function SiteConfiguration() {
 
             {activeTab === "Schedulers" ? (
               <SchedulersTab />
+            ) : activeTab === "Contact Info" ? (
+              <div className="space-y-4" data-testid="contact-info-sections">
+                <div className="flex justify-end">
+                  <Button className="bg-[#405189] text-white" onClick={openAdd} data-testid="button-add-contact-info">
+                    <Plus className="h-4 w-4 mr-1.5" />
+                    Add Contact Info
+                  </Button>
+                </div>
+                {CONTACT_INFO_SECTIONS.map((section) => {
+                  const items = contactInfo.filter((i) => i.type === section.key);
+                  return (
+                    <Card key={section.key}>
+                      <CardContent className="p-0">
+                        <div className="px-4 py-3 border-b bg-muted/50">
+                          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider" data-testid={`section-heading-${section.key}`}>
+                            {section.label}
+                          </h3>
+                        </div>
+                        <table className="w-full" data-testid={`table-contact-${section.key}`}>
+                          <thead>
+                            <tr className="border-b bg-muted/30">
+                              <th className="px-4 py-2 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider w-[200px]">Key</th>
+                              <th className="px-4 py-2 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider w-[280px]">Value</th>
+                              <th className="px-4 py-2 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Description</th>
+                              <th className="px-4 py-2 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider w-[100px]">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {items.length === 0 ? (
+                              <tr>
+                                <td colSpan={4} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                                  No items found
+                                </td>
+                              </tr>
+                            ) : (
+                              items.map((item) => (
+                                <tr key={item.id} className="border-b last:border-b-0 hover:bg-muted/20 transition-colors" data-testid={`row-contact-${item.id}`}>
+                                  <td className="px-4 py-3">
+                                    <span className="text-sm font-medium" data-testid={`text-contact-key-${item.id}`}>{item.key}</span>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <span className="text-sm" data-testid={`text-contact-value-${item.id}`}>{item.value}</span>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <span className="text-sm text-muted-foreground" data-testid={`text-contact-desc-${item.id}`}>{item.description || "—"}</span>
+                                  </td>
+                                  <td className="px-4 py-3 text-right">
+                                    <div className="flex items-center justify-end">
+                                      <div className="inline-flex rounded-md shadow-sm">
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Button
+                                              size="icon"
+                                              variant="outline"
+                                              className={cn(
+                                                "h-8 w-8 text-[#405189] hover:text-[#405189] hover:bg-[#405189]/5",
+                                                hasActionPermission("site configuration", "delete") ? "rounded-r-none border-r-0" : ""
+                                              )}
+                                              onClick={() => openEdit(item.id)}
+                                              data-testid={`button-edit-contact-${item.id}`}
+                                            >
+                                              <Pencil className="h-4 w-4" />
+                                            </Button>
+                                          </TooltipTrigger>
+                                          <TooltipContent>Edit Value</TooltipContent>
+                                        </Tooltip>
+                                        {hasActionPermission("site configuration", "delete") && (
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <Button
+                                                size="icon"
+                                                variant="outline"
+                                                className="h-8 w-8 rounded-l-none text-[#f06548] hover:text-[#f06548] hover:bg-[#f06548]/5"
+                                                onClick={() => openDelete(item.id, item.key)}
+                                                data-testid={`button-delete-contact-${item.id}`}
+                                              >
+                                                <Trash2 className="h-4 w-4" />
+                                              </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent>Delete Item</TooltipContent>
+                                          </Tooltip>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
             ) : (
             <Card>
               <CardContent className="p-0">
@@ -1132,7 +1275,7 @@ export default function SiteConfiguration() {
                 value={editingItem.field1}
                 onChange={(e) => setEditingItem((prev) => ({ ...prev, field1: e.target.value }))}
                 placeholder={`Enter ${getField1Label().toLowerCase()}`}
-                disabled={!!editingItem.id && activeTab === "Configuration" && editingItem.field1.toLowerCase().startsWith("auto delete archived")}
+                disabled={(!!editingItem.id && activeTab === "Configuration" && editingItem.field1.toLowerCase().startsWith("auto delete archived")) || (activeTab === "Contact Info" && !!editingItem.id)}
                 data-testid="input-field1"
               />
             </div>
@@ -1253,6 +1396,43 @@ export default function SiteConfiguration() {
                     onBlur={(e) => setEditingItem((prev) => ({ ...prev, field2: e.currentTarget.innerHTML }))}
                     data-testid="input-richtext-value"
                     data-placeholder="Enter value"
+                  />
+                </div>
+              </div>
+            )}
+            {activeTab === "Contact Info" && !editingItem.id && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Group</label>
+                <select
+                  value={editingItem.imageFileName}
+                  onChange={(e) => setEditingItem((prev) => ({ ...prev, imageFileName: e.target.value }))}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  data-testid="select-contact-group"
+                >
+                  {CONTACT_INFO_SECTIONS.map((s) => (
+                    <option key={s.key} value={s.key}>{s.label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {activeTab === "Contact Info" && (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Value</label>
+                  <Input
+                    value={editingItem.field2}
+                    onChange={(e) => setEditingItem((prev) => ({ ...prev, field2: e.target.value }))}
+                    placeholder="Enter value"
+                    data-testid="input-contact-value"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Description</label>
+                  <Input
+                    value={editingItem.field3}
+                    onChange={(e) => setEditingItem((prev) => ({ ...prev, field3: e.target.value }))}
+                    placeholder="What is this value used for?"
+                    data-testid="input-contact-description"
                   />
                 </div>
               </div>

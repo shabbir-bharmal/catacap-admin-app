@@ -14,6 +14,7 @@ const SITE_CONFIG_TYPES = {
   NewsType: "NewsType",
   NewsAudience: "NewsAudience",
   MetaInformation: "MetaInformation",
+  ContactInfo: "ContactInfo",
 } as const;
 
 function getDeletedFilter(isDeleted: boolean | undefined): string {
@@ -171,6 +172,20 @@ router.get("/:type", async (req: Request, res: Response) => {
           image: resolveFileUrl(r.image, "site-configurations"),
           imageName: resolveFileUrl(r.imageName, "site-configurations"),
         })));
+        return;
+      }
+
+      case "contact-info": {
+        const result = await pool.query(
+          `SELECT x.id, x.key, x.value,
+                  x.additional_details AS "description",
+                  REPLACE(x.type, 'ContactInfo-', '') AS type
+           FROM site_configurations x
+           WHERE x.type LIKE $1 AND ${softDelete}
+           ORDER BY x.type, x.key`,
+          [`${SITE_CONFIG_TYPES.ContactInfo}-%`]
+        );
+        res.json(result.rows);
         return;
       }
 
@@ -357,6 +372,17 @@ router.delete("/:type/:id", async (req: Request, res: Response) => {
         if (entity.rows.length === 0) { res.json({ success: false, message: "Record not found." }); return; }
         await softDeleteRecord("site_configurations", id, userId);
         result = { success: true, message: "Meta information deleted successfully." };
+        break;
+      }
+
+      case "contact-info": {
+        const entity = await pool.query(
+          `SELECT id FROM site_configurations WHERE id = $1 AND type LIKE $2`,
+          [id, `${SITE_CONFIG_TYPES.ContactInfo}-%`]
+        );
+        if (entity.rows.length === 0) { res.json({ success: false, message: "Record not found." }); return; }
+        await softDeleteRecord("site_configurations", id, userId);
+        result = { success: true, message: "Contact info deleted successfully." };
         break;
       }
 
@@ -675,6 +701,23 @@ async function createByType(type: string, dto: any): Promise<{ success: boolean;
       return { success: true, message: "News audience created successfully." };
     }
 
+    case "contact-info": {
+      if (!dto.key?.trim()) return { success: false, message: "Key is required." };
+      if (!dto.value?.trim()) return { success: false, message: "Value is required." };
+      if (!dto.itemType?.trim()) return { success: false, message: "Group is required." };
+      const fullType = `${SITE_CONFIG_TYPES.ContactInfo}-${dto.itemType.trim()}`;
+      const dup = await pool.query(
+        `SELECT 1 FROM site_configurations WHERE type = $1 AND TRIM(key) = $2 AND (is_deleted IS NULL OR is_deleted = false)`,
+        [fullType, dto.key.trim()]
+      );
+      if (dup.rows.length > 0) return { success: false, message: "Entered key already exists in this group." };
+      await pool.query(
+        `INSERT INTO site_configurations (key, value, type, additional_details) VALUES ($1, $2, $3, $4)`,
+        [dto.key.trim(), dto.value.trim(), fullType, dto.additionalDetails?.trim() || null]
+      );
+      return { success: true, message: "Contact info created successfully." };
+    }
+
     default:
       return { success: false, message: "Invalid configuration type." };
   }
@@ -845,6 +888,20 @@ async function updateByType(type: string, dto: any): Promise<{ success: boolean;
       const successMsg = type === "transaction-type" ? "Transaction type updated successfully."
         : type === "news-type" ? "News type updated successfully." : "News audience updated successfully.";
       return { success: true, message: successMsg };
+    }
+
+    case "contact-info": {
+      if (!dto.value?.trim()) return { success: false, message: "Value is required." };
+      const entity = await pool.query(
+        `SELECT id FROM site_configurations WHERE id = $1 AND type LIKE $2`,
+        [id, `${SITE_CONFIG_TYPES.ContactInfo}-%`]
+      );
+      if (entity.rows.length === 0) return { success: false, message: "Record not found." };
+      await pool.query(
+        `UPDATE site_configurations SET value = $1, additional_details = $2 WHERE id = $3`,
+        [dto.value.trim(), dto.additionalDetails?.trim() || null, id]
+      );
+      return { success: true, message: "Contact info updated successfully." };
     }
 
     default:
