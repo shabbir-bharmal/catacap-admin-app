@@ -170,7 +170,19 @@ export default function FormSubmissionsPage() {
   };
 
   const getStatusLabel = (status: any) => {
-    return STATUS_LABELS[String(status)] || "New";
+    if (status === null || status === undefined) return "—";
+    const key = String(status);
+    if (STATUS_LABELS[key]) return STATUS_LABELS[key];
+    const legacyMap: Record<string, string> = {
+      "New": "New",
+      "Contacted": "Contacted",
+      "InProgress": "In Progress",
+      "In Progress": "In Progress",
+      "Completed": "Completed",
+      "Archived": "Archived",
+    };
+    if (legacyMap[key]) return legacyMap[key];
+    return key;
   };
 
   const handleSort = (field: SortField) => {

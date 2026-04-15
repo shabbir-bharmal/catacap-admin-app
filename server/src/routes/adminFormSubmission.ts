@@ -363,13 +363,8 @@ router.put("/", async (req: Request, res: Response) => {
     }
 
     const record = existing.rows[0];
-    let oldStatus: string | null = null;
-    let newStatus: string | null = null;
-
-    if (record.status !== dto.status) {
-      oldStatus = FormSubmissionStatusEnumNames[record.status] || String(record.status);
-      newStatus = FormSubmissionStatusEnumNames[dto.status] || String(dto.status);
-    }
+    let oldStatus: string = String(record.status);
+    let newStatus: string = String(dto.status);
 
     if (dto.note && dto.note.trim()) {
       const userId = req.user?.id || null;
