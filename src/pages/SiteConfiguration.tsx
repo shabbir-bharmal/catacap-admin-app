@@ -310,7 +310,8 @@ export default function SiteConfiguration() {
 
   async function handleSave() {
     const { id, field1, configType } = editingItem;
-    if (!field1.trim() || isSaving) return;
+    if (isSaving) return;
+    if (activeTab !== "Meta Information" && !field1.trim()) return;
 
     const isAutoDeleteConfig = activeTab === "Configuration" && field1.toLowerCase().startsWith("auto delete archived");
     const useRichText = (activeTab === "Configuration" && !isAutoDeleteConfig) || activeTab === "Statistics";
@@ -345,6 +346,19 @@ export default function SiteConfiguration() {
       payload.value = editingItem.field3.trim();
       payload.imageFileName = editingItem.imageFileName;
       payload.image = editingItem.imagePreview.startsWith("data:") ? editingItem.imagePreview : "";
+
+      if (!payload.additionalDetails) {
+        toast({ title: "Cannot Save", description: "Identifier is required.", variant: "destructive" });
+        return;
+      }
+      if (!payload.key) {
+        toast({ title: "Cannot Save", description: "Page Title is required.", variant: "destructive" });
+        return;
+      }
+      if (!payload.value) {
+        toast({ title: "Cannot Save", description: "Description is required.", variant: "destructive" });
+        return;
+      }
     }
     if (activeTab === "Themes") {
       payload.imageFileName = editingItem.imageFileName;

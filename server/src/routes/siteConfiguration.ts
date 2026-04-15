@@ -561,14 +561,14 @@ async function createByType(type: string, dto: any): Promise<{ success: boolean;
     }
 
     case "meta-information": {
-      if (!dto.key?.trim()) return { success: false, message: "Key is required." };
-      if (!dto.value?.trim()) return { success: false, message: "Value is required." };
-      if (!dto.additionalDetails?.trim()) return { success: false, message: "Additional details is required." };
+      if (!dto.key?.trim()) return { success: false, message: "Page Title is required." };
+      if (!dto.value?.trim()) return { success: false, message: "Description is required." };
+      if (!dto.additionalDetails?.trim()) return { success: false, message: "Identifier is required." };
       const dup = await pool.query(
         `SELECT 1 FROM site_configurations WHERE type = $1 AND TRIM(key) = $2 AND (is_deleted IS NULL OR is_deleted = false)`,
         [SITE_CONFIG_TYPES.MetaInformation, dto.key.trim()]
       );
-      if (dup.rows.length > 0) return { success: false, message: "Entered key already exists." };
+      if (dup.rows.length > 0) return { success: false, message: "Entered Page Title already exists." };
 
       let metaImage: string | null = null;
       let metaImageName: string | null = null;
@@ -756,16 +756,16 @@ async function updateByType(type: string, dto: any): Promise<{ success: boolean;
     }
 
     case "meta-information": {
-      if (!dto.key?.trim()) return { success: false, message: "Key is required." };
-      if (!dto.value?.trim()) return { success: false, message: "Value is required." };
-      if (!dto.additionalDetails?.trim()) return { success: false, message: "Additional details is required." };
+      if (!dto.key?.trim()) return { success: false, message: "Page Title is required." };
+      if (!dto.value?.trim()) return { success: false, message: "Description is required." };
+      if (!dto.additionalDetails?.trim()) return { success: false, message: "Identifier is required." };
       const entity = await pool.query(`SELECT id FROM site_configurations WHERE id = $1 AND type LIKE $2`, [id, `${SITE_CONFIG_TYPES.MetaInformation}%`]);
       if (entity.rows.length === 0) return { success: false, message: "Record not found." };
       const dup = await pool.query(
         `SELECT 1 FROM site_configurations WHERE type LIKE $1 AND TRIM(key) = $2 AND id != $3 AND (is_deleted IS NULL OR is_deleted = false)`,
         [`${SITE_CONFIG_TYPES.MetaInformation}%`, dto.key.trim(), id]
       );
-      if (dup.rows.length > 0) return { success: false, message: "Entered key already exists." };
+      if (dup.rows.length > 0) return { success: false, message: "Entered Page Title already exists." };
 
       const base64UpdMetaData = [dto.image, dto.imageFileName].find((v: any) => v && typeof v === "string" && v.startsWith("data:"));
       if (base64UpdMetaData) {
