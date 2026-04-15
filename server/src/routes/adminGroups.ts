@@ -238,6 +238,7 @@ router.get("/export", async (req: Request, res: Response) => {
       `SELECT g.id, g.name, g.identifier, g.is_deactivated, g.is_corporate_group,
               g.is_private_group, g.featured_group, g.leaders, g.group_themes
        FROM groups g
+       WHERE (g.is_deleted IS NULL OR g.is_deleted = false)
        ORDER BY g.id DESC`
     );
 
@@ -261,7 +262,7 @@ router.get("/export", async (req: Request, res: Response) => {
       const uniqueIds = [...new Set(allLeaderIds)];
       const placeholders = uniqueIds.map((_, i) => `$${i + 1}`).join(", ");
       const leaderResult = await pool.query(
-        `SELECT id, COALESCE(first_name, '') || ' ' || COALESCE(last_name, '') as full_name FROM users WHERE id IN (${placeholders})`,
+        `SELECT id, COALESCE(first_name, '') || ' ' || COALESCE(last_name, '') as full_name FROM users WHERE id IN (${placeholders}) AND (is_deleted IS NULL OR is_deleted = false)`,
         uniqueIds
       );
       for (const row of leaderResult.rows) {
@@ -293,7 +294,8 @@ router.get("/export", async (req: Request, res: Response) => {
         `SELECT cg.groups_id, c.id as campaign_id, c.is_active, c.stage
          FROM campaign_groups cg
          JOIN campaigns c ON cg.campaigns_id = c.id
-         WHERE cg.groups_id IN (${cgPlaceholders})`,
+         WHERE cg.groups_id IN (${cgPlaceholders})
+           AND (c.is_deleted IS NULL OR c.is_deleted = false)`,
         groupIds
       );
       for (const row of cgResult.rows) {
@@ -315,7 +317,7 @@ router.get("/export", async (req: Request, res: Response) => {
       const uniqueThemeIds = [...new Set(themeIds)];
       const tPlaceholders = uniqueThemeIds.map((_, i) => `$${i + 1}`).join(", ");
       const themeResult = await pool.query(
-        `SELECT id, name FROM themes WHERE id IN (${tPlaceholders})`,
+        `SELECT id, name FROM themes WHERE id IN (${tPlaceholders}) AND (is_deleted IS NULL OR is_deleted = false)`,
         uniqueThemeIds
       );
       for (const row of themeResult.rows) {
@@ -323,7 +325,7 @@ router.get("/export", async (req: Request, res: Response) => {
       }
     }
 
-    const requestOrigin = req.headers.origin || "";
+    const requestOrigin = process.env.ADMIN_BASE_URL || "";
 
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet("InvestmentNotes");
@@ -364,7 +366,7 @@ router.get("/export", async (req: Request, res: Response) => {
         }
       }
 
-      const url = g.identifier ? `${requestOrigin}/group/${g.identifier}` : `${requestOrigin}/group/${g.id}`;
+      const url = g.identifier?.trim() ? `${requestOrigin}/group/${g.identifier.trim()}` : `${requestOrigin}/group/${g.id}`;
 
       worksheet.addRow([
         g.name || "",
