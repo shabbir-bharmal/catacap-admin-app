@@ -115,6 +115,7 @@ export async function runSendReminderEmail(): Promise<void> {
   let day3Count = 0;
   let week2Count = 0;
   let errorMessage: string | null = null;
+  const processingErrors: string[] = [];
   const startTime = new Date();
 
   try {
@@ -277,8 +278,16 @@ export async function runSendReminderEmail(): Promise<void> {
             `[SCHEDULER] Error processing grant ${grant.pending_grant_id} (${reminderType}):`,
             message,
           );
+          processingErrors.push(`Grant ${grant.pending_grant_id} (${reminderType}): ${message}`);
         }
       }
+    }
+
+    if (processingErrors.length > 0) {
+      const summary = `${processingErrors.length} grant(s) failed to process: ${processingErrors.join("; ")}`;
+      console.error(`[SCHEDULER] SendReminderEmail completed with errors: ${summary}`);
+      errorMessage = summary;
+      throw new Error(summary);
     }
 
     console.log(
@@ -286,14 +295,35 @@ export async function runSendReminderEmail(): Promise<void> {
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.toString() : String(err);
-    errorMessage = message;
+    if (!errorMessage) {
+      errorMessage = message;
+    }
     console.error("[SCHEDULER] SendReminderEmail error:", err);
+    throw err;
   } finally {
-    await pool.query(
-      `INSERT INTO scheduler_logs
-        (start_time, end_time, day3_email_count, week2_email_count, error_message, job_name)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [startTime, new Date(), day3Count, week2Count, errorMessage, jobName],
-    );
+    const status = errorMessage ? "Failed" : "Success";
+    try {
+      const hasStatusCol = await pool.query(
+        `SELECT 1 FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'scheduler_logs' AND column_name = 'status'`
+      );
+      if (hasStatusCol.rows.length > 0) {
+        await pool.query(
+          `INSERT INTO scheduler_logs
+            (start_time, end_time, day3_email_count, week2_email_count, error_message, job_name, status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [startTime, new Date(), day3Count, week2Count, errorMessage, jobName, status],
+        );
+      } else {
+        await pool.query(
+          `INSERT INTO scheduler_logs
+            (start_time, end_time, day3_email_count, week2_email_count, error_message, job_name)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [startTime, new Date(), day3Count, week2Count, errorMessage, jobName],
+        );
+      }
+    } catch (logErr) {
+      console.error("[SCHEDULER] Failed to log SendReminderEmail run:", logErr);
+    }
   }
 }

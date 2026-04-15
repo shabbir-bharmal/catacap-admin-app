@@ -469,7 +469,7 @@ export default function SchedulersTab() {
                             {logs.map((log) => (
                               <TableRow key={log.id}>
                                 <TableCell>
-                                  {log.errorMessage ? (
+                                  {(log.status === "Failed" || (!log.status && log.errorMessage)) ? (
                                     <Badge variant="destructive">Failed</Badge>
                                   ) : (
                                     <Badge variant="secondary" className="bg-green-100 text-green-800">Success</Badge>

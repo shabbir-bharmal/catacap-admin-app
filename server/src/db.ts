@@ -57,8 +57,21 @@ async function ensureSchedulerTables(client: pg.PoolClient): Promise<void> {
       end_time TIMESTAMP,
       day3_email_count INTEGER DEFAULT 0,
       week2_email_count INTEGER DEFAULT 0,
-      error_message TEXT
+      error_message TEXT,
+      status VARCHAR(20) DEFAULT 'Success'
     )
+  `);
+
+  await client.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'scheduler_logs' AND column_name = 'status'
+      ) THEN
+        ALTER TABLE scheduler_logs ADD COLUMN status VARCHAR(20) DEFAULT 'Success';
+      END IF;
+    END $$;
   `);
 
   await client.query(`
