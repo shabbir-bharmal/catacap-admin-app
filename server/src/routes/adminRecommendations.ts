@@ -266,11 +266,12 @@ router.get("/export", async (req: Request, res: Response) => {
        FROM recommendations r
        LEFT JOIN campaigns c ON r.campaign_id = c.id
        LEFT JOIN users rej ON r.rejected_by = rej.id
-       WHERE EXISTS (
+       WHERE (r.is_deleted IS NULL OR r.is_deleted = false)
+         AND EXISTS (
          SELECT 1 FROM users u2
          JOIN user_roles ur2 ON u2.id = ur2.user_id
          JOIN roles rl ON ur2.role_id = rl.id
-         WHERE rl.name = $1 AND u2.email = r.user_email
+         WHERE rl.name = $1 AND LOWER(u2.email) = LOWER(r.user_email)
        )
        ORDER BY r.id DESC`,
       [USER_ROLE]
@@ -294,13 +295,17 @@ router.get("/export", async (req: Request, res: Response) => {
         row.user_full_name,
         row.user_email,
         row.campaign_name,
-        row.amount,
-        row.date_created,
+        row.amount != null ? Math.round(parseFloat(row.amount) * 100) / 100 : row.amount,
+        row.date_created ? new Date(row.date_created) : row.date_created,
         row.status,
         row.rejection_memo,
         row.rejected_by_name,
         row.rejection_date,
       ]);
+      const dateCreatedCell = dataRow.getCell(6);
+      if (row.date_created) {
+        dateCreatedCell.numFmt = "dd/MM/yy HH:mm";
+      }
       const rejectionDateCell = dataRow.getCell(10);
       if (row.rejection_date) {
         rejectionDateCell.value = new Date(row.rejection_date);

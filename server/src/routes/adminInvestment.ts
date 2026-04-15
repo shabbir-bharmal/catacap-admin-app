@@ -742,6 +742,7 @@ router.get("/:id/recommendations/export", async (req: Request, res: Response) =>
        JOIN campaigns c ON r.campaign_id = c.id
        LEFT JOIN pending_grants pg ON r.pending_grants_id = pg.id
        WHERE r.campaign_id = $1
+         AND (r.is_deleted IS NULL OR r.is_deleted = false)
          AND (LOWER(TRIM(r.status)) = 'pending' OR LOWER(TRIM(r.status)) = 'approved')
        ORDER BY r.id DESC`,
       [id]
@@ -763,12 +764,12 @@ router.get("/:id/recommendations/export", async (req: Request, res: Response) =>
       const dataRow = worksheet.addRow([
         r.user_full_name || "",
         r.campaign_name || "",
-        parseFloat(r.amount) || 0,
+        Math.round((parseFloat(r.amount) || 0) * 100) / 100,
         r.date_created ? new Date(r.date_created) : "",
         isInTransit,
       ]);
       dataRow.getCell(3).numFmt = "$#,##0.00";
-      dataRow.getCell(4).numFmt = "MM/dd/yy HH:mm";
+      dataRow.getCell(4).numFmt = "dd/MM/yy HH:mm";
     }
 
     worksheet.columns.forEach((col) => {
