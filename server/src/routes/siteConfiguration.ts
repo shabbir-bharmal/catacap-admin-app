@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import pool from "../db.js";
 import { softDeleteFilter } from "../utils/softDelete.js";
 import { resolveFileUrl, uploadBase64Image, extractStoragePath, ensureFolderPrefix } from "../utils/uploadBase64Image.js";
+import { invalidateEmailConfigCache } from "../utils/emailService.js";
 
 const router = Router();
 
@@ -211,9 +212,15 @@ router.post("/", async (req: Request, res: Response) => {
 
     if (isUpdate) {
       const result = await updateByType(type, dto);
+      if (result.success) {
+        invalidateEmailConfigCache();
+      }
       res.json(result);
     } else {
       const result = await createByType(type, dto);
+      if (result.success) {
+        invalidateEmailConfigCache();
+      }
       res.json(result);
     }
   } catch (err) {
@@ -390,6 +397,9 @@ router.delete("/:type/:id", async (req: Request, res: Response) => {
         result = { success: false, message: "Invalid configuration type." };
     }
 
+    if (result.success) {
+      invalidateEmailConfigCache();
+    }
     res.json(result);
   } catch (err) {
     console.error("SiteConfig Delete error:", err);

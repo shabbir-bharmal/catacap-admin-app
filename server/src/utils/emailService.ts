@@ -28,6 +28,11 @@ function setCache(key: string, value: string): void {
   siteConfigCache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
 }
 
+export function invalidateEmailConfigCache(): void {
+  siteConfigCache.delete("emailSenderName");
+  siteConfigCache.delete("defaultFromAddress");
+}
+
 export async function getEmailSenderName(): Promise<string> {
   const cached = getCached("emailSenderName");
   if (cached !== null) {
