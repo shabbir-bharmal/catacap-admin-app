@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import { Resend } from "resend";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter, handleMissingTableError } from "../utils/softDelete.js";
+import { buildFromEmail } from "../utils/emailService.js";
 
 const router = Router();
 
@@ -438,8 +439,10 @@ router.post("/send-test/:id", async (req: Request, res: Response) => {
     const template = result.rows[0];
     const resend = new Resend(apiKey);
 
+    const fromEmail = await buildFromEmail();
+
     const { data, error } = await resend.emails.send({
-      from: "CataCap <support@catacap.org>",
+      from: fromEmail,
       to: [email.trim()],
       subject: template.subject || template.name,
       html: template.body_html || "",

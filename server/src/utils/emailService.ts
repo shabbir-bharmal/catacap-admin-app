@@ -1,7 +1,43 @@
 import { Resend } from "resend";
 import pool from "../db.js";
 
-const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "CataCap <support@catacap.org>";
+const DEFAULT_SENDER_NAME = "CataCap";
+
+export async function getEmailSenderName(): Promise<string> {
+  try {
+    const result = await pool.query(
+      `SELECT value FROM site_configurations WHERE key = 'emailSenderName' LIMIT 1`
+    );
+    const value = result.rows[0]?.value;
+    return value && value.trim() ? value.trim() : DEFAULT_SENDER_NAME;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[EMAIL] Failed to fetch emailSenderName from site_configurations: ${message}`);
+    return DEFAULT_SENDER_NAME;
+  }
+}
+
+const DEFAULT_FROM_ADDRESS = "support@catacap.org";
+
+async function getDefaultFromAddress(): Promise<string> {
+  try {
+    const result = await pool.query(
+      `SELECT value FROM site_configurations WHERE key = 'defaultFromAddress' LIMIT 1`
+    );
+    const value = result.rows[0]?.value;
+    return value && value.trim() ? value.trim() : DEFAULT_FROM_ADDRESS;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[EMAIL] Failed to fetch defaultFromAddress from site_configurations: ${message}`);
+    return DEFAULT_FROM_ADDRESS;
+  }
+}
+
+export async function buildFromEmail(): Promise<string> {
+  const senderName = await getEmailSenderName();
+  const fromAddress = await getDefaultFromAddress();
+  return `${senderName} <${fromAddress}>`;
+}
 
 function getResendClient(): Resend | null {
   const apiKey = process.env.RESEND_API_KEY;
@@ -61,8 +97,10 @@ export async function sendTemplateEmail(
       return false;
     }
 
+    const fromEmail = await buildFromEmail();
+
     const { data, error } = await resend.emails.send({
-      from: FROM_EMAIL,
+      from: fromEmail,
       to: [recipient],
       subject,
       html: bodyHtml,
@@ -131,8 +169,10 @@ export async function sendTemplateEmailWithAttachments(
       return false;
     }
 
+    const fromEmail = await buildFromEmail();
+
     const { data, error } = await resend.emails.send({
-      from: FROM_EMAIL,
+      from: fromEmail,
       to: [recipient],
       subject,
       html: bodyHtml,

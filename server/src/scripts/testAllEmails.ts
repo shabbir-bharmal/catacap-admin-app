@@ -1,5 +1,6 @@
 import { Resend } from "resend";
 import pool from "../db.js";
+import { buildFromEmail } from "../utils/emailService.js";
 
 const TARGET_EMAIL = process.env.TEST_EMAIL_TARGET || "developers.shabbir@arsenaltech.com";
 
@@ -570,8 +571,10 @@ async function main() {
       const subject = replaceVariables(template.subject || "", config.variables);
       const bodyHtml = replaceVariables(template.body_html || "", config.variables);
 
+      const fromEmail = await buildFromEmail();
+
       const { data, error } = await resend.emails.send({
-        from: "CataCap <support@catacap.org>",
+        from: fromEmail,
         to: [TARGET_EMAIL],
         subject: `[Test Cat ${category}] ${subject}`,
         html: bodyHtml,
