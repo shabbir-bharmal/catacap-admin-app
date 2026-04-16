@@ -1,5 +1,7 @@
 import React, { Fragment } from "react";
 import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+dayjs.extend(utc);
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -183,7 +185,7 @@ export const MODULE_TABLE_REGISTRY: Record<string, ModuleTableConfig> = {
         return (
           <tr key={item.id} className="border-b hover:bg-muted/20 transition-colors">
             <td className="px-4 py-3 text-sm font-medium">{item.userName}</td>
-            <td className="px-4 py-3 text-sm">{dayjs(item.changeDate).format("MM/DD/YYYY")}</td>
+            <td className="px-4 py-3 text-sm">{dayjs.utc(item.changeDate).format("MM/DD/YYYY")}</td>
             <td className="px-4 py-3 text-sm">{item.investmentName || "-"}</td>
             <td className="px-4 py-3">
               {item.paymentType ? (
