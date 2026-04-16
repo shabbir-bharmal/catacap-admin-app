@@ -264,8 +264,8 @@ router.get("/export", async (req: Request, res: Response) => {
               c.name AS campaign_name,
               rej.first_name AS rejected_by_name
        FROM recommendations r
-       LEFT JOIN campaigns c ON r.campaign_id = c.id
-       LEFT JOIN users rej ON r.rejected_by = rej.id
+       LEFT JOIN campaigns c ON r.campaign_id = c.id AND (c.is_deleted IS NULL OR c.is_deleted = false)
+       LEFT JOIN users rej ON r.rejected_by = rej.id AND (rej.is_deleted IS NULL OR rej.is_deleted = false)
        WHERE (r.is_deleted IS NULL OR r.is_deleted = false)
          AND EXISTS (
          SELECT 1 FROM users u2
@@ -337,10 +337,13 @@ router.get("/export", async (req: Request, res: Response) => {
 router.delete("/:id", async (req: Request, res: Response) => {
   try {
     const id = parseInt(String(req.params.id), 10);
+    const loginUserId = req.user?.id || null;
 
     const result = await pool.query(
-      `DELETE FROM recommendations WHERE id = $1 RETURNING id`,
-      [id]
+      `UPDATE recommendations SET is_deleted = true, deleted_at = NOW(), deleted_by = $1
+       WHERE id = $2 AND (is_deleted IS NULL OR is_deleted = false)
+       RETURNING id`,
+      [loginUserId, id]
     );
 
     if (result.rowCount === 0) {

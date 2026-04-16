@@ -225,7 +225,7 @@ router.get("/", async (req: Request, res: Response) => {
               c.name AS "investmentName", pg.reference,
               COALESCE(NULLIF(pg.status, ''), 'Pending') AS status,
               pg.created_date AS "createdDate",
-              EXISTS(SELECT 1 FROM pending_grant_notes n WHERE n.pending_grant_id = pg.id) AS "hasNotes",
+              EXISTS(SELECT 1 FROM pending_grant_notes n WHERE n.pending_grant_id = pg.id AND (n.is_deleted IS NULL OR n.is_deleted = false)) AS "hasNotes",
               pg.deleted_at AS "deletedAt",
               CASE WHEN del.id IS NOT NULL THEN CONCAT(del.first_name, ' ', del.last_name) ELSE NULL END AS "deletedBy"
        FROM pending_grants pg
@@ -310,6 +310,12 @@ router.put("/restore", async (req: Request, res: Response) => {
 
     await pool.query(
       `UPDATE scheduled_email_logs SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+       WHERE pending_grant_id IN (${grantPlaceholders}) AND is_deleted = true`,
+      grantIds
+    );
+
+    await pool.query(
+      `UPDATE pending_grant_notes SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
        WHERE pending_grant_id IN (${grantPlaceholders}) AND is_deleted = true`,
       grantIds
     );
@@ -655,6 +661,7 @@ router.get("/:id/notes", async (req: Request, res: Response) => {
        FROM pending_grant_notes n
        LEFT JOIN users u ON n.created_by = u.id
        WHERE n.pending_grant_id = $1
+         AND (n.is_deleted IS NULL OR n.is_deleted = false)
        ORDER BY n.id DESC`,
       [id]
     );
@@ -669,9 +676,10 @@ router.get("/:id/notes", async (req: Request, res: Response) => {
 router.delete("/:id", async (req: Request, res: Response) => {
   try {
     const id = parseInt(String(req.params.id), 10);
+    const loginUserId = req.user?.id || null;
 
     const entityResult = await pool.query(
-      `SELECT id FROM pending_grants WHERE id = $1`,
+      `SELECT id FROM pending_grants WHERE id = $1 AND (is_deleted IS NULL OR is_deleted = false)`,
       [id]
     );
 
@@ -680,11 +688,32 @@ router.delete("/:id", async (req: Request, res: Response) => {
       return;
     }
 
-    await pool.query(`DELETE FROM account_balance_change_logs WHERE pending_grants_id = $1`, [id]);
-    await pool.query(`DELETE FROM recommendations WHERE pending_grants_id = $1`, [id]);
-    await pool.query(`DELETE FROM scheduled_email_logs WHERE pending_grant_id = $1`, [id]);
-    await pool.query(`DELETE FROM pending_grant_notes WHERE pending_grant_id = $1`, [id]);
-    await pool.query(`DELETE FROM pending_grants WHERE id = $1`, [id]);
+    await pool.query(
+      `UPDATE account_balance_change_logs SET is_deleted = true, deleted_at = NOW(), deleted_by = $1
+       WHERE pending_grants_id = $2 AND (is_deleted IS NULL OR is_deleted = false)`,
+      [loginUserId, id]
+    );
+    await pool.query(
+      `UPDATE recommendations SET is_deleted = true, deleted_at = NOW(), deleted_by = $1
+       WHERE pending_grants_id = $2 AND (is_deleted IS NULL OR is_deleted = false)`,
+      [loginUserId, id]
+    );
+    await pool.query(
+      `UPDATE scheduled_email_logs SET is_deleted = true, deleted_at = NOW(), deleted_by = $1
+       WHERE pending_grant_id = $2 AND (is_deleted IS NULL OR is_deleted = false)`,
+      [loginUserId, id]
+    );
+    await pool.query(
+      `UPDATE pending_grant_notes SET is_deleted = true, deleted_at = NOW(), deleted_by = $1
+       WHERE pending_grant_id = $2 AND (is_deleted IS NULL OR is_deleted = false)`,
+      [loginUserId, id]
+    );
+
+    await pool.query(
+      `UPDATE pending_grants SET is_deleted = true, deleted_at = NOW(), deleted_by = $1
+       WHERE id = $2`,
+      [loginUserId, id]
+    );
 
     res.json({ success: true, message: "Pending grant deleted successfully." });
   } catch (err: any) {

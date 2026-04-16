@@ -164,6 +164,7 @@ router.get("/user-disbursal-investments", jwtUserAuthMiddleware, async (req: Req
               contact_info_phone_number, investment_types
        FROM campaigns
        WHERE is_active = true
+         AND (is_deleted IS NULL OR is_deleted = false)
          AND COALESCE(TRIM(contact_info_email_address), '') = $1
        ORDER BY name ASC`,
       [email]
@@ -317,7 +318,7 @@ router.get("/get-disbursal-request", jwtUserAuthMiddleware, async (req: Request,
               d.pitch_deck_name, d.investment_document, d.investment_document_name,
               d.impact_assets_funding_previously, c.investment_types
        FROM disbursal_requests d
-       JOIN campaigns c ON d.campaign_id = c.id
+       JOIN campaigns c ON d.campaign_id = c.id AND (c.is_deleted IS NULL OR c.is_deleted = false)
        LEFT JOIN users u ON d.user_id = u.id
        WHERE d.id = $1 AND d.user_id = $2 AND (d.is_deleted IS NULL OR d.is_deleted = false)`,
       [id, loginUserId]
@@ -374,7 +375,7 @@ router.get("/get-disbursal-request-list", jwtUserAuthMiddleware, async (req: Req
              d.pitch_deck, d.pitch_deck_name, d.investment_document,
              d.investment_document_name, c.investment_types
       FROM disbursal_requests d
-      JOIN campaigns c ON d.campaign_id = c.id
+      JOIN campaigns c ON d.campaign_id = c.id AND (c.is_deleted IS NULL OR c.is_deleted = false)
       LEFT JOIN users u ON d.user_id = u.id
       WHERE d.user_id = $1 AND (d.is_deleted IS NULL OR d.is_deleted = false)
     `;
@@ -469,7 +470,7 @@ router.get("/export-disbursal-request-list", jwtUserAuthMiddleware, async (req: 
       SELECT d.id, d.receive_date, u.email, d.distributed_amount,
              c.name, d.quote, d.status, c.investment_types
       FROM disbursal_requests d
-      JOIN campaigns c ON d.campaign_id = c.id
+      JOIN campaigns c ON d.campaign_id = c.id AND (c.is_deleted IS NULL OR c.is_deleted = false)
       LEFT JOIN users u ON d.user_id = u.id
       WHERE d.user_id = $1 AND (d.is_deleted IS NULL OR d.is_deleted = false)
     `;
@@ -548,6 +549,7 @@ router.get("/get-disbursal-request-notes", jwtUserAuthMiddleware, async (req: Re
        FROM disbursal_request_notes n
        LEFT JOIN users u ON n.created_by = u.id
        WHERE n.disbursal_request_id = $1
+         AND (n.is_deleted IS NULL OR n.is_deleted = false)
        ORDER BY n.id DESC`,
       [disbursalRequestId]
     );
@@ -589,7 +591,7 @@ router.get("/send-investment-qr-code-email", jwtUserAuthMiddleware, async (req: 
     }
 
     const campaignResult = await pool.query(
-      `SELECT id, name, property, contact_info_email_address, contact_info_full_name FROM campaigns WHERE id = $1`,
+      `SELECT id, name, property, contact_info_email_address, contact_info_full_name FROM campaigns WHERE id = $1 AND (is_deleted IS NULL OR is_deleted = false)`,
       [id]
     );
 

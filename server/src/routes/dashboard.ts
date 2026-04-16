@@ -515,7 +515,7 @@ router.get("/top-groups", async (req: Request, res: Response) => {
          g.id AS group_id,
          g.name AS group_name,
          COALESCE(SUM(log.new_value - log.old_value), 0) AS total_investment,
-         (SELECT COUNT(*) FROM requests req WHERE req.group_to_follow_id = g.id AND req.status = 'accepted') AS members
+         (SELECT COUNT(*) FROM requests req WHERE req.group_to_follow_id = g.id AND req.status = 'accepted' AND (req.is_deleted IS NULL OR req.is_deleted = false)) AS members
        FROM groups g
        JOIN account_balance_change_logs log ON g.id = log.group_id
        JOIN users u ON log.user_id = u.id

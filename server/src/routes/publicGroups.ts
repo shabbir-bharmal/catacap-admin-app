@@ -31,7 +31,7 @@ router.get("/", async (_req: Request, res: Response) => {
       const cgResult = await pool.query(
         `SELECT cg.groups_id, c.id, c.name, c.stage, c.is_active, c.image_file_name
          FROM campaign_groups cg
-         JOIN campaigns c ON cg.campaigns_id = c.id
+         JOIN campaigns c ON cg.campaigns_id = c.id AND (c.is_deleted IS NULL OR c.is_deleted = false)
          WHERE cg.groups_id IN (${placeholders})`,
         groupIds
       );

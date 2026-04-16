@@ -105,7 +105,7 @@ router.post("/", async (req: Request, res: Response) => {
 router.get("/", async (_req: Request, res: Response) => {
   try {
     const result = await pool.query<InterestRow>(
-      `SELECT id, value FROM site_configurations WHERE type = 'Interest' ORDER BY value`
+      `SELECT id, value FROM site_configurations WHERE type = 'Interest' AND (is_deleted IS NULL OR is_deleted = false) ORDER BY value`
     );
     res.json(result.rows.map((r) => ({ id: r.id, value: r.value })));
   } catch (err) {

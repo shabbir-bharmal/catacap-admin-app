@@ -122,7 +122,8 @@ async function getFinancesData(): Promise<FinancesData> {
         `SELECT COUNT(*) AS total
          FROM requests
          WHERE group_to_follow_id IN (${gidPlaceholders})
-           AND status = $${groupIds.length + 1}`,
+           AND status = $${groupIds.length + 1}
+           AND (is_deleted IS NULL OR is_deleted = false)`,
         [...groupIds, ACCEPTED]
       );
       membersCount = parseInt(membersResult.rows[0].total) || 0;
@@ -139,7 +140,8 @@ async function getFinancesData(): Promise<FinancesData> {
            COUNT(CASE WHEN LOWER(TRIM(status)) = '${APPROVED}' THEN 1 END) AS approved_count,
            COUNT(CASE WHEN LOWER(TRIM(status)) = '${PENDING}' OR LOWER(TRIM(status)) = '${APPROVED}' THEN 1 END) AS approved_and_pending_count
          FROM recommendations
-         WHERE user_email IN (${emailPlaceholders})`,
+         WHERE user_email IN (${emailPlaceholders})
+           AND (is_deleted IS NULL OR is_deleted = false)`,
         userEmails
       );
       if (recResult.rows[0]) {
@@ -161,7 +163,8 @@ async function getFinancesData(): Promise<FinancesData> {
            COALESCE(SUM(CASE WHEN LOWER(TRIM(status)) = '${PENDING}' THEN amount ELSE 0 END), 0) AS pending,
            COALESCE(SUM(CASE WHEN LOWER(TRIM(status)) = '${APPROVED}' THEN amount ELSE 0 END), 0) AS approved
          FROM recommendations
-         WHERE user_email IN (${nePlaceholders})`,
+         WHERE user_email IN (${nePlaceholders})
+           AND (is_deleted IS NULL OR is_deleted = false)`,
         nonExcludeEmails
       );
       if (neRecResult.rows[0]) {
@@ -231,11 +234,12 @@ async function getFinancesData(): Promise<FinancesData> {
       const ctResult = await pool.query(
         `SELECT r.campaign_id, c.is_active, SUM(r.amount) AS total_amount
          FROM recommendations r
-         JOIN campaigns c ON r.campaign_id = c.id
+         JOIN campaigns c ON r.campaign_id = c.id AND (c.is_deleted IS NULL OR c.is_deleted = false)
          WHERE r.user_email IN (${emailPlaceholders})
            AND (LOWER(TRIM(r.status)) = '${APPROVED}' OR LOWER(TRIM(r.status)) = '${PENDING}')
            AND r.amount > 0
            AND r.user_email IS NOT NULL AND r.user_email != ''
+           AND (r.is_deleted IS NULL OR r.is_deleted = false)
          GROUP BY r.campaign_id, c.is_active`,
         userEmails
       );
@@ -285,7 +289,8 @@ async function getFinancesData(): Promise<FinancesData> {
         `SELECT campaign_id, amount, status
          FROM recommendations
          WHERE user_email IN (${emailPlaceholders})
-           AND (LOWER(TRIM(status)) = '${PENDING}' OR LOWER(TRIM(status)) = '${APPROVED}')`,
+           AND (LOWER(TRIM(status)) = '${PENDING}' OR LOWER(TRIM(status)) = '${APPROVED}')
+           AND (is_deleted IS NULL OR is_deleted = false)`,
         userEmails
       );
       relevantRecs = rrResult.rows;
