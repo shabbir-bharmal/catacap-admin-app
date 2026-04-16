@@ -18,8 +18,6 @@ import { SortHeader } from "../components/ui/table-sort";
 import { PaginationControls } from "@/components/ui/pagination-controls";
 import { fetchFormSubmissions, updateFormSubmissionStatus, deleteFormSubmission, fetchFormSubmissionNotes, type FormSubmission } from "../api/form-submission/formSubmissionApi";
 import dayjs from "dayjs";
-import utc from "dayjs/plugin/utc";
-dayjs.extend(utc);
 import { useDebounce } from "../hooks/useDebounce";
 import { cn } from "@/lib/utils";
 import { ConfirmationDialog } from "../components/ConfirmationDialog";
@@ -312,7 +310,7 @@ export default function FormSubmissionsPage() {
                               {sub.firstName} {sub.lastName}
                             </td>
                             <td className="px-4 py-3 text-muted-foreground">{sub.email}</td>
-                            <td className="px-4 py-3 text-muted-foreground hidden lg:table-cell whitespace-nowrap">{dayjs.utc(sub.createdAt).format("MMM D, YYYY h:mm A")}</td>
+                            <td className="px-4 py-3 text-muted-foreground hidden lg:table-cell whitespace-nowrap">{dayjs(sub.createdAt).format("MMM D, YYYY h:mm A")}</td>
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-2">
                                 {sub.status ? (
@@ -423,7 +421,7 @@ export default function FormSubmissionsPage() {
                                       ) : notesData[sub.id] && notesData[sub.id].length > 0 ? (
                                         notesData[sub.id].map((entry, idx) => (
                                           <tr key={idx} className={`border-b last:border-0 ${idx % 2 === 0 ? "bg-card" : "bg-muted/30"}`}>
-                                            <td className="px-4 py-3 text-sm">{entry.createdAt ? dayjs.utc(entry.createdAt).format("MM/DD/YYYY") : "N/A"}</td>
+                                            <td className="px-4 py-3 text-sm">{entry.createdAt ? dayjs(entry.createdAt).format("MM/DD/YYYY") : "N/A"}</td>
                                             <td className="px-4 py-3 text-sm">{entry.userName || "N/A"}</td>
                                             <td className="px-4 py-3 text-sm">{getStatusLabel(entry.oldStatus)}</td>
                                             <td className="px-4 py-3 text-sm">{getStatusLabel(entry.newStatus)}</td>
@@ -490,7 +488,7 @@ export default function FormSubmissionsPage() {
                         {formTypeLabel(selectedSubmission.formType)}
                       </span>
                       {" · "}
-                      {dayjs.utc(selectedSubmission.createdAt).format("MMM D, YYYY h:mm A")}
+                      {dayjs(selectedSubmission.createdAt).format("MMM D, YYYY h:mm A")}
                     </p>
                   )}
                 </div>

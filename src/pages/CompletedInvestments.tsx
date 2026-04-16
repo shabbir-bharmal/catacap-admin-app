@@ -2,8 +2,6 @@ import { useState, useMemo, Fragment } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocation } from "wouter";
 import dayjs from "dayjs";
-import utc from "dayjs/plugin/utc";
-dayjs.extend(utc);
 import { useToast } from "@/hooks/use-toast";
 import { AdminLayout } from "../components/AdminLayout";
 import { currency_format } from "@/helpers/format";
@@ -125,7 +123,7 @@ const CompletedInvestmentNotesRow = ({
 
 function formatDate(dateStr: string): string {
   if (!dateStr) return "—";
-  const d = dayjs.utc(dateStr);
+  const d = dayjs(dateStr);
   if (!d.isValid()) return dateStr;
   return d.format("MM/DD/YYYY");
 }

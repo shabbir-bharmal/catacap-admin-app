@@ -54,8 +54,6 @@ import {
 } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import dayjs from "dayjs";
-import utc from "dayjs/plugin/utc";
-dayjs.extend(utc);
 import { useAuth } from "../contexts/AuthContext";
 import { ConfirmationDialog } from "../components/ConfirmationDialog";
 import { Loader2 } from "lucide-react";
@@ -95,7 +93,7 @@ function mapApiItemToArticle(item: NewsApiItem): NewsArticle {
     audienceId: item.audienceId ?? null,
     theme: item.theme ?? "",
     themeId: item.themeId ?? null,
-    date: item.newsDate ? dayjs.utc(item.newsDate).format("MMMM D, YYYY") : "",
+    date: item.newsDate ? dayjs(item.newsDate).format("MMMM D, YYYY") : "",
     link: item.link ?? "",
     status: item.status === true ? "Published" : "Draft",
   };

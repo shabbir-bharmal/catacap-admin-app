@@ -2,8 +2,6 @@ import { useState, Fragment } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import dayjs from "dayjs";
-import utc from "dayjs/plugin/utc";
-dayjs.extend(utc);
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AdminLayout } from "../components/AdminLayout";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -91,7 +89,7 @@ function OtherAssetNotes({ assetId }: { assetId: number }) {
               notes.map((entry, idx) => (
                 <tr key={idx} className={`border-b last:border-0 ${idx % 2 === 0 ? "bg-white dark:bg-background" : "bg-muted/50"}`} data-testid={`row-note-entry-${assetId}-${idx}`}>
                   <td className="px-4 py-3 text-sm" data-testid={`text-note-date-${assetId}-${idx}`}>
-                    {dayjs.utc(entry.createdAt).format("MM/DD/YYYY")}
+                    {dayjs(entry.createdAt).format("MM/DD/YYYY")}
                   </td>
                   <td className="px-4 py-3 text-sm" data-testid={`text-note-username-${assetId}-${idx}`}>
                     {entry.userName}
@@ -501,7 +499,7 @@ export default function AdminOtherAssets() {
                           </td>
                           <td className="px-4 py-3 text-center">
                             <span className="text-sm" data-testid={`text-grant-date-${grant.id}`}>
-                              {dayjs.utc(grant.createdAt).isValid() ? dayjs.utc(grant.createdAt).format("MM/DD/YYYY") : grant.createdAt}
+                              {dayjs(grant.createdAt).isValid() ? dayjs(grant.createdAt).format("MM/DD/YYYY") : grant.createdAt}
                             </span>
                           </td>
                           <td className="px-4 py-3">

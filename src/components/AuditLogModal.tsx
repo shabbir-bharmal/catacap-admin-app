@@ -2,8 +2,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { fetchAuditLogs, AuditLogEntry } from "../api/home/homeApi";
 import { useQuery } from "@tanstack/react-query";
 import dayjs from "dayjs";
-import utc from "dayjs/plugin/utc";
-dayjs.extend(utc);
 import { Loader2, History } from "lucide-react";
 
 interface AuditLogModalProps {
@@ -48,7 +46,7 @@ function isDateString(val: any): boolean {
 }
 
 function formatDateValue(val: string): string {
-  const d = dayjs.utc(val);
+  const d = dayjs(val);
   if (d.isValid()) {
     return d.format("DD MMM YYYY hh:mm A");
   }
@@ -112,7 +110,7 @@ export function AuditLogModal({ isOpen, onOpenChange, entityId, entityType, titl
     return `${entityLabel} ${log.actionType.toLowerCase()}`;
   };
 
-  const parseJson = (str: string) => {
+  const parseJson = (str: string | null) => {
     if (!str) return {};
     try {
       return JSON.parse(str) ?? {};
@@ -121,7 +119,7 @@ export function AuditLogModal({ isOpen, onOpenChange, entityId, entityType, titl
     }
   };
 
-  const parseChangedColumns = (cols: string): string[] => {
+  const parseChangedColumns = (cols: string | null): string[] => {
     try {
       if (!cols) return [];
       const parsed = JSON.parse(cols);
@@ -150,7 +148,12 @@ export function AuditLogModal({ isOpen, onOpenChange, entityId, entityType, titl
     let changedFields = parseChangedColumns(log.changedColumns);
 
     if (isCreatedAction(log.actionType)) {
-      const label = log.identifier ? `${log.identifier} Created` : "Record Created";
+      let recordName = log.identifier;
+      if (!recordName) {
+        const vals = parseJson(log.newValues || "");
+        recordName = vals?.Name || vals?.name || vals?.Title || vals?.title || vals?.FirstName || vals?.firstName || null;
+      }
+      const label = recordName ? `${recordName} Created` : "Record Created";
       return <span className="text-[#0ab39c] text-[11px] font-semibold uppercase tracking-wider bg-[#0ab39c]/10 px-2 py-0.5 rounded">{label}</span>;
     }
 
@@ -282,7 +285,7 @@ export function AuditLogModal({ isOpen, onOpenChange, entityId, entityType, titl
                         {renderChanges(log)}
                       </td>
                       <td className="px-6 py-4 align-top whitespace-nowrap text-[13px] text-muted-foreground font-medium">
-                        {dayjs.utc(log.updatedAt).format("DD MMM YYYY, HH:mm")}
+                        {dayjs(log.updatedAt).format("DD MMM YYYY, HH:mm")}
                       </td>
                     </tr>
                   ))}

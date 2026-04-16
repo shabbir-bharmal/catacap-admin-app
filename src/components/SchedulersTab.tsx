@@ -1,7 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
 import dayjs from "dayjs";
-import utc from "dayjs/plugin/utc";
-dayjs.extend(utc);
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -262,7 +260,7 @@ export default function SchedulersTab() {
   };
 
   const formatDateTime = (dateStr: string): string => {
-    return dayjs.utc(dateStr).format("MM/DD/YYYY, h:mm:ss A");
+    return dayjs(dateStr).format("MM/DD/YYYY, h:mm:ss A");
   };
 
   const formatDuration = (start: string, end: string): string => {

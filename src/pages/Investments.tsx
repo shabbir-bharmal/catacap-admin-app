@@ -1,7 +1,5 @@
 import { useState, useEffect, Fragment } from "react";
 import dayjs from "dayjs";
-import utc from "dayjs/plugin/utc";
-dayjs.extend(utc);
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
@@ -183,7 +181,7 @@ export default function InvestmentsPage() {
           fundingClose: item.fundraisingCloseDate || "N/A",
           catacapFunding: item.currentBalance || 0,
           totalInvestors: item.numberOfInvestors || 0,
-          dateCreated: item.createdDate ? dayjs.utc(item.createdDate).format("MM/DD/YYYY") : "N/A",
+          dateCreated: item.createdDate ? dayjs(item.createdDate).format("MM/DD/YYYY") : "N/A",
           isActive: item.isActive,
           hasNotes: item.hasNotes,
           property: item.property,
@@ -261,7 +259,7 @@ export default function InvestmentsPage() {
       try {
         const notes = await fetchInvestmentNotes(id);
         const mappedNotes = (notes || []).map((n: any) => ({
-          date: n.createdAt ? dayjs.utc(n.createdAt).format("MM/DD/YYYY") : "N/A",
+          date: n.createdAt ? dayjs(n.createdAt).format("MM/DD/YYYY") : "N/A",
           username: n.userName || "N/A",
           from: getStageName(n.oldStatus),
           to: getStageName(n.newStatus),
@@ -531,7 +529,7 @@ export default function InvestmentsPage() {
                             <div className="text-sm" data-testid={`text-stage-${inv.id}`}>
                               <div className="font-medium">{inv.stage}</div>
                               <div className="text-xs text-muted-foreground">
-                                {inv.fundingClose === "Evergreen" || !inv.fundingClose || inv.fundingClose === "N/A" ? inv.fundingClose : dayjs.utc(inv.fundingClose).format("MM/DD/YYYY")}
+                                {inv.fundingClose === "Evergreen" || !inv.fundingClose || inv.fundingClose === "N/A" ? inv.fundingClose : dayjs(inv.fundingClose).format("MM/DD/YYYY")}
                               </div>
                             </div>
                           </td>
