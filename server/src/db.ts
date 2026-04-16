@@ -1,5 +1,10 @@
 import pg from "pg";
 
+const TIMESTAMP_OID = 1114;
+const TIMESTAMPTZ_OID = 1184;
+pg.types.setTypeParser(TIMESTAMP_OID, (val: string) => val);
+pg.types.setTypeParser(TIMESTAMPTZ_OID, (val: string) => val);
+
 const pool = new pg.Pool({
   connectionString: process.env.SUPABASE_DB_URL || process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },

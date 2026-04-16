@@ -636,7 +636,7 @@ router.get("/export", async (_req: Request, res: Response) => {
         typeNames,
         feedback?.risk_tolerance != null ? String(feedback.risk_tolerance) : "",
         user.zip_code,
-        user.date_created,
+        user.date_created ? new Date(user.date_created) : "",
       ]);
 
       const amountInvestedCell = row.getCell(7);
