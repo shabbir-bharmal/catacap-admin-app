@@ -61,7 +61,7 @@ router.get("/summary", async (_req: Request, res: Response) => {
          COALESCE(SUM(CASE WHEN r.date_created >= $2 AND r.date_created < $1 THEN r.amount ELSE 0 END), 0) AS last_month_amount,
          COUNT(CASE WHEN r.date_created >= $2 AND r.date_created < $1 THEN 1 END) AS last_month_count
        FROM recommendations r
-       JOIN users u ON r.user_email = u.email
+       JOIN users u ON LOWER(TRIM(r.user_email)) = LOWER(TRIM(u.email))
        JOIN user_roles ur ON u.id = ur.user_id
        JOIN roles role ON ur.role_id = role.id
        WHERE role.name = $3
