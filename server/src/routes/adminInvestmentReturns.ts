@@ -4,17 +4,17 @@ import pool from "../db.js";
 import { parsePagination, handleMissingTableError } from "../utils/softDelete.js";
 import { sendTemplateEmail } from "../utils/emailService.js";
 import ExcelJS from "exceljs";
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc.js";
+dayjs.extend(utc);
 
 const router = Router();
 
 function formatDateShort(dateVal: any): string {
   if (!dateVal) return "";
-  const d = new Date(dateVal);
-  if (isNaN(d.getTime())) return "";
-  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(d.getUTCDate()).padStart(2, "0");
-  const yy = String(d.getUTCFullYear()).slice(-2);
-  return `${mm}/${dd}/${yy}`;
+  const d = dayjs.utc(dateVal);
+  if (!d.isValid()) return "";
+  return d.format("MM/DD/YY");
 }
 
 function formatAmount(amount: any): string {

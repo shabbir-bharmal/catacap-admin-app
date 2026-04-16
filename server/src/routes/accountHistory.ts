@@ -1,6 +1,9 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc.js";
+dayjs.extend(utc);
 
 const router = Router();
 
@@ -202,11 +205,7 @@ router.get("/Export", async (req: Request, res: Response) => {
 
     for (const row of result.rows) {
       const changeDate = row.change_date
-        ? new Date(row.change_date).toLocaleDateString("en-US", {
-            month: "2-digit",
-            day: "2-digit",
-            year: "numeric",
-          })
+        ? dayjs.utc(row.change_date).format("MM/DD/YYYY")
         : "";
 
       const fields = [

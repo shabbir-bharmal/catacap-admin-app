@@ -3,6 +3,9 @@ import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter, handleMissingTableError } from "../utils/softDelete.js";
 import ExcelJS from "exceljs";
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc.js";
+dayjs.extend(utc);
 
 const router = Router();
 
@@ -362,9 +365,8 @@ router.get("/export", async (_req: Request, res: Response) => {
         : row.asset_type_name;
       const approxAmount = parseFloat(row.approximate_amount) || 0;
       const receivedAmount = parseFloat(row.received_amount) || 0;
-      const createdAt = row.created_at ? new Date(row.created_at) : null;
-      const dateStr = createdAt
-        ? `${String(createdAt.getMonth() + 1).padStart(2, "0")}-${String(createdAt.getDate()).padStart(2, "0")}-${createdAt.getFullYear()} ${String(createdAt.getHours()).padStart(2, "0")}:${String(createdAt.getMinutes()).padStart(2, "0")}`
+      const dateStr = row.created_at
+        ? dayjs.utc(row.created_at).format("MM-DD-YYYY HH:mm")
         : "";
 
       worksheet.addRow([

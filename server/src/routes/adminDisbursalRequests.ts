@@ -4,6 +4,9 @@ import pool from "../db.js";
 import { parsePagination, handleMissingTableError } from "../utils/softDelete.js";
 import { resolveFileUrl } from "../utils/uploadBase64Image.js";
 import ExcelJS from "exceljs";
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc.js";
+dayjs.extend(utc);
 
 const router = Router();
 
@@ -78,22 +81,16 @@ function resolveInvestmentTypeString(investmentTypes: string | null | undefined,
 
 function formatDate(dateVal: any): string {
   if (!dateVal) return "";
-  const d = new Date(dateVal);
-  if (isNaN(d.getTime())) return "";
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const yyyy = d.getFullYear();
-  return `${mm}-${dd}-${yyyy}`;
+  const d = dayjs.utc(dateVal);
+  if (!d.isValid()) return "";
+  return d.format("MM-DD-YYYY");
 }
 
 function formatDateSlash(dateVal: any): string {
   if (!dateVal) return "";
-  const d = new Date(dateVal);
-  if (isNaN(d.getTime())) return "";
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const yyyy = d.getFullYear();
-  return `${mm}/${dd}/${yyyy}`;
+  const d = dayjs.utc(dateVal);
+  if (!d.isValid()) return "";
+  return d.format("MM/DD/YYYY");
 }
 
 function formatAmount(amount: any): string {

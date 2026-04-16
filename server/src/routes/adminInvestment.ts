@@ -7,6 +7,9 @@ import ExcelJS from "exceljs";
 import { uploadBase64Image, resolveFileUrl, extractStoragePath, getSupabaseConfig } from "../utils/uploadBase64Image.js";
 import { logAudit } from "../utils/auditLog.js";
 import { findOrCreateAnonymousUser } from "../utils/anonymousUser.js";
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc.js";
+dayjs.extend(utc);
 
 const router = Router();
 
@@ -44,12 +47,9 @@ const InvestmentRequestStatusNames: Record<number, string> = {
 
 function formatDateMMDDYYYY(dateVal: any): string {
   if (!dateVal) return "";
-  const d = new Date(dateVal);
-  if (isNaN(d.getTime())) return "";
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const yyyy = d.getFullYear();
-  return `${mm}-${dd}-${yyyy}`;
+  const d = dayjs.utc(dateVal);
+  if (!d.isValid()) return "";
+  return d.format("MM-DD-YYYY");
 }
 
 function convertHtmlNoteToPlainText(htmlNote: string | null | undefined): string {
@@ -836,7 +836,7 @@ router.get("/:id", async (req: Request, res: Response) => {
     );
 
     const investmentNotes = notesResult.rows.map((n: any) => ({
-      date: n.created_at ? new Date(n.created_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) : "",
+      date: n.created_at ? dayjs.utc(n.created_at).format("MM/DD/YYYY") : "",
       userName: n.user_name || "",
       note: n.note || "",
       oldStatus: n.old_status || null,
@@ -1717,7 +1717,7 @@ router.put("/:id", async (req: Request, res: Response) => {
     );
 
     const investmentNotes = notesResult.rows.map((n: any) => ({
-      date: n.created_at ? new Date(n.created_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) : "",
+      date: n.created_at ? dayjs.utc(n.created_at).format("MM/DD/YYYY") : "",
       userName: n.user_name || "",
       note: n.note || "",
       oldStatus: n.old_status || null,

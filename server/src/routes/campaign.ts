@@ -8,6 +8,9 @@ import crypto from "crypto";
 import { sendTemplateEmail, sendTemplateEmailWithAttachments } from "../utils/emailService.js";
 import { findOrCreateAnonymousUser } from "../utils/anonymousUser.js";
 import QRCode from "qrcode";
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc.js";
+dayjs.extend(utc);
 import { uploadBase64Image, resolveFileUrl, extractStoragePath } from "../utils/uploadBase64Image.js";
 
 const router = Router();
@@ -26,22 +29,16 @@ function getStatusName(status: number): string {
 
 function formatDate(dateVal: any): string {
   if (!dateVal) return "";
-  const d = new Date(dateVal);
-  if (isNaN(d.getTime())) return "";
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const yyyy = d.getFullYear();
-  return `${mm}-${dd}-${yyyy}`;
+  const d = dayjs.utc(dateVal);
+  if (!d.isValid()) return "";
+  return d.format("MM-DD-YYYY");
 }
 
 function formatDateSlash(dateVal: any): string {
   if (!dateVal) return "";
-  const d = new Date(dateVal);
-  if (isNaN(d.getTime())) return "";
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const yyyy = d.getFullYear();
-  return `${mm}/${dd}/${yyyy}`;
+  const d = dayjs.utc(dateVal);
+  if (!d.isValid()) return "";
+  return d.format("MM/DD/YYYY");
 }
 
 function formatAmount(amount: any): string {
@@ -576,12 +573,9 @@ function convertHtmlNoteToPlainText(htmlNote: string | null | undefined): string
 
 function formatDateMMDDYYYY(dateVal: any): string {
   if (!dateVal) return "";
-  const d = new Date(dateVal);
-  if (isNaN(d.getTime())) return "";
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const yyyy = d.getFullYear();
-  return `${mm}-${dd}-${yyyy}`;
+  const d = dayjs.utc(dateVal);
+  if (!d.isValid()) return "";
+  return d.format("MM-DD-YYYY");
 }
 
 router.get("/send-investment-qr-code-email", jwtUserAuthMiddleware, async (req: Request, res: Response) => {
@@ -1054,7 +1048,7 @@ router.post("/raisemoney", async (req: Request, res: Response) => {
 
     const catacapAdminVariables: Record<string, string> = {
       logoUrl,
-      date: new Date().toLocaleDateString("en-US"),
+      date: dayjs.utc().format("MM/DD/YYYY"),
       campaignName: campaign.name || "",
     };
 

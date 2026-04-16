@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+dayjs.extend(utc);
 import { useParams, useLocation, useSearch } from "wouter";
 import { AdminLayout } from "../components/AdminLayout";
 import { RichTextEditor } from "../components/RichTextEditor";
@@ -686,7 +688,7 @@ export default function AdminInvestmentEdit() {
     if (Array.isArray(data.investmentNotes)) {
       setInvestmentNotes(data.investmentNotes.map((n: any) => ({
         ...n,
-        date: n.date || (n.createdAt ? dayjs(n.createdAt).format("MM/DD/YYYY") : "—"),
+        date: n.date || (n.createdAt ? dayjs.utc(n.createdAt).format("MM/DD/YYYY") : "—"),
       })));
     }
 
@@ -1053,7 +1055,7 @@ export default function AdminInvestmentEdit() {
   const formatDate = (iso: string) => {
     if (!iso) return "";
     if (iso === "Evergreen") return "Evergreen";
-    return dayjs(iso).format("MM/DD/YYYY");
+    return dayjs.utc(iso).format("MM/DD/YYYY");
   };
 
   if (loading) {

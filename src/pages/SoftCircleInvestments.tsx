@@ -8,6 +8,8 @@ import { SortHeader } from "../components/ui/table-sort";
 import { PaginationControls } from "../components/ui/pagination-controls";
 import { useDebounce } from "../hooks/useDebounce";
 import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+dayjs.extend(utc);
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -171,7 +173,7 @@ export default function SoftCircleInvestments() {
 
   const formatDate = (str?: string) => {
     if (!str) return "—";
-    return dayjs(str).isValid() ? dayjs(str).format("MMM D, YYYY") : str;
+    return dayjs.utc(str).isValid() ? dayjs.utc(str).format("MMM D, YYYY") : str;
   };
 
   const SortButton = ({ field, label }: { field: SortField; label: string }) => (
