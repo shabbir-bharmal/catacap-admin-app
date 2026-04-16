@@ -46,7 +46,7 @@ export default function GroupsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearch = useDebounce(searchQuery, 500);
   const effectiveSearch = debouncedSearch.length >= 3 || debouncedSearch.length === 0 ? debouncedSearch : "";
-  const { sortField, sortDir, handleSort: originalHandleSort } = useSort<SortField>(null, null);
+  const { sortField, sortDir, handleSort: originalHandleSort } = useSort<SortField>("groupName", "asc");
 
   const handleSort = (field: SortField) => {
     originalHandleSort(field);

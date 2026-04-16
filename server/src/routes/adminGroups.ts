@@ -31,7 +31,7 @@ const router = Router();
 router.get("/", async (req: Request, res: Response) => {
   try {
     const params = parsePagination(req.query as Record<string, unknown>);
-    const isAsc = params.sortDirection?.toLowerCase() === "asc";
+    const isAsc = !params.sortDirection || params.sortDirection.toLowerCase() === "asc";
     const page = params.currentPage;
     const pageSize = params.perPage;
 
