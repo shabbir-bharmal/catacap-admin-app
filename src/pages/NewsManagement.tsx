@@ -298,6 +298,7 @@ export default function NewsManagementPage() {
     }
 
     setErrors({});
+    setIsSaving(true);
     try {
       const parsedDate = dayjs(formData.date);
       const newsDate = parsedDate.isValid()
