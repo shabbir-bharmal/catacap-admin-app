@@ -319,7 +319,7 @@ router.get("/get-disbursal-request", jwtUserAuthMiddleware, async (req: Request,
               d.impact_assets_funding_previously, c.investment_types
        FROM disbursal_requests d
        JOIN campaigns c ON d.campaign_id = c.id AND (c.is_deleted IS NULL OR c.is_deleted = false)
-       LEFT JOIN users u ON d.user_id = u.id
+       LEFT JOIN users u ON d.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
        WHERE d.id = $1 AND d.user_id = $2 AND (d.is_deleted IS NULL OR d.is_deleted = false)`,
       [id, loginUserId]
     );
@@ -376,7 +376,7 @@ router.get("/get-disbursal-request-list", jwtUserAuthMiddleware, async (req: Req
              d.investment_document_name, c.investment_types
       FROM disbursal_requests d
       JOIN campaigns c ON d.campaign_id = c.id AND (c.is_deleted IS NULL OR c.is_deleted = false)
-      LEFT JOIN users u ON d.user_id = u.id
+      LEFT JOIN users u ON d.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
       WHERE d.user_id = $1 AND (d.is_deleted IS NULL OR d.is_deleted = false)
     `;
 
@@ -471,7 +471,7 @@ router.get("/export-disbursal-request-list", jwtUserAuthMiddleware, async (req: 
              c.name, d.quote, d.status, c.investment_types
       FROM disbursal_requests d
       JOIN campaigns c ON d.campaign_id = c.id AND (c.is_deleted IS NULL OR c.is_deleted = false)
-      LEFT JOIN users u ON d.user_id = u.id
+      LEFT JOIN users u ON d.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
       WHERE d.user_id = $1 AND (d.is_deleted IS NULL OR d.is_deleted = false)
     `;
     const result = await pool.query(queryText, [loginUserId]);

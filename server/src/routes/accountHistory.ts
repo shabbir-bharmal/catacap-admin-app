@@ -52,7 +52,7 @@ router.get("/get-account-history", async (req: Request, res: Response) => {
     const countResult = await pool.query(
       `SELECT COUNT(*) AS total
        FROM account_balance_change_logs a
-       LEFT JOIN users u ON a.user_id = u.id
+       LEFT JOIN users u ON a.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
        WHERE ${whereClause}`,
       values
     );
@@ -75,7 +75,7 @@ router.get("/get-account-history", async (req: Request, res: Response) => {
          a.investment_name AS "investmentName",
          a.comment
        FROM account_balance_change_logs a
-       LEFT JOIN users u ON a.user_id = u.id
+       LEFT JOIN users u ON a.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
        WHERE ${whereClause}
        ORDER BY ${orderBy}
        LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,

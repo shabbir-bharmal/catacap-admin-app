@@ -701,7 +701,8 @@ router.get("/user-full-data", async (req: Request, res: Response) => {
       `SELECT id, first_name, last_name, first_name || ' ' || last_name AS full_name,
               user_name, account_balance, email, is_active, date_created
        FROM users
-       WHERE LOWER(email) LIKE $1 OR LOWER(user_name) LIKE $1`,
+       WHERE (LOWER(email) LIKE $1 OR LOWER(user_name) LIKE $1)
+         AND (is_deleted IS NULL OR is_deleted = false)`,
       [searchParam]
     );
 
@@ -721,7 +722,7 @@ router.get("/user-full-data", async (req: Request, res: Response) => {
     }
 
     const userDictResult = await pool.query<{ id: string; email: string; first_name: string; last_name: string; user_name: string }>(
-      `SELECT id, email, first_name, last_name, user_name FROM users`
+      `SELECT id, email, first_name, last_name, user_name FROM users WHERE (is_deleted IS NULL OR is_deleted = false)`
     );
     const userDict = new Map<string, { email: string; firstName: string; lastName: string; userName: string }>();
     for (const u of userDictResult.rows) {
@@ -764,7 +765,7 @@ router.get("/user-full-data", async (req: Request, res: Response) => {
         const investmentNotesResult = await pool.query<RecRow>(
           `SELECT i.id, u2.user_name, i.campaign_id, i.old_status, i.new_status, i.note, i.created_at
            FROM investment_notes i
-           LEFT JOIN users u2 ON i.user_id = u2.id
+           LEFT JOIN users u2 ON i.user_id = u2.id AND (u2.is_deleted IS NULL OR u2.is_deleted = false)
            WHERE i.campaign_id = ANY($1) ORDER BY i.id DESC`,
           [campaignIds]
         );
@@ -774,7 +775,7 @@ router.get("/user-full-data", async (req: Request, res: Response) => {
       const disbursalsResult = await pool.query<RecRow>(
         `SELECT d.id, u2.email, d.role, d.distributed_amount, d.created_at, d.campaign_id
          FROM disbursal_requests d
-         LEFT JOIN users u2 ON d.user_id = u2.id
+         LEFT JOIN users u2 ON d.user_id = u2.id AND (u2.is_deleted IS NULL OR u2.is_deleted = false)
          WHERE d.user_id = $1 AND ${SOFT_DELETE_FILTER("d")} ORDER BY d.id DESC`,
         [userId]
       );
@@ -785,7 +786,7 @@ router.get("/user-full-data", async (req: Request, res: Response) => {
         const disbursalNotesResult = await pool.query<DbRow>(
           `SELECT dn.id, dn.note, u2.user_name, dn.created_at
            FROM disbursal_request_notes dn
-           LEFT JOIN users u2 ON dn.user_id = u2.id
+           LEFT JOIN users u2 ON dn.user_id = u2.id AND (u2.is_deleted IS NULL OR u2.is_deleted = false)
            WHERE dn.disbursal_request_id = ANY($1) ORDER BY dn.id DESC`,
           [disbursalIds]
         );
@@ -796,7 +797,7 @@ router.get("/user-full-data", async (req: Request, res: Response) => {
         `SELECT p.id, u2.first_name, u2.last_name, u2.email, p.amount, p.amount_after_fees,
                 p.daf_name, p.daf_provider, p.status, p.created_date, p.campaign_id
          FROM pending_grants p
-         LEFT JOIN users u2 ON p.user_id = u2.id
+         LEFT JOIN users u2 ON p.user_id = u2.id AND (u2.is_deleted IS NULL OR u2.is_deleted = false)
          WHERE p.user_id = $1 AND ${SOFT_DELETE_FILTER("p")} ORDER BY p.id DESC`,
         [userId]
       );
@@ -807,7 +808,7 @@ router.get("/user-full-data", async (req: Request, res: Response) => {
         const pendingNotesResult = await pool.query<DbRow>(
           `SELECT pn.id, u2.user_name, pn.note, pn.old_status, pn.new_status, pn.created_at
            FROM pending_grant_notes pn
-           LEFT JOIN users u2 ON pn.user_id = u2.id
+           LEFT JOIN users u2 ON pn.user_id = u2.id AND (u2.is_deleted IS NULL OR u2.is_deleted = false)
            WHERE pn.pending_grant_id = ANY($1) ORDER BY pn.id DESC`,
           [pendingIds]
         );
@@ -820,7 +821,7 @@ router.get("/user-full-data", async (req: Request, res: Response) => {
                 a.approximate_amount, a.received_amount, a.contact_method, a.contact_value,
                 a.status, a.created_at, a.campaign_id
          FROM asset_based_payment_requests a
-         LEFT JOIN users u2 ON a.user_id = u2.id
+         LEFT JOIN users u2 ON a.user_id = u2.id AND (u2.is_deleted IS NULL OR u2.is_deleted = false)
          LEFT JOIN asset_types at ON a.asset_type_id = at.id
          WHERE a.user_id = $1 AND ${SOFT_DELETE_FILTER("a")} ORDER BY a.id DESC`,
         [userId]
@@ -832,7 +833,7 @@ router.get("/user-full-data", async (req: Request, res: Response) => {
         const assetNotesResult = await pool.query<DbRow>(
           `SELECT an.id, u2.user_name, an.old_status, an.new_status, an.note, an.created_at
            FROM asset_based_payment_request_notes an
-           LEFT JOIN users u2 ON an.user_id = u2.id
+           LEFT JOIN users u2 ON an.user_id = u2.id AND (u2.is_deleted IS NULL OR u2.is_deleted = false)
            WHERE an.request_id = ANY($1) ORDER BY an.id DESC`,
           [assetIds]
         );
@@ -849,7 +850,7 @@ router.get("/user-full-data", async (req: Request, res: Response) => {
                   u2.first_name, u2.last_name, u2.email
            FROM return_masters rm
            JOIN return_details rd ON rm.id = rd.return_master_id
-           LEFT JOIN users u2 ON rd.user_id = u2.id
+           LEFT JOIN users u2 ON rd.user_id = u2.id AND (u2.is_deleted IS NULL OR u2.is_deleted = false)
            WHERE rm.campaign_id = ANY($1) AND ${SOFT_DELETE_FILTER("rm")} ORDER BY rm.id DESC`,
           [campaignIds]
         );
@@ -876,7 +877,7 @@ router.get("/user-full-data", async (req: Request, res: Response) => {
         const completedNotesResult = await pool.query<DbRow>(
           `SELECT cn.id, u2.user_name, cn.transaction_type, cn.note, cn.new_amount, cn.old_amount, cn.created_at
            FROM completed_investment_notes cn
-           LEFT JOIN users u2 ON cn.user_id = u2.id
+           LEFT JOIN users u2 ON cn.user_id = u2.id AND (u2.is_deleted IS NULL OR u2.is_deleted = false)
            WHERE cn.completed_investment_id = ANY($1) ORDER BY cn.id DESC`,
           [completedIds]
         );
@@ -901,7 +902,7 @@ router.get("/user-full-data", async (req: Request, res: Response) => {
         const formNotesResult = await pool.query<DbRow>(
           `SELECT fn.id, fn.note, u2.user_name, fn.old_status, fn.new_status, fn.created_at
            FROM form_submission_notes fn
-           LEFT JOIN users u2 ON fn.user_id = u2.id
+           LEFT JOIN users u2 ON fn.user_id = u2.id AND (u2.is_deleted IS NULL OR u2.is_deleted = false)
            WHERE fn.form_submission_id = ANY($1) ORDER BY fn.id DESC`,
           [formIds]
         );

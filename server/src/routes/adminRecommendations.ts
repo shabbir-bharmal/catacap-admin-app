@@ -35,6 +35,7 @@ router.get("/", async (req: Request, res: Response) => {
         JOIN user_roles ur2 ON u2.id = ur2.user_id
         JOIN roles rl ON ur2.role_id = rl.id
         WHERE rl.name = $${paramIdx} AND u2.email = r.user_email
+          AND (u2.is_deleted IS NULL OR u2.is_deleted = false)
       )
     `);
     values.push(USER_ROLE);
@@ -272,6 +273,7 @@ router.get("/export", async (req: Request, res: Response) => {
          JOIN user_roles ur2 ON u2.id = ur2.user_id
          JOIN roles rl ON ur2.role_id = rl.id
          WHERE rl.name = $1 AND LOWER(u2.email) = LOWER(r.user_email)
+           AND (u2.is_deleted IS NULL OR u2.is_deleted = false)
        )
        ORDER BY r.id DESC`,
       [USER_ROLE]

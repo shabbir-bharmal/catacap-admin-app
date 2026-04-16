@@ -547,7 +547,7 @@ router.get("/request", async (req: Request, res: Response) => {
     }
 
     const countResult = await pool.query(
-      `SELECT COUNT(*) FROM investment_requests ir LEFT JOIN users u ON ir.user_id = u.id ${whereClause}`,
+      `SELECT COUNT(*) FROM investment_requests ir LEFT JOIN users u ON ir.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false) ${whereClause}`,
       values
     );
     const totalRecords = parseInt(countResult.rows[0].count, 10);
@@ -558,7 +558,7 @@ router.get("/request", async (req: Request, res: Response) => {
               u.email, ir.organization_name AS organization, ir.country,
               ir.campaign_goal AS goal, ir.created_at AS submitted, ir.status
        FROM investment_requests ir
-       LEFT JOIN users u ON ir.user_id = u.id
+       LEFT JOIN users u ON ir.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
        ${whereClause}
        ORDER BY ${orderBy}
        LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
@@ -598,7 +598,7 @@ router.get("/request/:id", async (req: Request, res: Response) => {
     const result = await pool.query(
       `SELECT ir.*, u.first_name, u.last_name, u.email
        FROM investment_requests ir
-       LEFT JOIN users u ON ir.user_id = u.id
+       LEFT JOIN users u ON ir.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
        WHERE ir.id = $1 AND (ir.is_deleted IS NULL OR ir.is_deleted = false)`,
       [id]
     );

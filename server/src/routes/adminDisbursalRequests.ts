@@ -125,7 +125,7 @@ router.get("/", async (req: Request, res: Response) => {
              du.first_name AS deleted_by_first_name, du.last_name AS deleted_by_last_name
       FROM disbursal_requests d
       JOIN campaigns c ON d.campaign_id = c.id
-      LEFT JOIN users u ON d.user_id = u.id
+      LEFT JOIN users u ON d.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
       LEFT JOIN users du ON d.deleted_by = du.id
       ${whereClause}
     `;
@@ -232,7 +232,7 @@ router.get("/export", async (_req: Request, res: Response) => {
              c.name, d.quote, d.status, c.investment_types
       FROM disbursal_requests d
       JOIN campaigns c ON d.campaign_id = c.id
-      LEFT JOIN users u ON d.user_id = u.id
+      LEFT JOIN users u ON d.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
       WHERE (d.is_deleted IS NULL OR d.is_deleted = false)
     `;
     const result = await pool.query(queryText);
@@ -339,7 +339,7 @@ router.get("/:id", async (req: Request, res: Response) => {
               d.impact_assets_funding_previously, c.investment_types
        FROM disbursal_requests d
        JOIN campaigns c ON d.campaign_id = c.id
-       LEFT JOIN users u ON d.user_id = u.id
+       LEFT JOIN users u ON d.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
        WHERE d.id = $1 AND (d.is_deleted IS NULL OR d.is_deleted = false)`,
       [id]
     );

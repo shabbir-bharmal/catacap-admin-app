@@ -147,6 +147,7 @@ router.get("/", async (req: Request, res: Response) => {
     let paramIdx = 1;
 
     softDeleteFilter("pg", params.isDeleted, conditions);
+    conditions.push("(u.is_deleted IS NULL OR u.is_deleted = false)");
 
     if (statusList && statusList.length > 0) {
       if (statusList.includes("pending")) {
