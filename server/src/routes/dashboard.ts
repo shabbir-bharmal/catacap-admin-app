@@ -2,10 +2,11 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import dayjs from "dayjs";
-import utc from "dayjs/plugin/utc.js";
-dayjs.extend(utc);
 
 const router = Router();
+
+const SOFT_DELETE_FILTER = (alias: string) =>
+  `(${alias}.is_deleted IS NULL OR ${alias}.is_deleted = false)`;
 
 const USER_ROLE = "User";
 
@@ -48,8 +49,8 @@ function calculateGrowth(current: number, previous: number): number {
 router.get("/summary", async (_req: Request, res: Response) => {
   try {
     const now = new Date();
-    const startOfThisMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-    const startOfLastMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+    const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
 
     const recStats = await pool.query(
       `SELECT
@@ -63,7 +64,9 @@ router.get("/summary", async (_req: Request, res: Response) => {
        JOIN users u ON r.user_email = u.email
        JOIN user_roles ur ON u.id = ur.user_id
        JOIN roles role ON ur.role_id = role.id
-       WHERE role.name = $3`,
+       WHERE role.name = $3
+         AND ${SOFT_DELETE_FILTER("r")}
+         AND ${SOFT_DELETE_FILTER("u")}`,
       [startOfThisMonth.toISOString(), startOfLastMonth.toISOString(), USER_ROLE]
     );
 
@@ -71,7 +74,6 @@ router.get("/summary", async (_req: Request, res: Response) => {
     const totalDonations = parseFloat(stats.total_approved) || 0;
     const approvedCount = parseInt(stats.approved_count) || 0;
     const averageDonation = approvedCount === 0 ? 0 : totalDonations / approvedCount;
-    const thisMonthDonations = parseFloat(stats.this_month_amount) || 0;
     const lastMonthDonations = parseFloat(stats.last_month_amount) || 0;
     const thisMonthCount = parseInt(stats.this_month_count) || 0;
     const lastMonthCount = parseInt(stats.last_month_count) || 0;
@@ -80,7 +82,8 @@ router.get("/summary", async (_req: Request, res: Response) => {
       `SELECT 
          COUNT(*) AS total,
          COUNT(CASE WHEN created_at >= $1 AND created_at < $2 THEN 1 END) AS last_month
-       FROM groups`,
+       FROM groups
+       WHERE ${SOFT_DELETE_FILTER("groups")}`,
       [startOfLastMonth.toISOString(), startOfThisMonth.toISOString()]
     );
     const totalGroups = parseInt(groupStats.rows[0].total) || 0;
@@ -88,44 +91,37 @@ router.get("/summary", async (_req: Request, res: Response) => {
 
     const userStats = await pool.query(
       `SELECT
-         COUNT(*) AS total,
-         COUNT(CASE WHEN u.date_created >= $1 AND u.date_created < $2 THEN 1 END) AS last_month
+         COUNT(*) AS total
        FROM users u
        JOIN user_roles ur ON u.id = ur.user_id
        JOIN roles role ON ur.role_id = role.id
-       WHERE role.name = $3`,
-      [startOfLastMonth.toISOString(), startOfThisMonth.toISOString(), USER_ROLE]
+       WHERE role.name = $1
+         AND ${SOFT_DELETE_FILTER("u")}`,
+      [USER_ROLE]
     );
     const totalUsers = parseInt(userStats.rows[0].total) || 0;
-    const lastMonthUsers = parseInt(userStats.rows[0].last_month) || 0;
 
-    const thisMonthAvg = thisMonthCount === 0 ? 0 : thisMonthDonations / thisMonthCount;
-    const lastMonthAvg = lastMonthCount === 0 ? 0 : lastMonthDonations / lastMonthCount;
-
-    const thisMonthGroupResult = await pool.query(
-      `SELECT COUNT(*) AS total FROM groups WHERE created_at >= $1`,
-      [startOfThisMonth.toISOString()]
-    );
-    const thisMonthGroups = parseInt(thisMonthGroupResult.rows[0].total) || 0;
-
-    const thisMonthUserResult = await pool.query(
+    const lastMonthUserResult = await pool.query(
       `SELECT COUNT(*) AS total
        FROM users u
-       JOIN user_roles ur ON u.id = ur.user_id
-       JOIN roles role ON ur.role_id = role.id
-       WHERE role.name = $1 AND u.date_created >= $2`,
-      [USER_ROLE, startOfThisMonth.toISOString()]
+       WHERE u.date_created >= $1 AND u.date_created < $2
+         AND ${SOFT_DELETE_FILTER("u")}`,
+      [startOfLastMonth.toISOString(), startOfThisMonth.toISOString()]
     );
-    const thisMonthUsers = parseInt(thisMonthUserResult.rows[0].total) || 0;
+    const lastMonthUsers = parseInt(lastMonthUserResult.rows[0].total) || 0;
+
+    const thisMonthDonations = parseFloat(stats.this_month_amount) || 0;
+    const thisMonthAvg = thisMonthCount === 0 ? 0 : thisMonthDonations / thisMonthCount;
+    const lastMonthAvg = lastMonthCount === 0 ? 0 : lastMonthDonations / lastMonthCount;
 
     res.json({
       totalDonations: Math.round(totalDonations),
       totalGroups,
       totalUsers,
       averageDonation: Math.round(averageDonation),
-      donationGrowthPercentage: calculateGrowth(thisMonthDonations, lastMonthDonations),
-      groupGrowthPercentage: calculateGrowth(thisMonthGroups, lastMonthGroups),
-      userGrowthPercentage: calculateGrowth(thisMonthUsers, lastMonthUsers),
+      donationGrowthPercentage: calculateGrowth(totalDonations, lastMonthDonations),
+      groupGrowthPercentage: calculateGrowth(totalGroups, lastMonthGroups),
+      userGrowthPercentage: calculateGrowth(totalUsers, lastMonthUsers),
       avgDonationGrowthPercentage: calculateGrowth(thisMonthAvg, lastMonthAvg),
     });
   } catch (err) {
@@ -141,17 +137,17 @@ router.get("/investment-chart", async (req: Request, res: Response) => {
 
     let startDate: Date;
     if (months && months > 0) {
-      startDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));
+      startDate = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
     } else {
       const minResult = await pool.query(
-        `SELECT MIN(date_created) AS min_date FROM recommendations WHERE date_created IS NOT NULL`
+        `SELECT MIN(date_created) AS min_date FROM recommendations r WHERE date_created IS NOT NULL AND ${SOFT_DELETE_FILTER("r")}`
       );
       const minDate = minResult.rows[0]?.min_date;
       if (minDate) {
         const d = new Date(minDate);
-        startDate = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+        startDate = new Date(d.getFullYear(), d.getMonth(), 1);
       } else {
-        startDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
       }
     }
 
@@ -162,10 +158,12 @@ router.get("/investment-chart", async (req: Request, res: Response) => {
        JOIN user_roles ur ON u.id = ur.user_id
        JOIN roles role ON ur.role_id = role.id
        WHERE role.name = $1
-         AND LOWER(TRIM(r.status)) = 'approved'
+         AND r.status = 'approved'
          AND r.date_created IS NOT NULL
          AND r.date_created >= $2
-         AND r.date_created <= $3`,
+         AND r.date_created <= $3
+         AND ${SOFT_DELETE_FILTER("r")}
+         AND ${SOFT_DELETE_FILTER("u")}`,
       [USER_ROLE, startDate.toISOString(), now.toISOString()]
     );
 
@@ -176,15 +174,15 @@ router.get("/investment-chart", async (req: Request, res: Response) => {
     const investorEmails = new Set<string>();
 
     for (const row of data) {
-      const d = dayjs.utc(row.date_created);
+      const d = dayjs(row.date_created);
       const key = `${d.year()}-${d.month()}`;
       monthlyMap.set(key, (monthlyMap.get(key) || 0) + (parseFloat(row.amount) || 0));
       if (row.user_email) investorEmails.add(row.user_email);
     }
 
     const chartData: Array<{ month: string; amount: number }> = [];
-    let loopDate = dayjs.utc(startDate);
-    const nowDayjs = dayjs.utc(now);
+    let loopDate = dayjs(startDate);
+    const nowDayjs = dayjs(now);
     while (loopDate.isBefore(nowDayjs) || loopDate.isSame(nowDayjs)) {
       const key = `${loopDate.year()}-${loopDate.month()}`;
       chartData.push({
@@ -199,9 +197,9 @@ router.get("/investment-chart", async (req: Request, res: Response) => {
     let growthRate = 0;
     if (months && months > 0) {
       const previousStart = new Date(startDate);
-      previousStart.setUTCMonth(previousStart.getUTCMonth() - months);
+      previousStart.setMonth(previousStart.getMonth() - months);
       const previousEnd = new Date(startDate);
-      previousEnd.setUTCDate(previousEnd.getUTCDate() - 1);
+      previousEnd.setDate(previousEnd.getDate() - 1);
 
       const prevResult = await pool.query(
         `SELECT COALESCE(SUM(r.amount), 0) AS total
@@ -210,9 +208,11 @@ router.get("/investment-chart", async (req: Request, res: Response) => {
          JOIN user_roles ur ON u.id = ur.user_id
          JOIN roles role ON ur.role_id = role.id
          WHERE role.name = $1
-           AND LOWER(TRIM(r.status)) = 'approved'
+           AND r.status = 'approved'
            AND r.date_created >= $2
-           AND r.date_created <= $3`,
+           AND r.date_created <= $3
+           AND ${SOFT_DELETE_FILTER("r")}
+           AND ${SOFT_DELETE_FILTER("u")}`,
         [USER_ROLE, previousStart.toISOString(), previousEnd.toISOString()]
       );
       const previousTotal = parseFloat(prevResult.rows[0].total) || 0;
@@ -236,7 +236,9 @@ router.get("/investment-by-theme", async (_req: Request, res: Response) => {
   try {
     const themes = await pool.query(`SELECT id, name FROM themes`);
 
-    const campaigns = await pool.query(`SELECT id, themes FROM campaigns`);
+    const campaigns = await pool.query(
+      `SELECT id, themes FROM campaigns WHERE ${SOFT_DELETE_FILTER("campaigns")}`
+    );
 
     const campaignThemes = campaigns.rows.map((c: { id: number; themes: string | null }) => ({
       id: c.id,
@@ -252,7 +254,9 @@ router.get("/investment-by-theme", async (_req: Request, res: Response) => {
        JOIN user_roles ur ON u.id = ur.user_id
        JOIN roles role ON ur.role_id = role.id
        WHERE role.name = $1
-         AND (LOWER(TRIM(r.status)) = 'pending' OR LOWER(TRIM(r.status)) = 'approved')`,
+         AND (r.status = 'pending' OR r.status = 'approved')
+         AND ${SOFT_DELETE_FILTER("r")}
+         AND ${SOFT_DELETE_FILTER("u")}`,
       [USER_ROLE]
     );
 
@@ -313,7 +317,12 @@ router.get("/recent-investments", async (req: Request, res: Response) => {
     const orderBy = sortColumns[params.sortField?.toLowerCase() || ""] || "r.date_created";
     const orderDir = isAsc ? "ASC" : "DESC";
 
-    const conditions: string[] = [`role.name = $1`];
+    const conditions: string[] = [
+      `role.name = $1`,
+      SOFT_DELETE_FILTER("r"),
+      SOFT_DELETE_FILTER("u"),
+      SOFT_DELETE_FILTER("c"),
+    ];
     const values: (string | number)[] = [USER_ROLE];
     let paramIdx = 2;
 
@@ -364,7 +373,7 @@ router.get("/recent-investments", async (req: Request, res: Response) => {
     );
 
     const items = dataResult.rows.map((row: { investor: string; userName: string; investment: string; amount: string; status: string; date_created: string }) => {
-      const d = row.date_created ? dayjs.utc(row.date_created) : null;
+      const d = row.date_created ? dayjs(row.date_created) : null;
       return {
         investor: row.investor,
         userName: row.userName,
@@ -399,7 +408,12 @@ router.get("/top-donors", async (req: Request, res: Response) => {
     const orderBy = sortColumns[params.sortField?.toLowerCase() || ""] || "donations";
     const orderDir = isAsc ? "ASC" : "DESC";
 
-    const conditions: string[] = [`role.name = $1`, `LOWER(TRIM(r.status)) = 'approved'`];
+    const conditions: string[] = [
+      `role.name = $1`,
+      `r.status = 'approved'`,
+      SOFT_DELETE_FILTER("r"),
+      SOFT_DELETE_FILTER("u"),
+    ];
     const values: (string | number)[] = [USER_ROLE];
     let paramIdx = 2;
 
@@ -471,6 +485,8 @@ router.get("/top-groups", async (req: Request, res: Response) => {
       `role.name = $1`,
       `log.group_id IS NOT NULL`,
       `(log.new_value - log.old_value) > 0`,
+      SOFT_DELETE_FILTER("g"),
+      SOFT_DELETE_FILTER("u"),
     ];
     const values: (string | number)[] = [USER_ROLE];
     let paramIdx = 2;
@@ -539,20 +555,9 @@ router.get("/audit-logs", async (req: Request, res: Response) => {
     let paramIdx = 1;
 
     if (params.type) {
-      const typeAliases: Record<string, string[]> = {
-        users: ["users", "aspnetusers"],
-        aspnetusers: ["users", "aspnetusers"],
-        campaigns: ["campaigns"],
-        groups: ["groups"],
-      };
-      const normalizedType = (params.type as string).toLowerCase().trim();
-      const aliases = typeAliases[normalizedType] || [normalizedType];
-      const placeholders = aliases.map((_, i) => `$${paramIdx + i}`);
-      conditions.push(`LOWER(TRIM(a.table_name)) IN (${placeholders.join(", ")})`);
-      for (const alias of aliases) {
-        values.push(alias);
-        paramIdx++;
-      }
+      conditions.push(`LOWER(TRIM(a.table_name)) = LOWER(TRIM($${paramIdx}))`);
+      values.push(params.type as string);
+      paramIdx++;
     }
 
     if (params.id) {
@@ -563,7 +568,13 @@ router.get("/audit-logs", async (req: Request, res: Response) => {
 
     if (params.searchValue) {
       conditions.push(
-        `(LOWER(a.table_name) LIKE $${paramIdx} OR LOWER(a.action_type) LIKE $${paramIdx})`
+        `(LOWER(a.table_name) LIKE $${paramIdx} OR LOWER(a.action_type) LIKE $${paramIdx} OR LOWER(COALESCE(
+          CASE
+            WHEN a.table_name IN ('AspNetUsers', 'users') THEN COALESCE(usr.first_name || ' ' || usr.last_name, a.record_id)
+            WHEN a.table_name IN ('Campaigns', 'campaigns') THEN COALESCE(camp.name, a.record_id)
+            WHEN a.table_name IN ('Groups', 'groups') THEN COALESCE(grp.name, a.record_id)
+            ELSE a.record_id
+          END, '')) LIKE $${paramIdx})`
       );
       values.push(`%${params.searchValue.toLowerCase()}%`);
       paramIdx++;
@@ -578,8 +589,13 @@ router.get("/audit-logs", async (req: Request, res: Response) => {
     const orderBy = sortColumns[params.sortField?.toLowerCase() || ""] || "a.updated_at";
     const orderDir = isAsc ? "ASC" : "DESC";
 
+    const identifierJoins = `
+       LEFT JOIN users usr ON a.record_id = usr.id AND a.table_name IN ('AspNetUsers', 'users')
+       LEFT JOIN campaigns camp ON a.record_id = camp.id::text AND a.table_name IN ('Campaigns', 'campaigns')
+       LEFT JOIN groups grp ON a.record_id = grp.id::text AND a.table_name IN ('Groups', 'groups')`;
+
     const countResult = await pool.query(
-      `SELECT COUNT(*) AS total FROM audit_logs a ${whereClause}`,
+      `SELECT COUNT(*) AS total FROM audit_logs a ${identifierJoins} ${whereClause}`,
       values
     );
 
@@ -601,16 +617,14 @@ router.get("/audit-logs", async (req: Request, res: Response) => {
          TO_CHAR(a.updated_at, 'DD Mon YYYY HH12:MI AM') AS "updatedAt"
        FROM audit_logs a
        LEFT JOIN users upd ON a.updated_by = upd.id
-       LEFT JOIN users usr ON a.record_id = usr.id AND a.table_name IN ('AspNetUsers', 'users')
-       LEFT JOIN campaigns camp ON a.record_id = camp.id::text AND a.table_name IN ('Campaigns', 'campaigns')
-       LEFT JOIN groups grp ON a.record_id = grp.id::text AND a.table_name IN ('Groups', 'groups')
+       ${identifierJoins}
        ${whereClause}
        ORDER BY ${orderBy} ${orderDir}
        LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
       [...values, params.perPage, offset]
     );
 
-    const items = dataResult.rows.map((item: any) => ({
+    const items = dataResult.rows.map((item: Record<string, string | null>) => ({
       ...item,
       oldValues: formatJsonDates(item.oldValues),
       newValues: formatJsonDates(item.newValues),
@@ -626,6 +640,347 @@ router.get("/audit-logs", async (req: Request, res: Response) => {
   }
 });
 
+interface DbRow { [key: string]: string | number | boolean | null }
+
+interface UserFullDataRow {
+  id: string;
+  first_name: string;
+  last_name: string;
+  full_name: string;
+  user_name: string;
+  account_balance: string | null;
+  email: string;
+  is_active: boolean;
+  date_created: string | null;
+}
+
+interface IdNameRow { id: number; name: string }
+
+interface RecRow extends DbRow { campaign_id: number | null }
+interface ReturnRow extends DbRow {
+  campaign_id: number | null;
+  private_debt_start_date: string | null;
+  private_debt_end_date: string | null;
+  post_date: string | null;
+}
+interface CompletedInvRow extends DbRow {
+  campaign_id: number | null;
+  associated_fund_id: number | null;
+  theme_ids: string | null;
+  type_of_investment: string | null;
+  amount: string | null;
+}
+interface AchRow extends DbRow { user_id: string | null }
+interface StatusRow extends DbRow { status: string | null; campaign_id: number | null }
+
+function parseCommaSeparatedIds(str: string | null): number[] {
+  if (!str) return [];
+  return str.split(",").map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+}
+
+function addCampaignName<T extends { campaign_id: number | null }>(
+  row: T,
+  dict: Map<number, string>
+): T & { campaignName: string | null } {
+  return {
+    ...row,
+    campaignName: row.campaign_id ? dict.get(Number(row.campaign_id)) || null : null,
+  };
+}
+
+router.get("/user-full-data", async (req: Request, res: Response) => {
+  try {
+    const email = (req.query.email as string) || "";
+    if (!email) {
+      return res.json({ success: false, message: "Email or username is required." });
+    }
+
+    const searchParam = `%${email.toLowerCase()}%`;
+
+    const usersResult = await pool.query<UserFullDataRow>(
+      `SELECT id, first_name, last_name, first_name || ' ' || last_name AS full_name,
+              user_name, account_balance, email, is_active, date_created
+       FROM users
+       WHERE LOWER(email) LIKE $1 OR LOWER(user_name) LIKE $1`,
+      [searchParam]
+    );
+
+    if (usersResult.rows.length === 0) {
+      return res.json({ success: false, message: "No users found." });
+    }
+
+    const themesResult = await pool.query<IdNameRow>(`SELECT id, name FROM themes`);
+    const investmentTypesResult = await pool.query<IdNameRow>(`SELECT id, name FROM investment_types`);
+    const themes = themesResult.rows;
+    const investmentTypes = investmentTypesResult.rows;
+
+    const campaignDictResult = await pool.query<IdNameRow>(`SELECT id, name FROM campaigns`);
+    const campaignDict = new Map<number, string>();
+    for (const c of campaignDictResult.rows) {
+      campaignDict.set(Number(c.id), c.name);
+    }
+
+    const userDictResult = await pool.query<{ id: string; email: string; first_name: string; last_name: string; user_name: string }>(
+      `SELECT id, email, first_name, last_name, user_name FROM users`
+    );
+    const userDict = new Map<string, { email: string; firstName: string; lastName: string; userName: string }>();
+    for (const u of userDictResult.rows) {
+      userDict.set(String(u.id).toLowerCase(), {
+        email: u.email,
+        firstName: u.first_name,
+        lastName: u.last_name,
+        userName: u.user_name,
+      });
+    }
+
+    const result: Record<string, unknown>[] = [];
+
+    for (const user of usersResult.rows) {
+      const userId = user.id;
+      const userEmail = user.email;
+
+      const campaignsResult = await pool.query<DbRow>(
+        `SELECT id, name, stage, fundraising_close_date, created_date
+         FROM campaigns WHERE user_id = $1 AND ${SOFT_DELETE_FILTER("campaigns")} ORDER BY TRIM(name)`,
+        [userId]
+      );
+      const campaignIds = campaignsResult.rows.map((c) => Number(c.id));
+
+      const recommendationsResult = await pool.query<RecRow>(
+        `SELECT id, user_full_name, user_email, status, amount, date_created, campaign_id
+         FROM recommendations WHERE user_id = $1 AND ${SOFT_DELETE_FILTER("recommendations")} ORDER BY id DESC`,
+        [userId]
+      );
+
+      const accountLogsResult = await pool.query<RecRow>(
+        `SELECT id, user_name, user_id, payment_type, old_value, new_value,
+                change_date, fees, gross_amount, net_amount, campaign_id
+         FROM account_balance_change_logs WHERE user_id = $1 ORDER BY id DESC`,
+        [userId]
+      );
+
+      let investmentNotesRows: RecRow[] = [];
+      if (campaignIds.length > 0) {
+        const investmentNotesResult = await pool.query<RecRow>(
+          `SELECT i.id, u2.user_name, i.campaign_id, i.old_status, i.new_status, i.note, i.created_at
+           FROM investment_notes i
+           LEFT JOIN users u2 ON i.user_id = u2.id
+           WHERE i.campaign_id = ANY($1) ORDER BY i.id DESC`,
+          [campaignIds]
+        );
+        investmentNotesRows = investmentNotesResult.rows;
+      }
+
+      const disbursalsResult = await pool.query<RecRow>(
+        `SELECT d.id, u2.email, d.role, d.distributed_amount, d.created_at, d.campaign_id
+         FROM disbursal_requests d
+         LEFT JOIN users u2 ON d.user_id = u2.id
+         WHERE d.user_id = $1 AND ${SOFT_DELETE_FILTER("d")} ORDER BY d.id DESC`,
+        [userId]
+      );
+      const disbursalIds = disbursalsResult.rows.map((d) => Number(d.id));
+
+      let disbursalNotesRows: DbRow[] = [];
+      if (disbursalIds.length > 0) {
+        const disbursalNotesResult = await pool.query<DbRow>(
+          `SELECT dn.id, dn.note, u2.user_name, dn.created_at
+           FROM disbursal_request_notes dn
+           LEFT JOIN users u2 ON dn.user_id = u2.id
+           WHERE dn.disbursal_request_id = ANY($1) ORDER BY dn.id DESC`,
+          [disbursalIds]
+        );
+        disbursalNotesRows = disbursalNotesResult.rows;
+      }
+
+      const pendingGrantsResult = await pool.query<StatusRow>(
+        `SELECT p.id, u2.first_name, u2.last_name, u2.email, p.amount, p.amount_after_fees,
+                p.daf_name, p.daf_provider, p.status, p.created_date, p.campaign_id
+         FROM pending_grants p
+         LEFT JOIN users u2 ON p.user_id = u2.id
+         WHERE p.user_id = $1 AND ${SOFT_DELETE_FILTER("p")} ORDER BY p.id DESC`,
+        [userId]
+      );
+      const pendingIds = pendingGrantsResult.rows.map((p) => Number(p.id));
+
+      let pendingNotesRows: DbRow[] = [];
+      if (pendingIds.length > 0) {
+        const pendingNotesResult = await pool.query<DbRow>(
+          `SELECT pn.id, u2.user_name, pn.note, pn.old_status, pn.new_status, pn.created_at
+           FROM pending_grant_notes pn
+           LEFT JOIN users u2 ON pn.user_id = u2.id
+           WHERE pn.pending_grant_id = ANY($1) ORDER BY pn.id DESC`,
+          [pendingIds]
+        );
+        pendingNotesRows = pendingNotesResult.rows;
+      }
+
+      const assetRequestsResult = await pool.query<RecRow>(
+        `SELECT a.id, u2.first_name, u2.last_name, u2.email,
+                COALESCE(NULLIF(a.asset_description, ''), at.type) AS asset_type,
+                a.approximate_amount, a.received_amount, a.contact_method, a.contact_value,
+                a.status, a.created_at, a.campaign_id
+         FROM asset_based_payment_requests a
+         LEFT JOIN users u2 ON a.user_id = u2.id
+         LEFT JOIN asset_types at ON a.asset_type_id = at.id
+         WHERE a.user_id = $1 AND ${SOFT_DELETE_FILTER("a")} ORDER BY a.id DESC`,
+        [userId]
+      );
+      const assetIds = assetRequestsResult.rows.map((a) => Number(a.id));
+
+      let assetNotesRows: DbRow[] = [];
+      if (assetIds.length > 0) {
+        const assetNotesResult = await pool.query<DbRow>(
+          `SELECT an.id, u2.user_name, an.old_status, an.new_status, an.note, an.created_at
+           FROM asset_based_payment_request_notes an
+           LEFT JOIN users u2 ON an.user_id = u2.id
+           WHERE an.request_id = ANY($1) ORDER BY an.id DESC`,
+          [assetIds]
+        );
+        assetNotesRows = assetNotesResult.rows;
+      }
+
+      let returnRows: ReturnRow[] = [];
+      if (campaignIds.length > 0) {
+        const returnsResult = await pool.query<ReturnRow>(
+          `SELECT rm.id, rm.status, rm.post_date, rm.memo_note, rm.campaign_id,
+                  rm.private_debt_start_date, rm.private_debt_end_date,
+                  rd.investment_amount, rd.percentage_of_total_investment AS percentage,
+                  rd.return_amount AS returned_amount,
+                  u2.first_name, u2.last_name, u2.email
+           FROM return_masters rm
+           JOIN return_details rd ON rm.id = rd.return_master_id
+           LEFT JOIN users u2 ON rd.user_id = u2.id
+           WHERE rm.campaign_id = ANY($1) AND ${SOFT_DELETE_FILTER("rm")} ORDER BY rm.id DESC`,
+          [campaignIds]
+        );
+        returnRows = returnsResult.rows;
+      }
+
+      let completedInvestmentRows: CompletedInvRow[] = [];
+      if (campaignIds.length > 0) {
+        const completedResult = await pool.query<CompletedInvRow>(
+          `SELECT ci.id, ci.date_of_last_investment, ci.campaign_id,
+                  c.stage, c.associated_fund_id, c.themes AS theme_ids,
+                  ci.investment_detail, ci.amount, ci.type_of_investment, ci.donors
+           FROM completed_investment_details ci
+           LEFT JOIN campaigns c ON ci.campaign_id = c.id
+           WHERE ci.campaign_id = ANY($1) AND ${SOFT_DELETE_FILTER("ci")} ORDER BY ci.id DESC`,
+          [campaignIds]
+        );
+        completedInvestmentRows = completedResult.rows;
+      }
+
+      const completedIds = completedInvestmentRows.map((c) => Number(c.id));
+      let completedNotesRows: DbRow[] = [];
+      if (completedIds.length > 0) {
+        const completedNotesResult = await pool.query<DbRow>(
+          `SELECT cn.id, u2.user_name, cn.transaction_type, cn.note, cn.new_amount, cn.old_amount, cn.created_at
+           FROM completed_investment_notes cn
+           LEFT JOIN users u2 ON cn.user_id = u2.id
+           WHERE cn.completed_investment_id = ANY($1) ORDER BY cn.id DESC`,
+          [completedIds]
+        );
+        completedNotesRows = completedNotesResult.rows;
+      }
+
+      const achResult = await pool.query<AchRow>(
+        `SELECT id, user_id, amount, transaction_id, created_date, status, country
+         FROM user_stripe_transaction_mappings WHERE user_id = $1 ORDER BY created_date DESC`,
+        [userId]
+      );
+
+      const formResult = await pool.query<DbRow>(
+        `SELECT id, form_type, first_name, last_name, email, created_at, status
+         FROM form_submissions WHERE email = $1 AND ${SOFT_DELETE_FILTER("form_submissions")} ORDER BY id DESC`,
+        [userEmail]
+      );
+      const formIds = formResult.rows.map((f) => Number(f.id));
+
+      let formNotesRows: DbRow[] = [];
+      if (formIds.length > 0) {
+        const formNotesResult = await pool.query<DbRow>(
+          `SELECT fn.id, fn.note, u2.user_name, fn.old_status, fn.new_status, fn.created_at
+           FROM form_submission_notes fn
+           LEFT JOIN users u2 ON fn.user_id = u2.id
+           WHERE fn.form_submission_id = ANY($1) ORDER BY fn.id DESC`,
+          [formIds]
+        );
+        formNotesRows = formNotesResult.rows;
+      }
+
+      result.push({
+        user,
+        campaigns: campaignsResult.rows,
+        recommendations: recommendationsResult.rows.map((r) => addCampaignName(r, campaignDict)),
+        accountLogs: accountLogsResult.rows.map((a) => addCampaignName(a, campaignDict)),
+        investmentNotes: investmentNotesRows.map((i) => addCampaignName(i, campaignDict)),
+        disbursals: disbursalsResult.rows.map((d) => addCampaignName(d, campaignDict)),
+        disbursalNotes: disbursalNotesRows,
+        pendingGrants: pendingGrantsResult.rows.map((p) => ({
+          ...addCampaignName(p, campaignDict),
+          status: p.status || "Pending",
+        })),
+        pendingGrantNotes: pendingNotesRows,
+        assetRequests: assetRequestsResult.rows.map((a) => addCampaignName(a, campaignDict)),
+        assetRequestNotes: assetNotesRows,
+        returns: returnRows.map((r) => ({
+          ...addCampaignName(r, campaignDict),
+          dateRange: r.private_debt_start_date && r.private_debt_end_date
+            ? `${dayjs(r.private_debt_start_date).format("MM/DD/YY")}-${dayjs(r.private_debt_end_date).format("MM/DD/YY")}`
+            : null,
+          postDateFormatted: r.post_date ? dayjs(r.post_date).format("MM/DD/YY") : null,
+        })),
+        completedInvestments: completedInvestmentRows.map((c) => {
+          const themeIds = parseCommaSeparatedIds(c.theme_ids);
+          const invTypeIds = parseCommaSeparatedIds(c.type_of_investment);
+          const themeNames = themes
+            .filter((t) => themeIds.includes(Number(t.id)))
+            .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+            .map((t) => t.name);
+          const investmentTypeNames = investmentTypes
+            .filter((i) => invTypeIds.includes(Number(i.id)))
+            .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+            .map((i) => i.name);
+          return {
+            id: c.id,
+            dateOfLastInvestment: c.date_of_last_investment,
+            campaignName: c.campaign_id ? campaignDict.get(Number(c.campaign_id)) || null : null,
+            stage: c.stage,
+            cataCapFund: c.associated_fund_id ? campaignDict.get(Number(c.associated_fund_id)) || null : null,
+            investmentDetail: c.investment_detail,
+            amount: Math.round(parseFloat(String(c.amount)) || 0),
+            typeOfInvestment: investmentTypeNames.join(", "),
+            donors: c.donors,
+            themes: themeNames.join(", "),
+          };
+        }),
+        completedInvestmentNotes: completedNotesRows,
+        achPayments: achResult.rows.map((a) => {
+          const u = userDict.get(String(a.user_id).toLowerCase());
+          return {
+            ...a,
+            email: u?.email || null,
+            userName: u?.userName || null,
+            firstName: u?.firstName || null,
+            lastName: u?.lastName || null,
+          };
+        }),
+        formSubmission: formResult.rows,
+        formSubmissionNotes: formNotesRows,
+      });
+    }
+
+    res.json({
+      success: true,
+      count: result.length,
+      data: result,
+    });
+  } catch (err) {
+    console.error("User full data error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
 function formatJsonDates(json: string | null): string | null {
   if (!json) return json;
   try {
@@ -635,7 +990,7 @@ function formatJsonDates(json: string | null): string | null {
       const val = dict[key];
       if (typeof val !== "string" || val.length < 8 || val.length > 40) continue;
       if (/^\d+$/.test(val.trim())) continue;
-      const d = dayjs.utc(val);
+      const d = dayjs(val);
       if (!d.isValid()) continue;
       if (d.year() < 1900 || d.year() > 2100) continue;
       dict[key] = d.format("DD MMM YYYY hh:mm A");

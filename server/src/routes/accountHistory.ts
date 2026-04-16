@@ -86,7 +86,9 @@ router.get("/get-account-history", async (req: Request, res: Response) => {
       id: row.id,
       userName: row.userName,
       email: row.email,
-      changeDate: row.changeDate,
+      changeDate: row.changeDate
+        ? dayjs.utc(row.changeDate).format("MM/DD/YYYY")
+        : null,
       oldValue: row.oldValue !== null ? parseFloat(row.oldValue) : null,
       newValue: row.newValue !== null ? parseFloat(row.newValue) : null,
       paymentType: row.paymentType,
@@ -149,7 +151,13 @@ router.get("/getAll/:groupId", async (req: Request, res: Response) => {
       [groupId]
     );
 
-    res.json(result.rows);
+    const items = result.rows.map((row) => ({
+      ...row,
+      changeDate: row.changeDate
+        ? dayjs.utc(row.changeDate).format("MM/DD/YYYY")
+        : null,
+    }));
+    res.json(items);
   } catch (err) {
     console.error("Group account history error:", err);
     res.status(500).json({ message: "Internal server error" });

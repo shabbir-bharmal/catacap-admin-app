@@ -1711,7 +1711,9 @@ router.get("/:id/transaction-history", async (req: Request, res: Response) => {
     const items = result.rows.map((row: any) => ({
       id: row.id,
       userName: row.userName,
-      changeDate: row.changeDate,
+      changeDate: row.changeDate
+        ? dayjs.utc(row.changeDate).format("MM/DD/YYYY")
+        : null,
       oldValue: row.oldValue != null ? parseFloat(row.oldValue) : null,
       newValue: row.newValue != null ? parseFloat(row.newValue) : null,
       investmentName: row.investmentName,

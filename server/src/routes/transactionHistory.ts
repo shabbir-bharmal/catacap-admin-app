@@ -85,7 +85,9 @@ router.get("/", async (req: Request, res: Response) => {
       id: row.id,
       userName: row.userName,
       email: row.email,
-      changeDate: row.changeDate,
+      changeDate: row.changeDate
+        ? dayjs.utc(row.changeDate).format("MM/DD/YYYY")
+        : null,
       oldValue: row.oldValue !== null ? parseFloat(row.oldValue) : null,
       newValue: row.newValue !== null ? parseFloat(row.newValue) : null,
       paymentType: row.paymentType,
