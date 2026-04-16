@@ -2,14 +2,45 @@ import { Resend } from "resend";
 import pool from "../db.js";
 
 const DEFAULT_SENDER_NAME = "CataCap";
+const DEFAULT_FROM_ADDRESS = "support@catacap.org";
+
+const CACHE_TTL_MS = Math.max(1000, parseInt(process.env.EMAIL_CONFIG_CACHE_TTL_MS || "", 10) || 5 * 60 * 1000);
+
+interface CacheEntry {
+  value: string;
+  expiresAt: number;
+}
+
+const siteConfigCache = new Map<string, CacheEntry>();
+
+function getCached(key: string): string | null {
+  const entry = siteConfigCache.get(key);
+  if (entry && Date.now() < entry.expiresAt) {
+    return entry.value;
+  }
+  if (entry) {
+    siteConfigCache.delete(key);
+  }
+  return null;
+}
+
+function setCache(key: string, value: string): void {
+  siteConfigCache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+}
 
 export async function getEmailSenderName(): Promise<string> {
+  const cached = getCached("emailSenderName");
+  if (cached !== null) {
+    return cached;
+  }
   try {
     const result = await pool.query(
       `SELECT value FROM site_configurations WHERE key = 'emailSenderName' LIMIT 1`
     );
     const value = result.rows[0]?.value;
-    return value && value.trim() ? value.trim() : DEFAULT_SENDER_NAME;
+    const resolved = value && value.trim() ? value.trim() : DEFAULT_SENDER_NAME;
+    setCache("emailSenderName", resolved);
+    return resolved;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`[EMAIL] Failed to fetch emailSenderName from site_configurations: ${message}`);
@@ -17,15 +48,19 @@ export async function getEmailSenderName(): Promise<string> {
   }
 }
 
-const DEFAULT_FROM_ADDRESS = "support@catacap.org";
-
 async function getDefaultFromAddress(): Promise<string> {
+  const cached = getCached("defaultFromAddress");
+  if (cached !== null) {
+    return cached;
+  }
   try {
     const result = await pool.query(
       `SELECT value FROM site_configurations WHERE key = 'defaultFromAddress' LIMIT 1`
     );
     const value = result.rows[0]?.value;
-    return value && value.trim() ? value.trim() : DEFAULT_FROM_ADDRESS;
+    const resolved = value && value.trim() ? value.trim() : DEFAULT_FROM_ADDRESS;
+    setCache("defaultFromAddress", resolved);
+    return resolved;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`[EMAIL] Failed to fetch defaultFromAddress from site_configurations: ${message}`);
