@@ -6,7 +6,7 @@ import dayjs from "dayjs";
 const router = Router();
 
 const SOFT_DELETE_FILTER = (alias: string) =>
-  `(${alias}.is_deleted IS NULL OR ${alias}.is_deleted = false)`;
+  `${alias}.is_deleted = false`;
 
 const USER_ROLE = "User";
 
@@ -61,12 +61,14 @@ router.get("/summary", async (_req: Request, res: Response) => {
          COALESCE(SUM(CASE WHEN r.date_created >= $2 AND r.date_created < $1 THEN r.amount ELSE 0 END), 0) AS last_month_amount,
          COUNT(CASE WHEN r.date_created >= $2 AND r.date_created < $1 THEN 1 END) AS last_month_count
        FROM recommendations r
-       JOIN users u ON LOWER(TRIM(r.user_email)) = LOWER(TRIM(u.email))
-       JOIN user_roles ur ON u.id = ur.user_id
-       JOIN roles role ON ur.role_id = role.id
-       WHERE role.name = $3
-         AND ${SOFT_DELETE_FILTER("r")}
-         AND ${SOFT_DELETE_FILTER("u")}`,
+       WHERE ${SOFT_DELETE_FILTER("r")}
+         AND LOWER(r.user_email) IN (
+           SELECT LOWER(u.email) FROM users u
+           JOIN user_roles ur ON u.id = ur.user_id
+           JOIN roles role ON ur.role_id = role.id
+           WHERE role.name = $3
+             AND ${SOFT_DELETE_FILTER("u")}
+         )`,
       [startOfThisMonth.toISOString(), startOfLastMonth.toISOString(), USER_ROLE]
     );
 
@@ -154,7 +156,7 @@ router.get("/investment-chart", async (req: Request, res: Response) => {
     const dataResult = await pool.query(
       `SELECT r.amount, r.date_created, r.user_email
        FROM recommendations r
-       JOIN users u ON r.user_email = u.email
+       JOIN users u ON LOWER(r.user_email) = LOWER(u.email)
        JOIN user_roles ur ON u.id = ur.user_id
        JOIN roles role ON ur.role_id = role.id
        WHERE role.name = $1
@@ -204,7 +206,7 @@ router.get("/investment-chart", async (req: Request, res: Response) => {
       const prevResult = await pool.query(
         `SELECT COALESCE(SUM(r.amount), 0) AS total
          FROM recommendations r
-         JOIN users u ON r.user_email = u.email
+         JOIN users u ON LOWER(r.user_email) = LOWER(u.email)
          JOIN user_roles ur ON u.id = ur.user_id
          JOIN roles role ON ur.role_id = role.id
          WHERE role.name = $1
@@ -250,7 +252,7 @@ router.get("/investment-by-theme", async (_req: Request, res: Response) => {
     const recResult = await pool.query(
       `SELECT r.campaign_id, r.amount, r.status
        FROM recommendations r
-       JOIN users u ON r.user_email = u.email
+       JOIN users u ON LOWER(r.user_email) = LOWER(u.email)
        JOIN user_roles ur ON u.id = ur.user_id
        JOIN roles role ON ur.role_id = role.id
        WHERE role.name = $1
@@ -345,7 +347,7 @@ router.get("/recent-investments", async (req: Request, res: Response) => {
     const countResult = await pool.query(
       `SELECT COUNT(*) AS total
        FROM recommendations r
-       JOIN users u ON r.user_email = u.email
+       JOIN users u ON LOWER(r.user_email) = LOWER(u.email)
        JOIN campaigns c ON r.campaign_id = c.id
        JOIN user_roles ur ON u.id = ur.user_id
        JOIN roles role ON ur.role_id = role.id
@@ -362,7 +364,7 @@ router.get("/recent-investments", async (req: Request, res: Response) => {
          r.status,
          r.date_created
        FROM recommendations r
-       JOIN users u ON r.user_email = u.email
+       JOIN users u ON LOWER(r.user_email) = LOWER(u.email)
        JOIN campaigns c ON r.campaign_id = c.id
        JOIN user_roles ur ON u.id = ur.user_id
        JOIN roles role ON ur.role_id = role.id
@@ -428,7 +430,7 @@ router.get("/top-donors", async (req: Request, res: Response) => {
     const countResult = await pool.query(
       `SELECT COUNT(DISTINCT u.id) AS total
        FROM recommendations r
-       JOIN users u ON r.user_email = u.email
+       JOIN users u ON LOWER(r.user_email) = LOWER(u.email)
        JOIN user_roles ur ON u.id = ur.user_id
        JOIN roles role ON ur.role_id = role.id
        WHERE ${whereClause}`,
@@ -441,7 +443,7 @@ router.get("/top-donors", async (req: Request, res: Response) => {
          COALESCE(SUM(r.amount), 0) AS amount,
          COUNT(*) AS donations
        FROM recommendations r
-       JOIN users u ON r.user_email = u.email
+       JOIN users u ON LOWER(r.user_email) = LOWER(u.email)
        JOIN user_roles ur ON u.id = ur.user_id
        JOIN roles role ON ur.role_id = role.id
        WHERE ${whereClause}
@@ -515,7 +517,7 @@ router.get("/top-groups", async (req: Request, res: Response) => {
          g.id AS group_id,
          g.name AS group_name,
          COALESCE(SUM(log.new_value - log.old_value), 0) AS total_investment,
-         (SELECT COUNT(*) FROM requests req WHERE req.group_to_follow_id = g.id AND req.status = 'accepted' AND (req.is_deleted IS NULL OR req.is_deleted = false)) AS members
+         (SELECT COUNT(*) FROM requests req WHERE req.group_to_follow_id = g.id AND req.status = 'accepted' AND req.is_deleted = false) AS members
        FROM groups g
        JOIN account_balance_change_logs log ON g.id = log.group_id
        JOIN users u ON log.user_id = u.id
