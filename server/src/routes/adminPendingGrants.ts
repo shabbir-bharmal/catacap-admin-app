@@ -147,6 +147,7 @@ router.get("/", async (req: Request, res: Response) => {
     let paramIdx = 1;
 
     softDeleteFilter("pg", params.isDeleted, conditions);
+    conditions.push("(u.is_deleted IS NULL OR u.is_deleted = false)");
 
     if (statusList && statusList.length > 0) {
       if (statusList.includes("pending")) {
@@ -669,9 +670,10 @@ router.get("/:id/notes", async (req: Request, res: Response) => {
 router.delete("/:id", async (req: Request, res: Response) => {
   try {
     const id = parseInt(String(req.params.id), 10);
+    const loginUserId = req.user?.id || null;
 
     const entityResult = await pool.query(
-      `SELECT id FROM pending_grants WHERE id = $1`,
+      `SELECT id FROM pending_grants WHERE id = $1 AND (is_deleted IS NULL OR is_deleted = false)`,
       [id]
     );
 
@@ -680,11 +682,26 @@ router.delete("/:id", async (req: Request, res: Response) => {
       return;
     }
 
-    await pool.query(`DELETE FROM account_balance_change_logs WHERE pending_grants_id = $1`, [id]);
-    await pool.query(`DELETE FROM recommendations WHERE pending_grants_id = $1`, [id]);
-    await pool.query(`DELETE FROM scheduled_email_logs WHERE pending_grant_id = $1`, [id]);
-    await pool.query(`DELETE FROM pending_grant_notes WHERE pending_grant_id = $1`, [id]);
-    await pool.query(`DELETE FROM pending_grants WHERE id = $1`, [id]);
+    await pool.query(
+      `UPDATE account_balance_change_logs SET is_deleted = true, deleted_at = NOW(), deleted_by = $1
+       WHERE pending_grants_id = $2 AND (is_deleted IS NULL OR is_deleted = false)`,
+      [loginUserId, id]
+    );
+    await pool.query(
+      `UPDATE recommendations SET is_deleted = true, deleted_at = NOW(), deleted_by = $1
+       WHERE pending_grants_id = $2 AND (is_deleted IS NULL OR is_deleted = false)`,
+      [loginUserId, id]
+    );
+    await pool.query(
+      `UPDATE scheduled_email_logs SET is_deleted = true, deleted_at = NOW(), deleted_by = $1
+       WHERE pending_grant_id = $2 AND (is_deleted IS NULL OR is_deleted = false)`,
+      [loginUserId, id]
+    );
+    await pool.query(
+      `UPDATE pending_grants SET is_deleted = true, deleted_at = NOW(), deleted_by = $1
+       WHERE id = $2`,
+      [loginUserId, id]
+    );
 
     res.json({ success: true, message: "Pending grant deleted successfully." });
   } catch (err: any) {

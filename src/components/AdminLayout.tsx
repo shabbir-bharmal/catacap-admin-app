@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AdminSidebar } from "./AdminSidebar";
+import { AdminHeader } from "./AdminHeader";
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -38,6 +39,7 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
       <div className="flex h-screen w-full">
         <AdminSidebar />
         <div className="flex flex-col flex-1 overflow-hidden">
+          <AdminHeader />
           <main className="flex-1 overflow-auto bg-background p-4 md:p-6">{children}</main>
         </div>
       </div>

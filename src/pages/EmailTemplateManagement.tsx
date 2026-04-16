@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import dayjs from "dayjs";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AdminLayout } from "../components/AdminLayout";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";

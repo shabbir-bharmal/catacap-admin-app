@@ -393,7 +393,13 @@ router.get("/export", async (_req: Request, res: Response) => {
 
       const stageDescription = c.stage != null ? (StageDisplayNames[c.stage] || String(c.stage)) : "";
 
-      worksheet.addRow([
+      const parseCurrency = (val: any): number | null => {
+        if (val == null || val === '') return null;
+        const num = typeof val === 'number' ? val : parseFloat(String(val).replace(/[$,]/g, ''));
+        return isNaN(num) ? null : num;
+      };
+
+      const dataRow = worksheet.addRow([
         c.id,
         c.name,
         c.description,
@@ -402,7 +408,7 @@ router.get("/export", async (_req: Request, res: Response) => {
         c.sdgs,
         c.investment_types,
         c.terms,
-        c.minimum_investment,
+        parseCurrency(c.minimum_investment),
         c.website,
         c.contact_info_full_name,
         c.contact_info_address,
@@ -419,7 +425,7 @@ router.get("/export", async (_req: Request, res: Response) => {
         c.impact_assets_funding_status,
         c.investment_role,
         c.referred_to_catacap,
-        c.target,
+        parseCurrency(c.target),
         c.status,
         c.tile_image_file_name,
         c.image_file_name,
@@ -433,18 +439,18 @@ router.get("/export", async (_req: Request, res: Response) => {
         stageDescription,
         tags,
         c.property,
-        c.added_total_admin_raised || 0,
+        parseCurrency(c.added_total_admin_raised) ?? 0,
         groups.join(","),
-        rec.balance,
+        parseCurrency(rec.balance) ?? 0,
         rec.investors,
         c.group_for_private_access_name || "",
         c.email_sends ? "Yes" : "No",
         c.fundraising_close_date,
         c.mission_and_vision,
         c.personalized_thank_you,
-        c.expected_total,
+        parseCurrency(c.expected_total),
         c.investment_type_category,
-        c.equity_valuation,
+        parseCurrency(c.equity_valuation),
         c.equity_security_type,
         c.fund_term ? formatDateMMDDYYYY(c.fund_term) : "",
         c.equity_target_return,
@@ -456,6 +462,12 @@ router.get("/export", async (_req: Request, res: Response) => {
         c.meta_title,
         c.meta_description,
       ]);
+
+      const currencyFmt = '$#,##0.00';
+      const monetaryColumns = [9, 26, 40, 42, 49, 51];
+      for (const col of monetaryColumns) {
+        dataRow.getCell(col).numFmt = currencyFmt;
+      }
     }
 
     worksheet.columns.forEach((col) => {
@@ -535,7 +547,7 @@ router.get("/request", async (req: Request, res: Response) => {
     }
 
     const countResult = await pool.query(
-      `SELECT COUNT(*) FROM investment_requests ir LEFT JOIN users u ON ir.user_id = u.id ${whereClause}`,
+      `SELECT COUNT(*) FROM investment_requests ir LEFT JOIN users u ON ir.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false) ${whereClause}`,
       values
     );
     const totalRecords = parseInt(countResult.rows[0].count, 10);
@@ -546,7 +558,7 @@ router.get("/request", async (req: Request, res: Response) => {
               u.email, ir.organization_name AS organization, ir.country,
               ir.campaign_goal AS goal, ir.created_at AS submitted, ir.status
        FROM investment_requests ir
-       LEFT JOIN users u ON ir.user_id = u.id
+       LEFT JOIN users u ON ir.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
        ${whereClause}
        ORDER BY ${orderBy}
        LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
@@ -586,7 +598,7 @@ router.get("/request/:id", async (req: Request, res: Response) => {
     const result = await pool.query(
       `SELECT ir.*, u.first_name, u.last_name, u.email
        FROM investment_requests ir
-       LEFT JOIN users u ON ir.user_id = u.id
+       LEFT JOIN users u ON ir.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
        WHERE ir.id = $1 AND (ir.is_deleted IS NULL OR ir.is_deleted = false)`,
       [id]
     );

@@ -31,7 +31,7 @@ const router = Router();
 router.get("/", async (req: Request, res: Response) => {
   try {
     const params = parsePagination(req.query as Record<string, unknown>);
-    const isAsc = params.sortDirection?.toLowerCase() === "asc";
+    const isAsc = !params.sortDirection || params.sortDirection.toLowerCase() === "asc";
     const page = params.currentPage;
     const pageSize = params.perPage;
 
@@ -78,7 +78,7 @@ router.get("/", async (req: Request, res: Response) => {
       const uniqueIds = [...new Set(allLeaderIds)];
       const placeholders = uniqueIds.map((_, i) => `$${i + 1}`).join(", ");
       const leaderResult = await pool.query(
-        `SELECT id, COALESCE(first_name, '') || ' ' || COALESCE(last_name, '') as full_name FROM users WHERE id IN (${placeholders})`,
+        `SELECT id, COALESCE(first_name, '') || ' ' || COALESCE(last_name, '') as full_name FROM users WHERE id IN (${placeholders}) AND (is_deleted IS NULL OR is_deleted = false)`,
         uniqueIds
       );
       for (const row of leaderResult.rows) {
@@ -436,6 +436,7 @@ router.get("/leaders-and-champions", async (req: Request, res: Response) => {
         `SELECT u.id, COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '') as "fullName", u.picture_file_name as "pictureFileName"
          FROM users u
          WHERE u.is_active = true
+           AND (u.is_deleted IS NULL OR u.is_deleted = false)
            AND EXISTS (SELECT 1 FROM user_roles ur WHERE ur.user_id = u.id AND ur.role_id = $1)
            AND ($2::text IS NULL OR u.id != $2::text)
            AND LOWER(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) LIKE $3`,
@@ -451,6 +452,7 @@ router.get("/leaders-and-champions", async (req: Request, res: Response) => {
          WHERE r.group_to_follow_id = $1
            AND r.status = 'accepted'
            AND u.is_active = true
+           AND (u.is_deleted IS NULL OR u.is_deleted = false)
            AND ($2::text IS NULL OR u.id != $2::text)
            AND LOWER(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) LIKE $3`,
         [groupId, groupOwnerId || null, `%${userName}%`]
@@ -760,7 +762,7 @@ router.get("/group-investments", async (req: Request, res: Response) => {
       const avatarResult = await pool.query(
         `SELECT DISTINCT ON (r.campaign_id, r.user_id) r.campaign_id, u.picture_file_name
          FROM recommendations r
-         JOIN users u ON r.user_id = u.id
+         JOIN users u ON r.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
          WHERE r.campaign_id IN (${placeholders})
            AND (r.is_deleted IS NULL OR r.is_deleted = false)
            AND u.picture_file_name IS NOT NULL
@@ -908,7 +910,8 @@ router.put("/update-group-investments", async (req: Request, res: Response) => {
            WHERE r.group_to_follow_id = $1
              AND r.status = 'accepted'
              AND (r.is_deleted IS NULL OR r.is_deleted = false)
-             AND u.is_active = true`,
+             AND u.is_active = true
+             AND (u.is_deleted IS NULL OR u.is_deleted = false)`,
           [groupId]
         );
 
@@ -1081,7 +1084,7 @@ router.get("/:identifier", async (req: Request, res: Response) => {
     let groupResult = await pool.query(
       `SELECT g.*, u.first_name as owner_first_name, u.last_name as owner_last_name, u.id as owner_user_id
        FROM groups g
-       LEFT JOIN users u ON g.owner_id = u.id
+       LEFT JOIN users u ON g.owner_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
        WHERE g.identifier = $1 ${isGroupId ? "OR g.id = $2" : ""}`,
       isGroupId ? [identifier, groupId] : [identifier]
     );
@@ -1095,7 +1098,7 @@ router.get("/:identifier", async (req: Request, res: Response) => {
         groupResult = await pool.query(
           `SELECT g.*, u.first_name as owner_first_name, u.last_name as owner_last_name, u.id as owner_user_id
            FROM groups g
-           LEFT JOIN users u ON g.owner_id = u.id
+           LEFT JOIN users u ON g.owner_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
            WHERE g.id = $1`,
           [slugResult.rows[0].reference_id]
         );
@@ -1183,7 +1186,8 @@ router.get("/:identifier", async (req: Request, res: Response) => {
       const balResult = await pool.query(
         `SELECT COALESCE(SUM(u.account_balance), 0) as total
          FROM users u
-         WHERE EXISTS (SELECT 1 FROM user_roles ur WHERE ur.user_id = u.id AND ur.role_id = $1)`,
+         WHERE EXISTS (SELECT 1 FROM user_roles ur WHERE ur.user_id = u.id AND ur.role_id = $1)
+           AND (u.is_deleted IS NULL OR u.is_deleted = false)`,
         [userRoleId]
       );
       totalUsersAccountBalance = parseFloat(balResult.rows[0]?.total) || 0;
@@ -1596,6 +1600,7 @@ router.get("/:id/users", async (req: Request, res: Response) => {
        LEFT JOIN group_account_balances gab ON gab.user_id = u.id AND gab.group_id = $1
          AND (gab.is_deleted IS NULL OR gab.is_deleted = false)
        WHERE r.name = 'User'
+         AND (u.is_deleted IS NULL OR u.is_deleted = false)
          AND req.group_to_follow_id = $1
          AND req.status = 'accepted'
          AND (req.is_deleted IS NULL OR req.is_deleted = false)
@@ -1711,7 +1716,9 @@ router.get("/:id/transaction-history", async (req: Request, res: Response) => {
     const items = result.rows.map((row: any) => ({
       id: row.id,
       userName: row.userName,
-      changeDate: row.changeDate,
+      changeDate: row.changeDate
+        ? dayjs.utc(row.changeDate).format("MM/DD/YYYY")
+        : null,
       oldValue: row.oldValue != null ? parseFloat(row.oldValue) : null,
       newValue: row.newValue != null ? parseFloat(row.newValue) : null,
       investmentName: row.investmentName,
@@ -1773,7 +1780,7 @@ router.put("/:id/transaction-history", async (req: Request, res: Response) => {
     let groupBalance = await pool.query(
       `SELECT gab.id, gab.balance, gab.user_id, u.user_name, u.id as uid
        FROM group_account_balances gab
-       JOIN users u ON gab.user_id = u.id
+       JOIN users u ON gab.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
        WHERE u.email = $1 AND gab.group_id = $2
          AND (gab.is_deleted IS NULL OR gab.is_deleted = false)`,
       [email, id]
@@ -1986,7 +1993,7 @@ async function processGroupMembers(jsonData: string | null, ownerId?: string): P
   const placeholders = userIds.map((_: any, i: number) => `$${i + 1}`).join(", ");
   const usersResult = await pool.query(
     `SELECT id, COALESCE(first_name, '') || ' ' || COALESCE(last_name, '') as full_name, picture_file_name
-     FROM users WHERE id IN (${placeholders})`,
+     FROM users WHERE id IN (${placeholders}) AND (is_deleted IS NULL OR is_deleted = false)`,
     userIds
   );
 

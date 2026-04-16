@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import pool from "../db.js";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
+import ExcelJS from "exceljs";
 dayjs.extend(utc);
 
 const router = Router();
@@ -52,7 +53,7 @@ router.get("/get-account-history", async (req: Request, res: Response) => {
     const countResult = await pool.query(
       `SELECT COUNT(*) AS total
        FROM account_balance_change_logs a
-       LEFT JOIN users u ON a.user_id = u.id
+       LEFT JOIN users u ON a.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
        WHERE ${whereClause}`,
       values
     );
@@ -75,7 +76,7 @@ router.get("/get-account-history", async (req: Request, res: Response) => {
          a.investment_name AS "investmentName",
          a.comment
        FROM account_balance_change_logs a
-       LEFT JOIN users u ON a.user_id = u.id
+       LEFT JOIN users u ON a.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
        WHERE ${whereClause}
        ORDER BY ${orderBy}
        LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
@@ -86,7 +87,9 @@ router.get("/get-account-history", async (req: Request, res: Response) => {
       id: row.id,
       userName: row.userName,
       email: row.email,
-      changeDate: row.changeDate,
+      changeDate: row.changeDate
+        ? dayjs.utc(row.changeDate).format("MM/DD/YYYY")
+        : null,
       oldValue: row.oldValue !== null ? parseFloat(row.oldValue) : null,
       newValue: row.newValue !== null ? parseFloat(row.newValue) : null,
       paymentType: row.paymentType,
@@ -149,7 +152,13 @@ router.get("/getAll/:groupId", async (req: Request, res: Response) => {
       [groupId]
     );
 
-    res.json(result.rows);
+    const items = result.rows.map((row) => ({
+      ...row,
+      changeDate: row.changeDate
+        ? dayjs.utc(row.changeDate).format("MM/DD/YYYY")
+        : null,
+    }));
+    res.json(items);
   } catch (err) {
     console.error("Group account history error:", err);
     res.status(500).json({ message: "Internal server error" });
@@ -190,44 +199,46 @@ router.get("/Export", async (req: Request, res: Response) => {
       values
     );
 
-    const headers = [
-      "UserName",
-      "ChangeDate",
-      "InvestmentName",
-      "PaymentType",
-      "OldValue",
-      "NewValue",
-      "ZipCode",
-      "Comment",
-    ];
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("AccountBalanceHistory");
 
-    let csv = headers.join(",") + "\n";
+    const headers = ["UserName", "ChangeDate", "InvestmentName", "PaymentType", "OldValue", "NewValue", "ZipCode", "Comment"];
+    const headerRow = worksheet.addRow(headers);
+    headerRow.eachCell((cell) => { cell.font = { bold: true }; });
 
     for (const row of result.rows) {
       const changeDate = row.change_date
         ? dayjs.utc(row.change_date).format("MM/DD/YYYY")
         : "";
 
-      const fields = [
-        `"${(row.user_name || "").replace(/"/g, '""')}"`,
-        `"${changeDate}"`,
-        `"${(row.investment_name || "").replace(/"/g, '""')}"`,
-        `"${(row.payment_type || "").replace(/"/g, '""')}"`,
-        row.old_value !== null ? parseFloat(row.old_value).toFixed(2) : "0.00",
-        row.new_value !== null ? parseFloat(row.new_value).toFixed(2) : "0.00",
-        `"${(row.zip_code || "").replace(/"/g, '""')}"`,
-        `"${(row.comment || "").replace(/"/g, '""')}"`,
-      ];
+      const dataRow = worksheet.addRow([
+        row.user_name || "",
+        changeDate,
+        row.investment_name || "",
+        row.payment_type || "",
+        row.old_value != null ? parseFloat(row.old_value) : 0,
+        row.new_value != null ? parseFloat(row.new_value) : 0,
+        row.zip_code || "",
+        row.comment || "",
+      ]);
 
-      csv += fields.join(",") + "\n";
+      dataRow.getCell(5).numFmt = "$#,##0.00";
+      dataRow.getCell(6).numFmt = "$#,##0.00";
     }
 
-    res.setHeader("Content-Type", "text/csv");
-    res.setHeader(
-      "Content-Disposition",
-      'attachment; filename="AccountBalanceHistory.csv"'
-    );
-    res.send(csv);
+    worksheet.columns.forEach((col) => {
+      let maxLen = 10;
+      col.eachCell?.({ includeEmpty: true }, (cell) => {
+        const len = cell.value ? String(cell.value).length : 0;
+        if (len > maxLen) maxLen = len;
+      });
+      col.width = maxLen + 10;
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", 'attachment; filename="AccountBalanceHistory.xlsx"');
+    res.send(Buffer.from(buffer as ArrayBuffer));
   } catch (err) {
     console.error("Export account history error:", err);
     res.status(500).json({ message: "Internal server error" });

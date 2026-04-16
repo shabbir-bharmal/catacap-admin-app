@@ -1,7 +1,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { fetchAuditLogs, AuditLogEntry } from "../api/home/homeApi";
 import { useQuery } from "@tanstack/react-query";
-import dayjs from "dayjs";
+import { formatDateTime } from "@/helpers/format";
 import { Loader2, History } from "lucide-react";
 
 interface AuditLogModalProps {
@@ -46,11 +46,7 @@ function isDateString(val: any): boolean {
 }
 
 function formatDateValue(val: string): string {
-  const d = dayjs(val);
-  if (d.isValid()) {
-    return d.format("DD MMM YYYY hh:mm A");
-  }
-  return val;
+  return formatDateTime(val, val);
 }
 
 function isCreatedAction(actionType: string | null): boolean {
@@ -285,7 +281,7 @@ export function AuditLogModal({ isOpen, onOpenChange, entityId, entityType, titl
                         {renderChanges(log)}
                       </td>
                       <td className="px-6 py-4 align-top whitespace-nowrap text-[13px] text-muted-foreground font-medium">
-                        {dayjs(log.updatedAt).format("DD MMM YYYY, HH:mm")}
+                        {formatDateTime(log.updatedAt)}
                       </td>
                     </tr>
                   ))}

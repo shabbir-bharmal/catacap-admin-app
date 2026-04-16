@@ -54,6 +54,7 @@ import {
 } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import dayjs from "dayjs";
+import { formatLongDate } from "@/helpers/format";
 import { useAuth } from "../contexts/AuthContext";
 import { ConfirmationDialog } from "../components/ConfirmationDialog";
 import { Loader2 } from "lucide-react";
@@ -93,7 +94,7 @@ function mapApiItemToArticle(item: NewsApiItem): NewsArticle {
     audienceId: item.audienceId ?? null,
     theme: item.theme ?? "",
     themeId: item.themeId ?? null,
-    date: item.newsDate ? dayjs(item.newsDate).format("MMMM D, YYYY") : "",
+    date: formatLongDate(item.newsDate, ""),
     link: item.link ?? "",
     status: item.status === true ? "Published" : "Draft",
   };
@@ -297,6 +298,7 @@ export default function NewsManagementPage() {
     }
 
     setErrors({});
+    setIsSaving(true);
     try {
       const parsedDate = dayjs(formData.date);
       const newsDate = parsedDate.isValid()
@@ -782,7 +784,7 @@ export default function NewsManagementPage() {
                       selected={formData.date ? parseDate(formData.date) : undefined}
                       onSelect={(d) => {
                         if (d) {
-                          setFormData((f) => ({ ...f, date: dayjs(d).format("MMMM D, YYYY") }));
+                          setFormData((f) => ({ ...f, date: formatLongDate(d, "") }));
                           if (errors.date) setErrors(prev => ({ ...prev, date: undefined }));
                         }
                         setDatePickerOpen(false);

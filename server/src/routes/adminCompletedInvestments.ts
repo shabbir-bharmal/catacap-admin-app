@@ -103,6 +103,7 @@ router.get("/", async (req: Request, res: Response) => {
       JOIN user_roles ur ON u.id = ur.user_id
       JOIN roles r ON ur.role_id = r.id
       WHERE r.name = 'User'
+        AND (u.is_deleted IS NULL OR u.is_deleted = false)
     `);
     const userEmails = userRoleResult.rows.map((r: any) => r.email);
 
@@ -167,7 +168,7 @@ router.get("/", async (req: Request, res: Response) => {
       const avatarResult = await pool.query(
         `SELECT r.campaign_id, u.picture_file_name, r.id AS rec_id
          FROM recommendations r
-         JOIN users u ON r.user_email = u.email
+         JOIN users u ON r.user_email = u.email AND (u.is_deleted IS NULL OR u.is_deleted = false)
          WHERE r.campaign_id IN (${campPlaceholders})
            AND (r.status = 'approved' OR r.status = 'pending')
            AND u.picture_file_name IS NOT NULL

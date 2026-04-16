@@ -29,14 +29,6 @@ router.get("/", async (req: Request, res: Response) => {
 
     softDeleteFilter("r", params.isDeleted, conditions);
 
-    conditions.push(`
-      EXISTS (
-        SELECT 1 FROM users u2
-        JOIN user_roles ur2 ON u2.id = ur2.user_id
-        JOIN roles rl ON ur2.role_id = rl.id
-        WHERE rl.name = $${paramIdx} AND u2.email = r.user_email
-      )
-    `);
     values.push(USER_ROLE);
     paramIdx++;
 
@@ -65,8 +57,15 @@ router.get("/", async (req: Request, res: Response) => {
     const sortClause = buildSortClause(params.sortField, isAsc, columnMap, "r.date_created");
     const orderBy = `${sortClause}, r.id ASC`;
 
+    const userRoleJoin = `
+       INNER JOIN users u_role ON LOWER(r.user_email) = LOWER(u_role.email)
+         AND (u_role.is_deleted IS NULL OR u_role.is_deleted = false)
+       INNER JOIN user_roles ur_role ON u_role.id = ur_role.user_id
+       INNER JOIN roles rl_role ON ur_role.role_id = rl_role.id AND rl_role.name = $1`;
+
     const countResult = await pool.query(
       `SELECT COUNT(*) FROM recommendations r
+       ${userRoleJoin}
        LEFT JOIN campaigns c ON r.campaign_id = c.id
        ${whereClause}`,
       values
@@ -81,6 +80,7 @@ router.get("/", async (req: Request, res: Response) => {
               rej.first_name AS "rejectedBy",
               CASE WHEN del.id IS NOT NULL THEN CONCAT(del.first_name, ' ', del.last_name) ELSE NULL END AS "deletedBy"
        FROM recommendations r
+       ${userRoleJoin}
        LEFT JOIN campaigns c ON r.campaign_id = c.id
        LEFT JOIN users rej ON r.rejected_by = rej.id
        LEFT JOIN users del ON r.deleted_by = del.id
@@ -95,6 +95,7 @@ router.get("/", async (req: Request, res: Response) => {
          COALESCE(SUM(CASE WHEN LOWER(TRIM(r.status)) = 'pending' THEN r.amount ELSE 0 END), 0) AS pending,
          COALESCE(SUM(CASE WHEN LOWER(TRIM(r.status)) = 'approved' THEN r.amount ELSE 0 END), 0) AS approved
        FROM recommendations r
+       ${userRoleJoin}
        LEFT JOIN campaigns c ON r.campaign_id = c.id
        ${whereClause}`,
       values
@@ -264,15 +265,13 @@ router.get("/export", async (req: Request, res: Response) => {
               c.name AS campaign_name,
               rej.first_name AS rejected_by_name
        FROM recommendations r
-       LEFT JOIN campaigns c ON r.campaign_id = c.id
-       LEFT JOIN users rej ON r.rejected_by = rej.id
+       INNER JOIN users u_role ON LOWER(r.user_email) = LOWER(u_role.email)
+         AND (u_role.is_deleted IS NULL OR u_role.is_deleted = false)
+       INNER JOIN user_roles ur_role ON u_role.id = ur_role.user_id
+       INNER JOIN roles rl_role ON ur_role.role_id = rl_role.id AND rl_role.name = $1
+       LEFT JOIN campaigns c ON r.campaign_id = c.id AND (c.is_deleted IS NULL OR c.is_deleted = false)
+       LEFT JOIN users rej ON r.rejected_by = rej.id AND (rej.is_deleted IS NULL OR rej.is_deleted = false)
        WHERE (r.is_deleted IS NULL OR r.is_deleted = false)
-         AND EXISTS (
-         SELECT 1 FROM users u2
-         JOIN user_roles ur2 ON u2.id = ur2.user_id
-         JOIN roles rl ON ur2.role_id = rl.id
-         WHERE rl.name = $1 AND LOWER(u2.email) = LOWER(r.user_email)
-       )
        ORDER BY r.id DESC`,
       [USER_ROLE]
     );
@@ -337,10 +336,13 @@ router.get("/export", async (req: Request, res: Response) => {
 router.delete("/:id", async (req: Request, res: Response) => {
   try {
     const id = parseInt(String(req.params.id), 10);
+    const loginUserId = req.user?.id || null;
 
     const result = await pool.query(
-      `DELETE FROM recommendations WHERE id = $1 RETURNING id`,
-      [id]
+      `UPDATE recommendations SET is_deleted = true, deleted_at = NOW(), deleted_by = $1
+       WHERE id = $2 AND (is_deleted IS NULL OR is_deleted = false)
+       RETURNING id`,
+      [loginUserId, id]
     );
 
     if (result.rowCount === 0) {

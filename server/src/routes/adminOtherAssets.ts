@@ -25,6 +25,7 @@ router.get("/", async (req: Request, res: Response) => {
     let paramIdx = 1;
 
     softDeleteFilter("abpr", params.isDeleted, conditions);
+    conditions.push("(u.is_deleted IS NULL OR u.is_deleted = false)");
 
     if (statusList && statusList.length > 0) {
       if (statusList.includes("pending")) {
@@ -341,9 +342,10 @@ router.get("/export", async (_req: Request, res: Response) => {
               c.name AS campaign_name,
               at.type AS asset_type_name
        FROM asset_based_payment_requests abpr
-       JOIN users u ON abpr.user_id = u.id
-       LEFT JOIN campaigns c ON abpr.campaign_id = c.id
-       LEFT JOIN asset_types at ON abpr.asset_type_id = at.id`
+       JOIN users u ON abpr.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
+       LEFT JOIN campaigns c ON abpr.campaign_id = c.id AND (c.is_deleted IS NULL OR c.is_deleted = false)
+       LEFT JOIN asset_types at ON abpr.asset_type_id = at.id
+       WHERE (abpr.is_deleted IS NULL OR abpr.is_deleted = false)`
     );
 
     const workbook = new ExcelJS.Workbook();
@@ -406,9 +408,10 @@ router.get("/export", async (_req: Request, res: Response) => {
 router.delete("/:id", async (req: Request, res: Response) => {
   try {
     const id = parseInt(String(req.params.id), 10);
+    const loginUserId = req.user?.id || null;
 
     const entityResult = await pool.query(
-      `SELECT id FROM asset_based_payment_requests WHERE id = $1`,
+      `SELECT id FROM asset_based_payment_requests WHERE id = $1 AND (is_deleted IS NULL OR is_deleted = false)`,
       [id]
     );
 
@@ -417,8 +420,16 @@ router.delete("/:id", async (req: Request, res: Response) => {
       return;
     }
 
-    await pool.query(`DELETE FROM account_balance_change_logs WHERE asset_based_payment_request_id = $1`, [id]);
-    await pool.query(`DELETE FROM asset_based_payment_requests WHERE id = $1`, [id]);
+    await pool.query(
+      `UPDATE account_balance_change_logs SET is_deleted = true, deleted_at = NOW(), deleted_by = $1
+       WHERE asset_based_payment_request_id = $2 AND (is_deleted IS NULL OR is_deleted = false)`,
+      [loginUserId, id]
+    );
+    await pool.query(
+      `UPDATE asset_based_payment_requests SET is_deleted = true, deleted_at = NOW(), deleted_by = $1
+       WHERE id = $2`,
+      [loginUserId, id]
+    );
 
     res.json({ success: true, message: "Other asset deleted successfully." });
   } catch (err: any) {

@@ -22,6 +22,7 @@ router.get("/site-configuration", async (req: Request, res: Response) => {
         const result = await pool.query(
           `SELECT id, key, value FROM site_configurations
            WHERE type = $1
+             AND (is_deleted IS NULL OR is_deleted = false)
            ORDER BY key`,
           [SITE_CONFIG_TYPES.StaticValue]
         );
@@ -32,6 +33,7 @@ router.get("/site-configuration", async (req: Request, res: Response) => {
       case "sourcedby": {
         const result = await pool.query(
           `SELECT id, name AS value FROM approvers
+           WHERE (is_deleted IS NULL OR is_deleted = false)
            ORDER BY name`
         );
         res.json(result.rows);
@@ -42,6 +44,7 @@ router.get("/site-configuration", async (req: Request, res: Response) => {
         const result = await pool.query(
           `SELECT id, name AS value, image_file_name AS "imageFileName"
            FROM themes
+           WHERE (is_deleted IS NULL OR is_deleted = false)
            ORDER BY name`
         );
         res.json(result.rows.map((r: any) => ({ ...r, imageFileName: resolveFileUrl(r.imageFileName, "themes") })));
@@ -51,6 +54,7 @@ router.get("/site-configuration", async (req: Request, res: Response) => {
       case "special-filters": {
         const result = await pool.query(
           `SELECT id, tag AS value FROM investment_tags
+           WHERE (is_deleted IS NULL OR is_deleted = false)
            ORDER BY tag`
         );
         res.json(result.rows);
@@ -61,6 +65,7 @@ router.get("/site-configuration", async (req: Request, res: Response) => {
         const result = await pool.query(
           `SELECT id, value FROM site_configurations
            WHERE type = $1
+             AND (is_deleted IS NULL OR is_deleted = false)
            ORDER BY value`,
           [SITE_CONFIG_TYPES.TransactionType]
         );
@@ -74,6 +79,7 @@ router.get("/site-configuration", async (req: Request, res: Response) => {
                   REPLACE(type, 'Statistics-', '') AS type
            FROM site_configurations
            WHERE type LIKE $1
+             AND (is_deleted IS NULL OR is_deleted = false)
            ORDER BY value`,
           [`${SITE_CONFIG_TYPES.Statistics}%`]
         );
@@ -87,6 +93,7 @@ router.get("/site-configuration", async (req: Request, res: Response) => {
                   additional_details AS "additionalDetails"
            FROM site_configurations
            WHERE type LIKE $1
+             AND (is_deleted IS NULL OR is_deleted = false)
            ORDER BY key`,
           [`${SITE_CONFIG_TYPES.MetaInformation}%`]
         );
@@ -105,6 +112,7 @@ router.get("/site-configuration", async (req: Request, res: Response) => {
                   REPLACE(type, 'ContactInfo-', '') AS type
            FROM site_configurations
            WHERE type LIKE $1
+             AND (is_deleted IS NULL OR is_deleted = false)
            ORDER BY type, key`,
           [`${SITE_CONFIG_TYPES.ContactInfo}-%`]
         );
@@ -163,6 +171,7 @@ router.delete("/site-configuration", async (req: Request, res: Response) => {
     }
 
     let result: { success: boolean; message: string };
+    const loginUserId = req.user?.id;
 
     switch (type) {
       case "investment-terms": {
@@ -175,7 +184,7 @@ router.delete("/site-configuration", async (req: Request, res: Response) => {
           return;
         }
         const inUse = await pool.query(
-          `SELECT 1 FROM campaigns WHERE terms LIKE $1 LIMIT 1`,
+          `SELECT 1 FROM campaigns WHERE terms LIKE $1 AND (is_deleted IS NULL OR is_deleted = false) LIMIT 1`,
           [`%{${entity.rows[0].key}}%`]
         );
         if (inUse.rows.length > 0) {
@@ -188,58 +197,76 @@ router.delete("/site-configuration", async (req: Request, res: Response) => {
       }
 
       case "sourcedby": {
-        const entity = await pool.query(`SELECT id FROM approvers WHERE id = $1`, [id]);
+        const entity = await pool.query(
+          `SELECT id FROM approvers WHERE id = $1 AND (is_deleted IS NULL OR is_deleted = false)`,
+          [id]
+        );
         if (entity.rows.length === 0) {
           res.json({ success: false, message: "Record not found." });
           return;
         }
         const inUse = await pool.query(
-          `SELECT 1 FROM campaigns WHERE (',' || approved_by || ',') LIKE $1 LIMIT 1`,
+          `SELECT 1 FROM campaigns WHERE (',' || approved_by || ',') LIKE $1 AND (is_deleted IS NULL OR is_deleted = false) LIMIT 1`,
           [`%,${id},%`]
         );
         if (inUse.rows.length > 0) {
           res.json({ success: false, message: "Cannot delete this sourced by, it's being used in investments." });
           return;
         }
-        await pool.query(`DELETE FROM approvers WHERE id = $1`, [id]);
+        await pool.query(
+          `UPDATE approvers SET is_deleted = true, deleted_at = NOW(), deleted_by = $2 WHERE id = $1`,
+          [id, loginUserId]
+        );
         result = { success: true, message: "Sourced by deleted successfully." };
         break;
       }
 
       case "themes": {
-        const entity = await pool.query(`SELECT id FROM themes WHERE id = $1`, [id]);
+        const entity = await pool.query(
+          `SELECT id FROM themes WHERE id = $1 AND (is_deleted IS NULL OR is_deleted = false)`,
+          [id]
+        );
         if (entity.rows.length === 0) {
           res.json({ success: false, message: "Record not found." });
           return;
         }
         const inUse = await pool.query(
-          `SELECT 1 FROM campaigns WHERE (',' || themes || ',') LIKE $1 LIMIT 1`,
+          `SELECT 1 FROM campaigns WHERE (',' || themes || ',') LIKE $1 AND (is_deleted IS NULL OR is_deleted = false) LIMIT 1`,
           [`%,${id},%`]
         );
         if (inUse.rows.length > 0) {
           res.json({ success: false, message: "Cannot delete this theme, it's being used in investments." });
           return;
         }
-        await pool.query(`DELETE FROM themes WHERE id = $1`, [id]);
+        await pool.query(
+          `UPDATE themes SET is_deleted = true, deleted_at = NOW(), deleted_by = $2 WHERE id = $1`,
+          [id, loginUserId]
+        );
         result = { success: true, message: "Theme deleted successfully." };
         break;
       }
 
       case "special-filters": {
-        const entity = await pool.query(`SELECT id FROM investment_tags WHERE id = $1`, [id]);
+        const entity = await pool.query(
+          `SELECT id FROM investment_tags WHERE id = $1 AND (is_deleted IS NULL OR is_deleted = false)`,
+          [id]
+        );
         if (entity.rows.length === 0) {
           res.json({ success: false, message: "Record not found." });
           return;
         }
         const inUse = await pool.query(
-          `SELECT 1 FROM investment_tag_mappings WHERE tag_id = $1 LIMIT 1`,
+          `SELECT 1 FROM investment_tag_mappings WHERE tag_id = $1 AND (is_deleted IS NULL OR is_deleted = false) LIMIT 1`,
           [id]
         );
         if (inUse.rows.length > 0) {
           res.json({ success: false, message: "Cannot delete this special filter, it's being used in investments." });
           return;
         }
-        await pool.query(`DELETE FROM investment_tags WHERE id = $1`, [id]);
+        await pool.query(
+          `UPDATE investment_tags SET is_deleted = true, deleted_at = NOW(), deleted_by = $2 WHERE id = $1`,
+          [id, loginUserId]
+        );
         result = { success: true, message: "Special filter deleted successfully." };
         break;
       }
@@ -296,8 +323,9 @@ router.get("/investment", async (req: Request, res: Response) => {
     if (configurationType === "specialfilters") {
       result = await pool.query(
         `SELECT c.id, c.name,
-                EXISTS(SELECT 1 FROM investment_tag_mappings m WHERE m.campaign_id = c.id AND m.tag_id = $1) AS "isSelected"
+                EXISTS(SELECT 1 FROM investment_tag_mappings m WHERE m.campaign_id = c.id AND m.tag_id = $1 AND (m.is_deleted IS NULL OR m.is_deleted = false)) AS "isSelected"
          FROM campaigns c
+         WHERE (c.is_deleted IS NULL OR c.is_deleted = false)
          ORDER BY c.name`,
         [configurationId]
       );
@@ -312,6 +340,7 @@ router.get("/investment", async (req: Request, res: Response) => {
         result = await pool.query(
           `SELECT c.id, c.name, false AS "isSelected"
            FROM campaigns c
+           WHERE (c.is_deleted IS NULL OR c.is_deleted = false)
            ORDER BY c.name`
         );
       } else {
@@ -319,6 +348,7 @@ router.get("/investment", async (req: Request, res: Response) => {
           `SELECT c.id, c.name,
                   (',' || COALESCE(c.${column}, '') || ',') LIKE $1 AS "isSelected"
            FROM campaigns c
+           WHERE (c.is_deleted IS NULL OR c.is_deleted = false)
            ORDER BY c.name`,
           [`%,${configurationId},%`]
         );

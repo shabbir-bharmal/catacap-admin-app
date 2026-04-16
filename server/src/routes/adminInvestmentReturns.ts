@@ -47,7 +47,7 @@ router.get("/", async (req: Request, res: Response) => {
       FROM return_masters rm
       LEFT JOIN campaigns c ON rm.campaign_id = c.id
       LEFT JOIN return_details rd ON rd.return_master_id = rm.id
-      LEFT JOIN users u ON rd.user_id = u.id
+      LEFT JOIN users u ON rd.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
       LEFT JOIN users du ON du.id = rd.deleted_by
       ${conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : ""}
     `;
@@ -140,7 +140,7 @@ router.get("/calculate", async (req: Request, res: Response) => {
     const campaignResult = await pool.query(`SELECT name FROM campaigns WHERE id = $1`, [investmentId]);
     const campaignName = campaignResult.rows[0]?.name || null;
 
-    const activeUsersResult = await pool.query(`SELECT email FROM users WHERE is_active = true`);
+    const activeUsersResult = await pool.query(`SELECT email FROM users WHERE is_active = true AND (is_deleted IS NULL OR is_deleted = false)`);
     const activeEmails = activeUsersResult.rows.map((r: any) => r.email);
 
     if (activeEmails.length === 0) {
@@ -175,7 +175,7 @@ router.get("/calculate", async (req: Request, res: Response) => {
     const userEmails = recommendations.map((r: any) => r.user_email);
     const userPlaceholders = userEmails.map((_: any, i: number) => `$${i + 1}`).join(", ");
     const usersResult = await pool.query(
-      `SELECT first_name, last_name, email FROM users WHERE LOWER(email) IN (${userPlaceholders})`,
+      `SELECT first_name, last_name, email FROM users WHERE LOWER(email) IN (${userPlaceholders}) AND (is_deleted IS NULL OR is_deleted = false)`,
       userEmails.map((e: string) => e?.toLowerCase())
     );
     const userMap: Record<string, any> = {};
@@ -234,7 +234,7 @@ router.post("/", async (req: Request, res: Response) => {
 
     const loginUserId = req.user?.id;
 
-    const activeUsersResult = await pool.query(`SELECT email FROM users WHERE is_active = true`);
+    const activeUsersResult = await pool.query(`SELECT email FROM users WHERE is_active = true AND (is_deleted IS NULL OR is_deleted = false)`);
     const activeEmails = activeUsersResult.rows.map((r: any) => r.email);
 
     if (activeEmails.length === 0) {
@@ -268,7 +268,7 @@ router.post("/", async (req: Request, res: Response) => {
     const userEmails = recommendations.map((r: any) => r.user_email);
     const userPlaceholders = userEmails.map((_: any, i: number) => `$${i + 1}`).join(", ");
     const usersResult = await pool.query(
-      `SELECT id, first_name, last_name, email, user_name, account_balance FROM users WHERE LOWER(email) IN (${userPlaceholders})`,
+      `SELECT id, first_name, last_name, email, user_name, account_balance FROM users WHERE LOWER(email) IN (${userPlaceholders}) AND (is_deleted IS NULL OR is_deleted = false)`,
       userEmails.map((e: string) => e?.toLowerCase())
     );
     const userMap: Record<string, any> = {};
@@ -400,7 +400,7 @@ router.get("/export", async (_req: Request, res: Response) => {
       FROM return_masters rm
       LEFT JOIN campaigns c ON rm.campaign_id = c.id
       LEFT JOIN return_details rd ON rd.return_master_id = rm.id
-      LEFT JOIN users u ON rd.user_id = u.id
+      LEFT JOIN users u ON rd.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
       WHERE rd.id IS NOT NULL
       ORDER BY rm.created_on DESC, rd.investment_amount DESC
     `);

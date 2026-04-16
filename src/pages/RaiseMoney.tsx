@@ -17,7 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import dayjs from "dayjs";
+import { formatDate } from "@/helpers/format";
 import { cn } from "@/lib/utils";
 import { ArrowLeft, ArrowRight, Send, User, Briefcase, ImageIcon, Upload, CheckCircle2, CalendarIcon, Check, ChevronDown } from "lucide-react";
 import BannerCropper from "@/components/BannerCropper";
@@ -1416,7 +1416,7 @@ export default function AdminRaiseMoney() {
                         data-testid="input-expected-close-date"
                       >
                         <CalendarIcon className="mr-2 h-4 w-4" />
-                        {formData.expectedCloseDate ? dayjs(formData.expectedCloseDate).format("MM/DD/YYYY") : "Pick a date"}
+                        {formData.expectedCloseDate ? formatDate(formData.expectedCloseDate) : "Pick a date"}
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0" align="start">

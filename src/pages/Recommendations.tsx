@@ -1,7 +1,6 @@
 import { useState, Fragment } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
-import dayjs from "dayjs";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AdminLayout } from "../components/AdminLayout";
 import { Badge } from "@/components/ui/badge";
@@ -19,7 +18,7 @@ import { cn } from "@/lib/utils";
 import { useSort } from "../hooks/useSort";
 
 import { fetchRecommendations, updateRecommendation, exportRecommendations, deleteRecommendation, RecommendationEntry, fetchInvestmentNames, InvestmentOption } from "../api/recommendation/recommendationApi";
-import { currency_format } from "../helpers/format";
+import { currency_format, formatDate } from "../helpers/format";
 import { SortHeader } from "@/components/ui/table-sort";
 import { ConfirmationDialog } from "../components/ConfirmationDialog";
 import { PaginationControls } from "@/components/ui/pagination-controls";
@@ -498,7 +497,7 @@ export default function RecommendationsPage() {
                         </td>
                         <td className="px-4 py-3">
                           <span className="text-sm" data-testid={`text-date-${rec.id}`}>
-                            {dayjs(rec.dateCreated).isValid() ? dayjs(rec.dateCreated).format("MM/DD/YYYY") : rec.dateCreated}
+                            {formatDate(rec.dateCreated)}
                           </span>
                         </td>
                         <td className="px-4 py-3">

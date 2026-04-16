@@ -10,7 +10,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Dialog, DialogContent, DialogFooter } from "@/components/ui/dialog";
-import { format } from "date-fns";
+import { formatDate } from "@/helpers/format";
 import { cn } from "@/lib/utils";
 import { Download, ChevronLeft, ChevronRight, RefreshCw, CalendarIcon, Check, ChevronDown, Trash2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
@@ -538,7 +538,7 @@ export default function AdminReturns() {
                       data-testid="input-start-date"
                     >
                       <CalendarIcon className="mr-2 h-4 w-4" />
-                      {filterStartDate ? format(filterStartDate, "MM/dd/yyyy") : "Pick a date"}
+                      {filterStartDate ? formatDate(filterStartDate) : "Pick a date"}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="start">
@@ -577,7 +577,7 @@ export default function AdminReturns() {
                       data-testid="input-end-date"
                     >
                       <CalendarIcon className="mr-2 h-4 w-4" />
-                      {filterEndDate ? format(filterEndDate, "MM/dd/yyyy") : "Pick a date"}
+                      {filterEndDate ? formatDate(filterEndDate) : "Pick a date"}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="start">

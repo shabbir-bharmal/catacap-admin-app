@@ -65,7 +65,7 @@ router.get("/", async (req: Request, res: Response) => {
     const countResult = await pool.query(
       `SELECT COUNT(*) AS total
        FROM testimonials t
-       LEFT JOIN users u ON t.user_id = u.id
+       LEFT JOIN users u ON t.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
        ${whereClause}`,
       values
     );
@@ -78,7 +78,7 @@ router.get("/", async (req: Request, res: Response) => {
          t.deleted_at,
          du.first_name AS del_fn, du.last_name AS del_ln
        FROM testimonials t
-       LEFT JOIN users u ON t.user_id = u.id
+       LEFT JOIN users u ON t.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
        LEFT JOIN users du ON t.deleted_by = du.id
        ${whereClause}
        ORDER BY ${orderClause}
@@ -133,7 +133,7 @@ router.get("/:id", async (req: Request, res: Response) => {
               t.status, t.metrics, t.role, t.organization_name,
               u.first_name, u.last_name, u.id AS user_id, u.picture_file_name
        FROM testimonials t
-       LEFT JOIN users u ON t.user_id = u.id
+       LEFT JOIN users u ON t.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
        WHERE t.id = $1`,
       [id]
     );
