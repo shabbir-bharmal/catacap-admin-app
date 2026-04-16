@@ -2,8 +2,6 @@ import { useState, Fragment } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import dayjs from "dayjs";
-import utc from "dayjs/plugin/utc";
-dayjs.extend(utc);
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AdminLayout } from "../components/AdminLayout";
 import { Badge } from "@/components/ui/badge";
@@ -500,7 +498,7 @@ export default function RecommendationsPage() {
                         </td>
                         <td className="px-4 py-3">
                           <span className="text-sm" data-testid={`text-date-${rec.id}`}>
-                            {dayjs.utc(rec.dateCreated).isValid() ? dayjs.utc(rec.dateCreated).format("MM/DD/YYYY") : rec.dateCreated}
+                            {dayjs(rec.dateCreated).isValid() ? dayjs(rec.dateCreated).format("MM/DD/YYYY") : rec.dateCreated}
                           </span>
                         </td>
                         <td className="px-4 py-3">

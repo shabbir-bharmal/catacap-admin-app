@@ -3,8 +3,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import dayjs from "dayjs";
-import utc from "dayjs/plugin/utc";
-dayjs.extend(utc);
 import { AdminLayout } from "../components/AdminLayout";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -209,7 +207,7 @@ export default function AccountHistoryPage() {
                         </td>
                         <td className="px-4 py-3">
                           <span className="text-sm" data-testid={`text-date-${entry.id}`}>
-                            {entry.changeDate ? (dayjs.utc(entry.changeDate).isValid() ? dayjs.utc(entry.changeDate).format("MM/DD/YYYY") : entry.changeDate) : "—"}
+                            {entry.changeDate ? (dayjs(entry.changeDate).isValid() ? dayjs(entry.changeDate).format("MM/DD/YYYY") : entry.changeDate) : "—"}
                           </span>
                         </td>
                         <td className="px-4 py-3">

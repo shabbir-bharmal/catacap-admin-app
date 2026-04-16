@@ -1,8 +1,6 @@
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import dayjs from "dayjs";
-import utc from "dayjs/plugin/utc";
-dayjs.extend(utc);
 import { cn } from "@/lib/utils";
 import { Link, useRoute } from "wouter";
 import { AdminLayout } from "../components/AdminLayout";
@@ -28,7 +26,7 @@ import {
 
 function formatDate(dateStr: string): string {
     if (!dateStr) return "—";
-    const d = dayjs.utc(dateStr);
+    const d = dayjs(dateStr);
     if (!d.isValid()) return dateStr;
     return d.format("MM/DD/YYYY");
 }

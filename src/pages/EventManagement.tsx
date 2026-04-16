@@ -12,8 +12,6 @@ import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { MoreVertical, Edit, Trash2, ExternalLink, Calendar, Search, Plus, ArrowUpDown, ChevronLeft, ChevronRight, Pencil, Upload, X } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import dayjs from "dayjs";
-import utc from "dayjs/plugin/utc";
-dayjs.extend(utc);
 import { RichTextEditor } from "../components/RichTextEditor";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
@@ -337,7 +335,7 @@ export default function EventManagement() {
                           </div>
                         </td>
                         <td className="px-4 py-3 text-muted-foreground" data-testid={`text-event-date-${event.id}`}>
-                          {event.eventDate ? dayjs.utc(event.eventDate).format("MMM D, YYYY") : "—"}
+                          {event.eventDate ? dayjs(event.eventDate).format("MMM D, YYYY") : "—"}
                         </td>
                         <td className="px-4 py-3 text-muted-foreground text-sm" data-testid={`text-event-time-${event.id}`}>
                           {(() => {
