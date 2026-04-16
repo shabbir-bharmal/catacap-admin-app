@@ -1,6 +1,9 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc.js";
+dayjs.extend(utc);
 
 const router = Router();
 
@@ -45,8 +48,8 @@ function calculateGrowth(current: number, previous: number): number {
 router.get("/summary", async (_req: Request, res: Response) => {
   try {
     const now = new Date();
-    const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const startOfThisMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const startOfLastMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
 
     const recStats = await pool.query(
       `SELECT
@@ -138,7 +141,7 @@ router.get("/investment-chart", async (req: Request, res: Response) => {
 
     let startDate: Date;
     if (months && months > 0) {
-      startDate = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
+      startDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));
     } else {
       const minResult = await pool.query(
         `SELECT MIN(date_created) AS min_date FROM recommendations WHERE date_created IS NOT NULL`
@@ -146,9 +149,9 @@ router.get("/investment-chart", async (req: Request, res: Response) => {
       const minDate = minResult.rows[0]?.min_date;
       if (minDate) {
         const d = new Date(minDate);
-        startDate = new Date(d.getFullYear(), d.getMonth(), 1);
+        startDate = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
       } else {
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        startDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
       }
     }
 
@@ -173,21 +176,22 @@ router.get("/investment-chart", async (req: Request, res: Response) => {
     const investorEmails = new Set<string>();
 
     for (const row of data) {
-      const d = new Date(row.date_created);
-      const key = `${d.getFullYear()}-${d.getMonth()}`;
+      const d = dayjs.utc(row.date_created);
+      const key = `${d.year()}-${d.month()}`;
       monthlyMap.set(key, (monthlyMap.get(key) || 0) + (parseFloat(row.amount) || 0));
       if (row.user_email) investorEmails.add(row.user_email);
     }
 
     const chartData: Array<{ month: string; amount: number }> = [];
-    const loopDate = new Date(startDate);
-    while (loopDate <= now) {
-      const key = `${loopDate.getFullYear()}-${loopDate.getMonth()}`;
+    let loopDate = dayjs.utc(startDate);
+    const nowDayjs = dayjs.utc(now);
+    while (loopDate.isBefore(nowDayjs) || loopDate.isSame(nowDayjs)) {
+      const key = `${loopDate.year()}-${loopDate.month()}`;
       chartData.push({
-        month: monthNames[loopDate.getMonth()],
+        month: monthNames[loopDate.month()],
         amount: Math.round(monthlyMap.get(key) || 0),
       });
-      loopDate.setMonth(loopDate.getMonth() + 1);
+      loopDate = loopDate.add(1, "month");
     }
 
     const totalInvestment = data.reduce((sum: number, r: { amount: string }) => sum + (parseFloat(r.amount) || 0), 0);
@@ -195,9 +199,9 @@ router.get("/investment-chart", async (req: Request, res: Response) => {
     let growthRate = 0;
     if (months && months > 0) {
       const previousStart = new Date(startDate);
-      previousStart.setMonth(previousStart.getMonth() - months);
+      previousStart.setUTCMonth(previousStart.getUTCMonth() - months);
       const previousEnd = new Date(startDate);
-      previousEnd.setDate(previousEnd.getDate() - 1);
+      previousEnd.setUTCDate(previousEnd.getUTCDate() - 1);
 
       const prevResult = await pool.query(
         `SELECT COALESCE(SUM(r.amount), 0) AS total
@@ -360,15 +364,14 @@ router.get("/recent-investments", async (req: Request, res: Response) => {
     );
 
     const items = dataResult.rows.map((row: { investor: string; userName: string; investment: string; amount: string; status: string; date_created: string }) => {
-      const d = row.date_created ? new Date(row.date_created) : null;
-      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const d = row.date_created ? dayjs.utc(row.date_created) : null;
       return {
         investor: row.investor,
         userName: row.userName,
         investment: row.investment,
         amount: Math.round(parseFloat(row.amount) || 0),
         status: row.status,
-        date: d ? `${monthNames[d.getMonth()]} ${String(d.getDate()).padStart(2, "0")}` : "",
+        date: d && d.isValid() ? d.format("MMM DD") : "",
       };
     });
 
@@ -628,22 +631,14 @@ function formatJsonDates(json: string | null): string | null {
   try {
     const dict = JSON.parse(json);
     if (!dict || typeof dict !== "object") return json;
-    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     for (const key of Object.keys(dict)) {
       const val = dict[key];
       if (typeof val !== "string" || val.length < 8 || val.length > 40) continue;
       if (/^\d+$/.test(val.trim())) continue;
-      const d = new Date(val);
-      if (isNaN(d.getTime())) continue;
-      if (d.getFullYear() < 1900 || d.getFullYear() > 2100) continue;
-      const day = String(d.getDate()).padStart(2, "0");
-      const month = months[d.getMonth()];
-      const year = d.getFullYear();
-      let hours = d.getHours();
-      const ampm = hours >= 12 ? "PM" : "AM";
-      hours = hours % 12 || 12;
-      const mins = String(d.getMinutes()).padStart(2, "0");
-      dict[key] = `${day} ${month} ${year} ${String(hours).padStart(2, "0")}:${mins} ${ampm}`;
+      const d = dayjs.utc(val);
+      if (!d.isValid()) continue;
+      if (d.year() < 1900 || d.year() > 2100) continue;
+      dict[key] = d.format("DD MMM YYYY hh:mm A");
     }
     return JSON.stringify(dict);
   } catch {

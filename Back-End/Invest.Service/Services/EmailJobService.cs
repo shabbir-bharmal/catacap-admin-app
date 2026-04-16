@@ -53,10 +53,7 @@ namespace Invest.Service.Services
                                                   .Where(x => 
                                                       x.status == "pending" && 
                                                       x.CreatedDate.HasValue && 
-                                                      (
-                                                        EF.Functions.DateDiffDay(x.CreatedDate.Value, DateTime.Now) == 3 || 
-                                                        EF.Functions.DateDiffDay(x.CreatedDate.Value, DateTime.Now) == 14)
-                                                      )
+                                                      EF.Functions.DateDiffDay(x.CreatedDate.Value, DateTime.Now) >= 3)
                                                   .Include(x => x.User)
                                                   .Include(x => x.Campaign)
                                                   .ToListAsync();
@@ -72,10 +69,7 @@ namespace Invest.Service.Services
                                                   .Where(x => 
                                                       x.status == "pending" && 
                                                       x.CreatedDate.HasValue && 
-                                                      (
-                                                          EF.Functions.DateDiffDay(x.CreatedDate.Value, DateTime.Now) == 3 || 
-                                                          EF.Functions.DateDiffDay(x.CreatedDate.Value, DateTime.Now) == 14
-                                                      ) &&
+                                                      EF.Functions.DateDiffDay(x.CreatedDate.Value, DateTime.Now) >= 3 &&
                                                       x.User.Email != null &&
                                                       emails.Contains(x.User.Email.ToLower())
                                                   )

@@ -32,6 +32,7 @@ import {
 
 interface ReturnEntry {
   id: number;
+  rowNumber: number;
   investmentName: string;
   dateRange: string;
   postDate: string;
@@ -112,7 +113,15 @@ export default function AdminReturns() {
     if (!deleteTargetId) return;
     setIsDeleting(true);
     try {
-      await deleteInvestmentReturn(deleteTargetId);
+      const result = await deleteInvestmentReturn(deleteTargetId);
+      if (result?.success !== true) {
+        toast({
+          title: "Delete Failed",
+          description: result.message || "Failed to delete the investment return. Please try again.",
+          variant: "destructive"
+        });
+        return;
+      }
       setIsDeleteDialogOpen(false);
       setDeleteTargetId(null);
       setData(prev => prev.filter(r => r.id !== deleteTargetId));
@@ -163,7 +172,8 @@ export default function AdminReturns() {
   useEffect(() => {
     if (!returnsQueryData) return;
     const mapped: ReturnEntry[] = (returnsQueryData.items || []).map((item, idx) => ({
-      id: (currentPage - 1) * rowsPerPage + idx + 1,
+      id: item.id,
+      rowNumber: (currentPage - 1) * rowsPerPage + idx + 1,
       investmentName: item.investmentName,
       dateRange: item.privateDebtDates || "-",
       postDate: item.postDate || "-",

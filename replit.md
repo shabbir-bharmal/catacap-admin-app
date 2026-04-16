@@ -41,7 +41,7 @@ React 18 + TypeScript + Vite admin panel for the CataCap platform. Handles inves
     - `migration-scheduler-configurations.sql` — Standalone migration script for `scheduler_configurations` table with seed data
     - `emailQueue.ts` — In-memory async email queue (producer/consumer pattern)
     - `sendReminderEmail.ts` — SendReminderEmail job (daily 8 AM ET): queries pending grants 3/14 days old, sends DAF/Foundation reminder emails
-    - `dailyCleanup.ts` — DeleteArchivedUsers job (daily 2 AM ET): archives and deletes soft-deleted records past retention period
+    - `dailyCleanup.ts` — DeleteArchivedUsers job (daily 2 AM ET): archives and deletes soft-deleted records past retention period. Includes per-step error logging (runStep wrapper), pre-flight diagnostics, FK resolution for campaigns.user_id and group_account_balances.user_id, and skips NOT NULL columns without FK constraints (module_access_permissions.updated_by, return_masters.created_by, completed_investment_details.created_by)
     - `deleteTestUsers.ts` — DeleteTestUsers job (daily 6 PM IST): finds and purges test users and all related data
     - `reference/` — Original .NET stored procedure SQL files for cross-reference
   - `server/src/middleware/` — JWT auth middleware

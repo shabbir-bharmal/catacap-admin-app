@@ -47,18 +47,57 @@ async function withAdvisoryLock(
   }
 }
 
+interface PgErrorLike {
+  message?: string;
+  code?: string;
+  severity?: string;
+  table?: string;
+  column?: string;
+  constraint?: string;
+  detail?: string;
+  hint?: string;
+}
+
+function extractSchedulerErrorMessage(err: unknown): string {
+  if (err instanceof Error) {
+    const pgErr = err as PgErrorLike;
+    const parts: string[] = [pgErr.message || String(err)];
+    if (pgErr.code) parts.push(`[SQLSTATE: ${pgErr.code}]`);
+    if (pgErr.table) parts.push(`[Table: ${pgErr.table}]`);
+    if (pgErr.column) parts.push(`[Column: ${pgErr.column}]`);
+    if (pgErr.constraint) parts.push(`[Constraint: ${pgErr.constraint}]`);
+    if (pgErr.detail) parts.push(`[Detail: ${pgErr.detail}]`);
+    return parts.join(" ");
+  }
+  return String(err);
+}
+
 async function logJobRun(
   jobName: string,
   startTime: Date,
+  status: "Success" | "Failed",
   errorMessage: string | null
 ): Promise<void> {
   try {
-    await pool.query(
-      `INSERT INTO scheduler_logs
-        (start_time, end_time, day3_email_count, week2_email_count, error_message, job_name)
-       VALUES ($1, $2, 0, 0, $3, $4)`,
-      [startTime, new Date(), errorMessage, jobName]
+    const hasStatusCol = await pool.query(
+      `SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'scheduler_logs' AND column_name = 'status'`
     );
+    if (hasStatusCol.rows.length > 0) {
+      await pool.query(
+        `INSERT INTO scheduler_logs
+          (start_time, end_time, day3_email_count, week2_email_count, error_message, job_name, status)
+         VALUES ($1, $2, 0, 0, $3, $4, $5)`,
+        [startTime, new Date(), errorMessage, jobName, status]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO scheduler_logs
+          (start_time, end_time, day3_email_count, week2_email_count, error_message, job_name)
+         VALUES ($1, $2, 0, 0, $3, $4)`,
+        [startTime, new Date(), errorMessage, jobName]
+      );
+    }
   } catch (err) {
     console.error(`[SCHEDULER] Failed to log job run for ${jobName}:`, err);
   }
@@ -118,14 +157,15 @@ function scheduleJob(config: SchedulerConfigRow): void {
       await withAdvisoryLock(lockKey, job_name, async () => {
         try {
           await runner();
+          console.log(`[SCHEDULER] ${job_name} completed successfully.`);
           if (job_name !== "SendReminderEmail") {
-            await logJobRun(job_name, startTime, null);
+            await logJobRun(job_name, startTime, "Success", null);
           }
         } catch (err: unknown) {
-          const message = err instanceof Error ? err.toString() : String(err);
+          const message = extractSchedulerErrorMessage(err);
           console.error(`[SCHEDULER] ${job_name} failed:`, err);
           if (job_name !== "SendReminderEmail") {
-            await logJobRun(job_name, startTime, message);
+            await logJobRun(job_name, startTime, "Failed", message);
           }
         }
       });
@@ -166,14 +206,15 @@ export async function executeJobWithLock(jobName: string): Promise<{ executed: b
 
     try {
       await runner();
+      console.log(`[SCHEDULER] ${jobName} completed successfully.`);
       if (jobName !== "SendReminderEmail") {
-        await logJobRun(jobName, startTime, null);
+        await logJobRun(jobName, startTime, "Success", null);
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.toString() : String(err);
+      const message = extractSchedulerErrorMessage(err);
       console.error(`[SCHEDULER] ${jobName} failed:`, err);
       if (jobName !== "SendReminderEmail") {
-        await logJobRun(jobName, startTime, message);
+        await logJobRun(jobName, startTime, "Failed", message);
       }
       throw err;
     } finally {

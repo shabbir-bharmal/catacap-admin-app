@@ -1,12 +1,97 @@
 import { Resend } from "resend";
 import pool from "../db.js";
 
-const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "CataCap <support@catacap.org>";
+const DEFAULT_SENDER_NAME = "CataCap";
+const DEFAULT_FROM_ADDRESS = "support@catacap.org";
+
+const CACHE_TTL_MS = Math.max(1000, parseInt(process.env.EMAIL_CONFIG_CACHE_TTL_MS || "", 10) || 5 * 60 * 1000);
+
+interface CacheEntry {
+  value: string;
+  expiresAt: number;
+}
+
+const siteConfigCache = new Map<string, CacheEntry>();
+
+function getCached(key: string): string | null {
+  const entry = siteConfigCache.get(key);
+  if (entry && Date.now() < entry.expiresAt) {
+    return entry.value;
+  }
+  if (entry) {
+    siteConfigCache.delete(key);
+  }
+  return null;
+}
+
+function setCache(key: string, value: string): void {
+  siteConfigCache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+}
+
+export function invalidateEmailConfigCache(): void {
+  siteConfigCache.delete("emailSenderName");
+  siteConfigCache.delete("defaultFromAddress");
+}
+
+export async function getEmailSenderName(): Promise<string> {
+  const cached = getCached("emailSenderName");
+  if (cached !== null) {
+    return cached;
+  }
+  try {
+    const result = await pool.query(
+      `SELECT value FROM site_configurations WHERE key = 'emailSenderName' LIMIT 1`
+    );
+    const value = result.rows[0]?.value;
+    const resolved = value && value.trim() ? value.trim() : DEFAULT_SENDER_NAME;
+    setCache("emailSenderName", resolved);
+    return resolved;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[EMAIL] Failed to fetch emailSenderName from site_configurations: ${message}`);
+    return DEFAULT_SENDER_NAME;
+  }
+}
+
+async function getDefaultFromAddress(): Promise<string> {
+  const cached = getCached("defaultFromAddress");
+  if (cached !== null) {
+    return cached;
+  }
+  try {
+    const result = await pool.query(
+      `SELECT value FROM site_configurations WHERE key = 'defaultFromAddress' LIMIT 1`
+    );
+    const value = result.rows[0]?.value;
+    const resolved = value && value.trim() ? value.trim() : DEFAULT_FROM_ADDRESS;
+    setCache("defaultFromAddress", resolved);
+    return resolved;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[EMAIL] Failed to fetch defaultFromAddress from site_configurations: ${message}`);
+    return DEFAULT_FROM_ADDRESS;
+  }
+}
+
+export async function buildFromEmail(): Promise<string> {
+  const senderName = await getEmailSenderName();
+  const fromAddress = await getDefaultFromAddress();
+  return `${senderName} <${fromAddress}>`;
+}
 
 function getResendClient(): Resend | null {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) return null;
   return new Resend(apiKey);
+}
+
+function applyTestOverride(recipient: string, subject: string, bodyHtml: string): { recipient: string; subject: string; bodyHtml: string } {
+  const testEmail = process.env.TEST_EMAIL_OVERRIDE;
+  if (!testEmail) return { recipient, subject, bodyHtml };
+  const overriddenSubject = `[TEST] ${subject} (Original recipient: ${recipient})`;
+  const notice = `<div style="background:#fff3cd;border:1px solid #ffc107;padding:10px;margin-bottom:15px;font-size:13px;color:#856404;border-radius:4px;"><strong>TEST MODE:</strong> This email was originally intended for <strong>${recipient}</strong></div>`;
+  const overriddenBody = notice + bodyHtml;
+  return { recipient: testEmail, subject: overriddenSubject, bodyHtml: overriddenBody };
 }
 
 export async function sendTemplateEmail(
@@ -38,7 +123,11 @@ export async function sendTemplateEmail(
       subject = subject.replace(regex, value);
     }
 
-    const recipient = toEmail || template.receiver;
+    const originalRecipient = toEmail || template.receiver;
+    const overridden = applyTestOverride(originalRecipient, subject, bodyHtml);
+    const recipient = overridden.recipient;
+    subject = overridden.subject;
+    bodyHtml = overridden.bodyHtml;
 
     const resend = getResendClient();
     if (!resend) {
@@ -48,8 +137,10 @@ export async function sendTemplateEmail(
       return false;
     }
 
+    const fromEmail = await buildFromEmail();
+
     const { data, error } = await resend.emails.send({
-      from: FROM_EMAIL,
+      from: fromEmail,
       to: [recipient],
       subject,
       html: bodyHtml,
@@ -60,7 +151,7 @@ export async function sendTemplateEmail(
       return false;
     }
 
-    console.log(`[EMAIL] Template email sent for category ${category} to: ${recipient} (id: ${data?.id})`);
+    console.log(`[EMAIL] Template email sent for category ${category} to: ${recipient}${recipient !== originalRecipient ? ` (original: ${originalRecipient})` : ''} (id: ${data?.id})`);
     return true;
   } catch (err: any) {
     console.error(`[EMAIL] Error sending template email for category ${category}:`, err.message);
@@ -104,7 +195,11 @@ export async function sendTemplateEmailWithAttachments(
       subject = subject.replace(regex, value);
     }
 
-    const recipient = toEmail || template.receiver;
+    const originalRecipient = toEmail || template.receiver;
+    const overridden = applyTestOverride(originalRecipient, subject, bodyHtml);
+    const recipient = overridden.recipient;
+    subject = overridden.subject;
+    bodyHtml = overridden.bodyHtml;
 
     const resend = getResendClient();
     if (!resend) {
@@ -114,8 +209,10 @@ export async function sendTemplateEmailWithAttachments(
       return false;
     }
 
+    const fromEmail = await buildFromEmail();
+
     const { data, error } = await resend.emails.send({
-      from: FROM_EMAIL,
+      from: fromEmail,
       to: [recipient],
       subject,
       html: bodyHtml,
@@ -130,7 +227,7 @@ export async function sendTemplateEmailWithAttachments(
       return false;
     }
 
-    console.log(`[EMAIL] Template email with attachments sent for category ${category} to: ${recipient} (id: ${data?.id})`);
+    console.log(`[EMAIL] Template email with attachments sent for category ${category} to: ${recipient}${recipient !== originalRecipient ? ` (original: ${originalRecipient})` : ''} (id: ${data?.id})`);
     return true;
   } catch (err: any) {
     console.error(`[EMAIL] Error sending template email with attachments for category ${category}:`, err.message);

@@ -15,7 +15,9 @@ router.get("/", async (req: Request, res: Response) => {
     const pageSize = params.perPage;
 
     const investmentIdRaw = req.query.InvestmentId || req.query.investmentId;
-    const investmentId = investmentIdRaw ? parseInt(String(investmentIdRaw), 10) : null;
+    const investmentIds = investmentIdRaw
+      ? String(investmentIdRaw).split(",").map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n))
+      : null;
 
     const statusList = params.status
       ? params.status.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
@@ -38,9 +40,9 @@ router.get("/", async (req: Request, res: Response) => {
     values.push(USER_ROLE);
     paramIdx++;
 
-    if (investmentId) {
-      conditions.push(`r.campaign_id = $${paramIdx}`);
-      values.push(investmentId);
+    if (investmentIds && investmentIds.length > 0) {
+      conditions.push(`r.campaign_id = ANY($${paramIdx}::int[])`);
+      values.push(investmentIds);
       paramIdx++;
     }
 
@@ -264,11 +266,12 @@ router.get("/export", async (req: Request, res: Response) => {
        FROM recommendations r
        LEFT JOIN campaigns c ON r.campaign_id = c.id
        LEFT JOIN users rej ON r.rejected_by = rej.id
-       WHERE EXISTS (
+       WHERE (r.is_deleted IS NULL OR r.is_deleted = false)
+         AND EXISTS (
          SELECT 1 FROM users u2
          JOIN user_roles ur2 ON u2.id = ur2.user_id
          JOIN roles rl ON ur2.role_id = rl.id
-         WHERE rl.name = $1 AND u2.email = r.user_email
+         WHERE rl.name = $1 AND LOWER(u2.email) = LOWER(r.user_email)
        )
        ORDER BY r.id DESC`,
       [USER_ROLE]
@@ -287,27 +290,37 @@ router.get("/export", async (req: Request, res: Response) => {
     });
 
     for (const row of result.rows) {
-      worksheet.addRow([
+      const dataRow = worksheet.addRow([
         row.id,
         row.user_full_name,
         row.user_email,
         row.campaign_name,
-        row.amount,
-        row.date_created,
+        row.amount != null ? Math.round(parseFloat(row.amount) * 100) / 100 : row.amount,
+        row.date_created ? new Date(row.date_created) : row.date_created,
         row.status,
         row.rejection_memo,
         row.rejected_by_name,
         row.rejection_date,
       ]);
+      const dateCreatedCell = dataRow.getCell(6);
+      if (row.date_created) {
+        dateCreatedCell.numFmt = "dd/MM/yy HH:mm";
+      }
+      const rejectionDateCell = dataRow.getCell(10);
+      if (row.rejection_date) {
+        rejectionDateCell.value = new Date(row.rejection_date);
+        rejectionDateCell.numFmt = "MM/dd/yyyy";
+      }
     }
 
     worksheet.columns.forEach((col) => {
+      col.alignment = { horizontal: "left" };
       let maxLen = 10;
       col.eachCell?.({ includeEmpty: false }, (cell) => {
         const len = String(cell.value || "").length;
         if (len > maxLen) maxLen = len;
       });
-      col.width = maxLen + 4;
+      col.width = maxLen + 10;
     });
 
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");

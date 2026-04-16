@@ -1,5 +1,7 @@
 import React, { Fragment } from "react";
 import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+dayjs.extend(utc);
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -106,7 +108,7 @@ export const MODULE_TABLE_REGISTRY: Record<string, ModuleTableConfig> = {
     renderRow: (item, onRestore, restoringId) => {
       const fundDate = item.fundraisingCloseDate;
       const displayDate = fundDate && fundDate !== "0001-01-01T00:00:00" && fundDate !== "N/A"
-        ? (fundDate === "Evergreen" ? "Evergreen" : dayjs(fundDate).format("MM/DD/YYYY"))
+        ? (fundDate === "Evergreen" ? "Evergreen" : dayjs.utc(fundDate).format("MM/DD/YYYY"))
         : "N/A";
 
       return (
@@ -125,7 +127,7 @@ export const MODULE_TABLE_REGISTRY: Record<string, ModuleTableConfig> = {
           </td>
           <td className="px-4 py-3 text-sm font-semibold">{currency_format(item.currentBalance || 0)}</td>
           <td className="px-4 py-3 text-sm text-center">{item.numberOfInvestors || 0}</td>
-          <td className="px-4 py-3 text-sm">{item.createdDate ? dayjs(item.createdDate).format("MM/DD/YYYY") : "—"}</td>
+          <td className="px-4 py-3 text-sm">{item.createdDate ? dayjs.utc(item.createdDate).format("MM/DD/YYYY") : "—"}</td>
           <td className="px-4 py-3 text-center">
             <div className="flex items-center justify-center">
               {item.isActive ? (
@@ -140,7 +142,7 @@ export const MODULE_TABLE_REGISTRY: Record<string, ModuleTableConfig> = {
           <td className="px-4 py-3">
             <div className="text-sm font-medium">{item.deletedBy || "—"}</div>
             <div className="text-[11px] text-muted-foreground">
-              {item.deletedAt ? dayjs(item.deletedAt).format("MM/DD/YYYY") : "—"}
+              {item.deletedAt ? dayjs.utc(item.deletedAt).format("MM/DD/YYYY") : "—"}
             </div>
           </td>
           <td className="px-4 py-3 text-right">
@@ -183,7 +185,7 @@ export const MODULE_TABLE_REGISTRY: Record<string, ModuleTableConfig> = {
         return (
           <tr key={item.id} className="border-b hover:bg-muted/20 transition-colors">
             <td className="px-4 py-3 text-sm font-medium">{item.userName}</td>
-            <td className="px-4 py-3 text-sm">{dayjs(item.changeDate).format("MM/DD/YYYY")}</td>
+            <td className="px-4 py-3 text-sm">{dayjs.utc(item.changeDate).format("MM/DD/YYYY")}</td>
             <td className="px-4 py-3 text-sm">{item.investmentName || "-"}</td>
             <td className="px-4 py-3">
               {item.paymentType ? (
@@ -200,7 +202,7 @@ export const MODULE_TABLE_REGISTRY: Record<string, ModuleTableConfig> = {
             <td className="px-4 py-3">
               <div className="text-sm font-medium">{item.deletedBy || "—"}</div>
               <div className="text-[11px] text-muted-foreground">
-                {item.deletedAt ? dayjs(item.deletedAt).format("MM/DD/YYYY") : "—"}
+                {item.deletedAt ? dayjs.utc(item.deletedAt).format("MM/DD/YYYY") : "—"}
               </div>
             </td>
             <td className="px-4 py-3 text-right">
@@ -238,11 +240,11 @@ export const MODULE_TABLE_REGISTRY: Record<string, ModuleTableConfig> = {
         </td>
         <td className="px-4 py-3 text-sm">{item.recommendationsCount ?? 0}</td>
         <td className="px-4 py-3 text-sm font-semibold">${(item.accountBalance || 0).toFixed(2)}</td>
-        <td className="px-4 py-3 text-sm">{dayjs(item.dateCreated).isValid() ? dayjs(item.dateCreated).format("MM/DD/YYYY") : "—"}</td>
+        <td className="px-4 py-3 text-sm">{dayjs.utc(item.dateCreated).isValid() ? dayjs.utc(item.dateCreated).format("MM/DD/YYYY") : "—"}</td>
         <td className="px-4 py-3">
           <div className="text-sm font-medium">{item.deletedBy || "—"}</div>
           <div className="text-[11px] text-muted-foreground">
-            {item.deletedAt ? dayjs(item.deletedAt).format("MM/DD/YYYY") : "—"}
+            {item.deletedAt ? dayjs.utc(item.deletedAt).format("MM/DD/YYYY") : "—"}
           </div>
         </td>
         <td className="px-4 py-3 text-right">
@@ -313,7 +315,7 @@ export const MODULE_TABLE_REGISTRY: Record<string, ModuleTableConfig> = {
         <td className="px-4 py-3">
           <div className="text-sm font-medium">{item.deletedBy || "—"}</div>
           <div className="text-[11px] text-muted-foreground">
-            {item.deletedAt ? dayjs(item.deletedAt).format("MM/DD/YYYY") : "—"}
+            {item.deletedAt ? dayjs.utc(item.deletedAt).format("MM/DD/YYYY") : "—"}
           </div>
         </td>
         <td className="px-4 py-3 text-right">
@@ -380,7 +382,7 @@ export const MODULE_TABLE_REGISTRY: Record<string, ModuleTableConfig> = {
           <td className="px-4 py-3">
             <div className="text-sm font-medium">{item.deletedBy || "—"}</div>
             <div className="text-[11px] text-muted-foreground">
-              {item.deletedAt ? dayjs(item.deletedAt).format("MM/DD/YYYY") : "—"}
+              {item.deletedAt ? dayjs.utc(item.deletedAt).format("MM/DD/YYYY") : "—"}
             </div>
           </td>
           <td className="px-4 py-3 text-right">
@@ -443,7 +445,7 @@ export const MODULE_TABLE_REGISTRY: Record<string, ModuleTableConfig> = {
           <td className="px-4 py-3 text-sm text-muted-foreground">{item.audience || "—"}</td>
           <td className="px-4 py-3 text-sm text-muted-foreground">{item.theme || "—"}</td>
           <td className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
-            {item.newsDate ? dayjs(item.newsDate).format("MMMM D, YYYY") : "—"}
+            {item.newsDate ? dayjs.utc(item.newsDate).format("MMMM D, YYYY") : "—"}
           </td>
           <td className="px-4 py-3">
             <Badge className={cn("border-0", statusClass)}>{status}</Badge>
@@ -451,7 +453,7 @@ export const MODULE_TABLE_REGISTRY: Record<string, ModuleTableConfig> = {
           <td className="px-4 py-3">
             <div className="text-sm font-medium">{item.deletedBy || "—"}</div>
             <div className="text-[11px] text-muted-foreground">
-              {item.deletedAt ? dayjs(item.deletedAt).format("MM/DD/YYYY") : "—"}
+              {item.deletedAt ? dayjs.utc(item.deletedAt).format("MM/DD/YYYY") : "—"}
             </div>
           </td>
           <td className="px-4 py-3 text-right">
@@ -494,7 +496,7 @@ export const MODULE_TABLE_REGISTRY: Record<string, ModuleTableConfig> = {
           <td className="px-4 py-3">
             <div className="text-sm font-medium">{item.deletedBy || "—"}</div>
             <div className="text-[11px] text-muted-foreground">
-              {item.deletedAt ? dayjs(item.deletedAt).format("MM/DD/YYYY") : "—"}
+              {item.deletedAt ? dayjs.utc(item.deletedAt).format("MM/DD/YYYY") : "—"}
             </div>
           </td>
           <td className="px-4 py-3 text-right whitespace-nowrap w-[1%]">
@@ -537,7 +539,7 @@ export const MODULE_TABLE_REGISTRY: Record<string, ModuleTableConfig> = {
           </div>
         </td>
         <td className="px-4 py-3 text-sm text-muted-foreground">
-          {item.eventDate ? dayjs(item.eventDate).format("MMM D, YYYY") : "—"}
+          {item.eventDate ? dayjs.utc(item.eventDate).format("MMM D, YYYY") : "—"}
         </td>
         <td className="px-4 py-3 text-sm text-muted-foreground">
           {(() => {
@@ -578,7 +580,7 @@ export const MODULE_TABLE_REGISTRY: Record<string, ModuleTableConfig> = {
         <td className="px-4 py-3">
           <div className="text-sm font-medium">{item.deletedBy || "—"}</div>
           <div className="text-[11px] text-muted-foreground">
-            {item.deletedAt ? dayjs(item.deletedAt).format("MM/DD/YYYY") : "—"}
+            {item.deletedAt ? dayjs.utc(item.deletedAt).format("MM/DD/YYYY") : "—"}
           </div>
         </td>
         <td className="px-4 py-3 text-right">
@@ -653,7 +655,7 @@ export const MODULE_TABLE_REGISTRY: Record<string, ModuleTableConfig> = {
           <td className="px-4 py-3">
             <div className="text-sm font-medium">{item.deletedBy || "—"}</div>
             <div className="text-[11px] text-muted-foreground">
-              {item.deletedAt ? dayjs(item.deletedAt).format("MM/DD/YYYY") : "—"}
+              {item.deletedAt ? dayjs.utc(item.deletedAt).format("MM/DD/YYYY") : "—"}
             </div>
           </td>
           <td className="px-4 py-3 text-right">
@@ -696,7 +698,7 @@ export const MODULE_TABLE_REGISTRY: Record<string, ModuleTableConfig> = {
           </td>
           <td className="px-4 py-3 text-muted-foreground text-sm">{item.email}</td>
           <td className="px-4 py-3 text-muted-foreground whitespace-nowrap text-xs">
-            {dayjs(item.createdAt || item.submissionDate).format("MMM D, YYYY h:mm A")}
+            {dayjs.utc(item.createdAt || item.submissionDate).format("MMM D, YYYY h:mm A")}
           </td>
           <td className="px-4 py-3">
             <div className="flex items-center gap-2">
@@ -708,7 +710,7 @@ export const MODULE_TABLE_REGISTRY: Record<string, ModuleTableConfig> = {
           <td className="px-4 py-3">
             <div className="text-sm font-medium">{item.deletedBy || "—"}</div>
             <div className="text-[11px] text-muted-foreground">
-              {item.deletedAt ? dayjs(item.deletedAt).format("MM/DD/YYYY") : "—"}
+              {item.deletedAt ? dayjs.utc(item.deletedAt).format("MM/DD/YYYY") : "—"}
             </div>
           </td>
           <td className="px-4 py-3 text-right">
@@ -747,7 +749,7 @@ export const MODULE_TABLE_REGISTRY: Record<string, ModuleTableConfig> = {
             <span className="text-sm font-medium text-[#405189] underline">{item.name || item.investmentName}</span>
           </td>
           <td className="px-4 py-3 text-sm text-muted-foreground">{item.email}</td>
-          <td className="px-4 py-3 text-sm">{item.receiveDate ? dayjs(item.receiveDate).format("MM/DD/YYYY") : "—"}</td>
+          <td className="px-4 py-3 text-sm">{item.receiveDate ? dayjs.utc(item.receiveDate).format("MM/DD/YYYY") : "—"}</td>
           <td className="px-4 py-3 text-sm">{currency_format(item.distributedAmount || item.requestAmount)}</td>
           <td className="px-4 py-3 text-sm">
             <span className={cn("inline-flex items-center px-2 py-0.5 rounded text-xs font-medium", badgeClass)}>
@@ -772,7 +774,7 @@ export const MODULE_TABLE_REGISTRY: Record<string, ModuleTableConfig> = {
           <td className="px-4 py-3">
             <div className="text-sm font-medium">{item.deletedBy || "—"}</div>
             <div className="text-[11px] text-muted-foreground">
-              {item.deletedAt ? dayjs(item.deletedAt).format("MM/DD/YYYY") : "—"}
+              {item.deletedAt ? dayjs.utc(item.deletedAt).format("MM/DD/YYYY") : "—"}
             </div>
           </td>
           <td className="px-4 py-3 text-right">
@@ -847,11 +849,11 @@ export const MODULE_TABLE_REGISTRY: Record<string, ModuleTableConfig> = {
             </span>
           </td>
           <td className="px-4 py-3 text-sm">{item.daysCount}</td>
-          <td className="px-4 py-3 text-sm">{item.createdDate ? dayjs(item.createdDate).format("MM/DD/YYYY") : "-"}</td>
+          <td className="px-4 py-3 text-sm">{item.createdDate ? dayjs.utc(item.createdDate).format("MM/DD/YYYY") : "-"}</td>
           <td className="px-4 py-3">
             <div className="text-sm font-medium">{item.deletedBy || "—"}</div>
             <div className="text-[11px] text-muted-foreground">
-              {item.deletedAt ? dayjs(item.deletedAt).format("MM/DD/YYYY") : "—"}
+              {item.deletedAt ? dayjs.utc(item.deletedAt).format("MM/DD/YYYY") : "—"}
             </div>
           </td>
           <td className="px-4 py-3 text-right">
@@ -898,11 +900,11 @@ export const MODULE_TABLE_REGISTRY: Record<string, ModuleTableConfig> = {
           <td className="px-4 py-3 text-sm">
             <Badge className={cn("border-0", badgeClass)}>{status}</Badge>
           </td>
-          <td className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">{dayjs(item.createdAt).format("MM/DD/YYYY")}</td>
+          <td className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">{dayjs.utc(item.createdAt).format("MM/DD/YYYY")}</td>
           <td className="px-4 py-3">
             <div className="text-sm font-medium">{item.deletedBy || "—"}</div>
             <div className="text-[11px] text-muted-foreground">
-              {item.deletedAt ? dayjs(item.deletedAt).format("MM/DD/YYYY") : "—"}
+              {item.deletedAt ? dayjs.utc(item.deletedAt).format("MM/DD/YYYY") : "—"}
             </div>
           </td>
           <td className="px-4 py-3 text-right">
@@ -935,7 +937,7 @@ export const MODULE_TABLE_REGISTRY: Record<string, ModuleTableConfig> = {
     renderRow: (item, onRestore, restoringId) => (
       <tr key={item.id} className="border-b hover:bg-muted/20 transition-colors">
         <td className="px-4 py-3 text-sm">
-          {item.dateOfLastInvestment ? dayjs(item.dateOfLastInvestment).format("MM/DD/YYYY") : "—"}
+          {item.dateOfLastInvestment ? dayjs.utc(item.dateOfLastInvestment).format("MM/DD/YYYY") : "—"}
         </td>
         <td className="px-4 py-3 text-sm font-medium">{item.name || item.investmentName || item.investmentname}</td>
         <td className="px-4 py-3 text-sm">{item.stage || "—"}</td>
@@ -957,7 +959,7 @@ export const MODULE_TABLE_REGISTRY: Record<string, ModuleTableConfig> = {
         <td className="px-4 py-3">
           <div className="text-sm font-medium">{item.deletedBy || "—"}</div>
           <div className="text-[11px] text-muted-foreground">
-            {item.deletedAt ? dayjs(item.deletedAt).format("MM/DD/YYYY") : "—"}
+            {item.deletedAt ? dayjs.utc(item.deletedAt).format("MM/DD/YYYY") : "—"}
           </div>
         </td>
         <td className="px-4 py-3 text-right">
@@ -996,14 +998,14 @@ export const MODULE_TABLE_REGISTRY: Record<string, ModuleTableConfig> = {
           <td className="px-4 py-3 text-sm text-muted-foreground">{item.userEmail}</td>
           <td className="px-4 py-3 text-sm">{item.campaignName || item.investmentName}</td>
           <td className="px-4 py-3 text-sm text-right">{currency_format(item.amount)}</td>
-          <td className="px-4 py-3 text-sm text-muted-foreground">{dayjs(item.dateCreated).format("MM/DD/YYYY")}</td>
+          <td className="px-4 py-3 text-sm text-muted-foreground">{dayjs.utc(item.dateCreated).format("MM/DD/YYYY")}</td>
           <td className="px-4 py-3 text-sm">
             <Badge className={cn("border-0 capitalize", badgeClass)}>{status}</Badge>
           </td>
           <td className="px-4 py-3">
             <div className="text-sm font-medium">{item.deletedBy || "—"}</div>
             <div className="text-[11px] text-muted-foreground">
-              {item.deletedAt ? dayjs(item.deletedAt).format("MM/DD/YYYY") : "—"}
+              {item.deletedAt ? dayjs.utc(item.deletedAt).format("MM/DD/YYYY") : "—"}
             </div>
           </td>
           <td className="px-4 py-3 text-right">
@@ -1052,7 +1054,7 @@ export const MODULE_TABLE_REGISTRY: Record<string, ModuleTableConfig> = {
         <td className="px-4 py-3">
           <div className="text-sm font-medium">{item.deletedBy || "—"}</div>
           <div className="text-[11px] text-muted-foreground">
-            {item.deletedAt ? dayjs(item.deletedAt).format("MM/DD/YYYY") : "—"}
+            {item.deletedAt ? dayjs.utc(item.deletedAt).format("MM/DD/YYYY") : "—"}
           </div>
         </td>
         <td className="px-4 py-3 text-right">
@@ -1080,7 +1082,7 @@ export const MODULE_TABLE_REGISTRY: Record<string, ModuleTableConfig> = {
         <td className="px-4 py-3">
           <div className="text-sm font-medium">{item.deletedBy || "—"}</div>
           <div className="text-[11px] text-muted-foreground">
-            {item.deletedAt ? dayjs(item.deletedAt).format("MM/DD/YYYY") : "—"}
+            {item.deletedAt ? dayjs.utc(item.deletedAt).format("MM/DD/YYYY") : "—"}
           </div>
         </td>
         <td className="px-4 py-3 text-right">

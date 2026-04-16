@@ -1,4 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+dayjs.extend(utc);
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -65,7 +68,7 @@ const TIMEZONES = [
 
 interface EditState {
   hour: number;
-  minute: number;
+  minuteDisplay: string;
   timezone: string;
 }
 
@@ -89,7 +92,7 @@ export default function SchedulersTab() {
       setConfigs(data);
       const edits: Record<string, EditState> = {};
       for (const c of data) {
-        edits[c.jobName] = { hour: c.hour, minute: c.minute, timezone: c.timezone };
+        edits[c.jobName] = { hour: c.hour, minuteDisplay: String(c.minute).padStart(2, "0"), timezone: c.timezone };
       }
       setEditStates(edits);
     } catch {
@@ -113,20 +116,62 @@ export default function SchedulersTab() {
   const hasChanges = (config: SchedulerConfig): boolean => {
     const edit = editStates[config.jobName];
     if (!edit) return false;
-    return edit.hour !== config.hour || edit.minute !== config.minute || edit.timezone !== config.timezone;
+    const editMinute = parseInt(edit.minuteDisplay, 10);
+    return edit.hour !== config.hour || editMinute !== config.minute || edit.timezone !== config.timezone;
+  };
+
+  const handleMinuteBlur = (jobName: string) => {
+    setEditStates((prev) => {
+      const current = prev[jobName];
+      if (!current) return prev;
+      const raw = current.minuteDisplay.trim();
+      if (raw === "") {
+        const config = configs.find((c) => c.jobName === jobName);
+        const fallback = config ? String(config.minute).padStart(2, "0") : "00";
+        return { ...prev, [jobName]: { ...current, minuteDisplay: fallback } };
+      }
+      if (/^\d{1,2}$/.test(raw)) {
+        const num = parseInt(raw, 10);
+        if (num >= 0 && num <= 59) {
+          return { ...prev, [jobName]: { ...current, minuteDisplay: String(num).padStart(2, "0") } };
+        }
+      }
+      return prev;
+    });
+  };
+
+  const normalizeMinute = (raw: string): string | null => {
+    const trimmed = raw.trim();
+    if (!/^\d{1,2}$/.test(trimmed)) return null;
+    const num = parseInt(trimmed, 10);
+    if (num < 0 || num > 59) return null;
+    return String(num).padStart(2, "0");
   };
 
   const handleSave = async (jobName: string) => {
     const edit = editStates[jobName];
     if (!edit) return;
 
+    const normalized = normalizeMinute(edit.minuteDisplay);
+    if (normalized === null) {
+      toast({ title: "Invalid Minute", description: "Minute must be a two-digit value between 00 and 59.", variant: "destructive" });
+      return;
+    }
+
+    setEditStates((prev) => ({
+      ...prev,
+      [jobName]: { ...prev[jobName], minuteDisplay: normalized },
+    }));
+
+    const minuteVal = parseInt(normalized, 10);
+
     setSavingJobs((prev) => ({ ...prev, [jobName]: true }));
     try {
-      const { data: updated, warning } = await updateSchedulerConfig(jobName, edit.hour, edit.minute, edit.timezone);
+      const { data: updated, warning } = await updateSchedulerConfig(jobName, edit.hour, minuteVal, edit.timezone);
       setConfigs((prev) => prev.map((c) => (c.jobName === jobName ? updated : c)));
       setEditStates((prev) => ({
         ...prev,
-        [jobName]: { hour: updated.hour, minute: updated.minute, timezone: updated.timezone },
+        [jobName]: { hour: updated.hour, minuteDisplay: String(updated.minute).padStart(2, "0"), timezone: updated.timezone },
       }));
       if (warning) {
         toast({ title: "Saved with warning", description: warning, variant: "destructive" });
@@ -217,7 +262,7 @@ export default function SchedulersTab() {
   };
 
   const formatDateTime = (dateStr: string): string => {
-    return new Date(dateStr).toLocaleString();
+    return dayjs.utc(dateStr).format("MM/DD/YYYY, h:mm:ss A");
   };
 
   const formatDuration = (start: string, end: string): string => {
@@ -342,15 +387,22 @@ export default function SchedulersTab() {
                       />
                     </div>
                     <div className="flex flex-col gap-1">
-                      <label className="text-xs font-medium text-muted-foreground">Minute (0-59)</label>
+                      <label className="text-xs font-medium text-muted-foreground">Minute (00-59)</label>
                       <Input
-                        type="number"
-                        min={0}
-                        max={59}
-                        value={edit.minute}
-                        onChange={(e) => handleEditChange(config.jobName, "minute", parseInt(e.target.value, 10) || 0)}
+                        type="text"
+                        maxLength={2}
+                        value={edit.minuteDisplay}
+                        onChange={(e) => {
+                          const v = e.target.value.replace(/[^0-9]/g, "").slice(0, 2);
+                          if (v.length === 2 && parseInt(v, 10) > 59) return;
+                          handleEditChange(config.jobName, "minuteDisplay", v);
+                        }}
+                        onBlur={() => handleMinuteBlur(config.jobName)}
                         className="w-20"
                       />
+                      {edit.minuteDisplay.trim() !== "" && normalizeMinute(edit.minuteDisplay) === null && (
+                        <span className="text-xs text-red-500">Must be 00–59</span>
+                      )}
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-xs font-medium text-muted-foreground">Timezone</label>
@@ -420,7 +472,7 @@ export default function SchedulersTab() {
                             {logs.map((log) => (
                               <TableRow key={log.id}>
                                 <TableCell>
-                                  {log.errorMessage ? (
+                                  {(log.status === "Failed" || (!log.status && log.errorMessage)) ? (
                                     <Badge variant="destructive">Failed</Badge>
                                   ) : (
                                     <Badge variant="secondary" className="bg-green-100 text-green-800">Success</Badge>

@@ -204,24 +204,54 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   });
 
   useEffect(() => {
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
     const stored = rehydrateFromLocalStorage();
     if (stored) {
-      fetchUserWithToken(stored.token).then((result) => {
-        if (result === "expired") {
-          setUser(null);
-          clearPersistedStorage();
-        } else if (result) {
-          result.token = stored.token;
-          result.role = stored.role;
-          setUser(result);
-        }
-        setIsLoadingUser(false);
-      }).catch(() => {
-        setIsLoadingUser(false);
-      });
+      const maxRetries = 3;
+      const retryDelays = [1000, 2000, 4000];
+
+      const attemptFetch = (attempt: number) => {
+        fetchUserWithToken(stored.token).then((result) => {
+          if (cancelled) return;
+          if (result === "expired") {
+            setUser(null);
+            clearPersistedStorage();
+            setIsLoadingUser(false);
+          } else if (result) {
+            result.token = stored.token;
+            result.role = stored.role;
+            setUser(result);
+            setIsLoadingUser(false);
+          } else if (attempt < maxRetries) {
+            retryTimer = setTimeout(() => attemptFetch(attempt + 1), retryDelays[attempt]);
+          } else {
+            setUser(null);
+            clearPersistedStorage();
+            setIsLoadingUser(false);
+          }
+        }).catch(() => {
+          if (cancelled) return;
+          if (attempt < maxRetries) {
+            retryTimer = setTimeout(() => attemptFetch(attempt + 1), retryDelays[attempt]);
+          } else {
+            setUser(null);
+            clearPersistedStorage();
+            setIsLoadingUser(false);
+          }
+        });
+      };
+
+      attemptFetch(0);
     } else {
       setIsLoadingUser(false);
     }
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
   }, []);
 
   const loginWithToken = useCallback((token: string, role?: string) => {

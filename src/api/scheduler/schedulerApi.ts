@@ -20,6 +20,7 @@ export interface SchedulerLog {
   day3EmailCount: number;
   week2EmailCount: number;
   errorMessage: string | null;
+  status: string | null;
 }
 
 export interface SchedulerLogsResponse {

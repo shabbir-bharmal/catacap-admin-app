@@ -51,8 +51,9 @@ router.get("/export", async (_req: Request, res: Response) => {
               u.first_name, u.last_name, u.email,
               c.name AS campaign_name
        FROM pending_grants pg
-       JOIN users u ON pg.user_id = u.id
-       LEFT JOIN campaigns c ON pg.campaign_id = c.id
+       JOIN users u ON pg.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
+       LEFT JOIN campaigns c ON pg.campaign_id = c.id AND (c.is_deleted IS NULL OR c.is_deleted = false)
+       WHERE (pg.is_deleted IS NULL OR pg.is_deleted = false)
        ORDER BY pg.id DESC`
     );
 
@@ -67,6 +68,10 @@ router.get("/export", async (_req: Request, res: Response) => {
     const headerRow = worksheet.addRow(headers);
     headerRow.eachCell((cell) => {
       cell.font = { bold: true };
+    });
+
+    worksheet.columns.forEach((col) => {
+      col.alignment = { horizontal: "left" };
     });
 
     for (const row of result.rows) {
@@ -85,7 +90,7 @@ router.get("/export", async (_req: Request, res: Response) => {
         dayCount = getReadableDuration(createdDate, now);
       }
 
-      worksheet.addRow([
+      const dataRow = worksheet.addRow([
         fullName,
         row.email,
         `$${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
@@ -99,6 +104,9 @@ router.get("/export", async (_req: Request, res: Response) => {
         dateStr,
         dayCount,
       ]);
+
+      dataRow.getCell(3).alignment = { horizontal: "right" };
+      dataRow.getCell(4).alignment = { horizontal: "right" };
     }
 
     worksheet.columns.forEach((col) => {
@@ -107,7 +115,7 @@ router.get("/export", async (_req: Request, res: Response) => {
         const len = String(cell.value || "").length;
         if (len > maxLen) maxLen = len;
       });
-      col.width = maxLen + 4;
+      col.width = maxLen + 10;
     });
 
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");

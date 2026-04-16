@@ -1,5 +1,8 @@
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+dayjs.extend(utc);
 import { cn } from "@/lib/utils";
 import { Link, useRoute } from "wouter";
 import { AdminLayout } from "../components/AdminLayout";
@@ -25,12 +28,9 @@ import {
 
 function formatDate(dateStr: string): string {
     if (!dateStr) return "—";
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return dateStr;
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    const yyyy = d.getFullYear();
-    return `${mm}/${dd}/${yyyy}`;
+    const d = dayjs.utc(dateStr);
+    if (!d.isValid()) return dateStr;
+    return d.format("MM/DD/YYYY");
 }
 
 export default function DisbursalRequestDetail() {

@@ -31,15 +31,30 @@ export function ProtectedRoute({ path, component: Component, moduleName, require
         );
     }
 
+    if (isLoggedIn && user && !user.isSuperAdmin && (!user.permissions || user.permissions.length === 0)) {
+        return (
+            <Route path={path}>
+                <div className="flex flex-col items-center justify-center min-h-screen gap-4">
+                    <p className="text-lg font-medium text-destructive">Access Denied</p>
+                    <p className="text-sm text-muted-foreground">You do not have the required permissions to access this page.</p>
+                </div>
+            </Route>
+        );
+    }
+
     if (moduleName && !hasActionPermission(moduleName, "manage")) {
         return (
-            <AdminNotFound />
+            <Route path={path}>
+                <AdminNotFound />
+            </Route>
         );
     }
 
     if (requiresSuperAdmin && !user?.isSuperAdmin) {
         return (
-            <AdminNotFound />
+            <Route path={path}>
+                <AdminNotFound />
+            </Route>
         );
     }
 

@@ -6,6 +6,10 @@ import crypto from "crypto";
 import ExcelJS from "exceljs";
 import { uploadBase64Image, resolveFileUrl, extractStoragePath } from "../utils/uploadBase64Image.js";
 import { logAudit } from "../utils/auditLog.js";
+import { sendTemplateEmail } from "../utils/emailService.js";
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc.js";
+dayjs.extend(utc);
 
 const STAGE_LABELS: Record<number, string> = {
   1: "Private",
@@ -237,6 +241,7 @@ router.get("/export", async (req: Request, res: Response) => {
       `SELECT g.id, g.name, g.identifier, g.is_deactivated, g.is_corporate_group,
               g.is_private_group, g.featured_group, g.leaders, g.group_themes
        FROM groups g
+       WHERE (g.is_deleted IS NULL OR g.is_deleted = false)
        ORDER BY g.id DESC`
     );
 
@@ -260,7 +265,7 @@ router.get("/export", async (req: Request, res: Response) => {
       const uniqueIds = [...new Set(allLeaderIds)];
       const placeholders = uniqueIds.map((_, i) => `$${i + 1}`).join(", ");
       const leaderResult = await pool.query(
-        `SELECT id, COALESCE(first_name, '') || ' ' || COALESCE(last_name, '') as full_name FROM users WHERE id IN (${placeholders})`,
+        `SELECT id, COALESCE(first_name, '') || ' ' || COALESCE(last_name, '') as full_name FROM users WHERE id IN (${placeholders}) AND (is_deleted IS NULL OR is_deleted = false)`,
         uniqueIds
       );
       for (const row of leaderResult.rows) {
@@ -292,7 +297,8 @@ router.get("/export", async (req: Request, res: Response) => {
         `SELECT cg.groups_id, c.id as campaign_id, c.is_active, c.stage
          FROM campaign_groups cg
          JOIN campaigns c ON cg.campaigns_id = c.id
-         WHERE cg.groups_id IN (${cgPlaceholders})`,
+         WHERE cg.groups_id IN (${cgPlaceholders})
+           AND (c.is_deleted IS NULL OR c.is_deleted = false)`,
         groupIds
       );
       for (const row of cgResult.rows) {
@@ -314,7 +320,7 @@ router.get("/export", async (req: Request, res: Response) => {
       const uniqueThemeIds = [...new Set(themeIds)];
       const tPlaceholders = uniqueThemeIds.map((_, i) => `$${i + 1}`).join(", ");
       const themeResult = await pool.query(
-        `SELECT id, name FROM themes WHERE id IN (${tPlaceholders})`,
+        `SELECT id, name FROM themes WHERE id IN (${tPlaceholders}) AND (is_deleted IS NULL OR is_deleted = false)`,
         uniqueThemeIds
       );
       for (const row of themeResult.rows) {
@@ -322,7 +328,7 @@ router.get("/export", async (req: Request, res: Response) => {
       }
     }
 
-    const requestOrigin = req.headers.origin || "";
+    const requestOrigin = process.env.ADMIN_BASE_URL || "";
 
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet("InvestmentNotes");
@@ -363,7 +369,7 @@ router.get("/export", async (req: Request, res: Response) => {
         }
       }
 
-      const url = g.identifier ? `${requestOrigin}/group/${g.identifier}` : `${requestOrigin}/group/${g.id}`;
+      const url = g.identifier?.trim() ? `${requestOrigin}/group/${g.identifier.trim()}` : `${requestOrigin}/group/${g.id}`;
 
       worksheet.addRow([
         g.name || "",
@@ -651,6 +657,298 @@ router.delete("/leaders-and-champions", async (req: Request, res: Response) => {
     }
   } catch (err) {
     console.error("Delete leaders/champions error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+router.get("/group-investments", async (req: Request, res: Response) => {
+  try {
+    const groupId = parseInt((req.query.groupId as string) || "0", 10);
+    if (groupId <= 0) {
+      res.status(400).json({ message: "Valid groupId is required." });
+      return;
+    }
+
+    const groupResult = await pool.query(`SELECT id, owner_id FROM groups WHERE id = $1`, [groupId]);
+    if (groupResult.rows.length === 0) {
+      res.status(404).json({ message: "Group not found." });
+      return;
+    }
+
+    const group = groupResult.rows[0];
+    const currentUserId = req.user?.id;
+    const isOwner = currentUserId === group.owner_id;
+    const isAdmin = req.user?.isSuperAdmin || req.user?.roles?.some((r: string) => ["admin", "superadmin"].includes(r.toLowerCase()));
+    if (!isOwner && !isAdmin) {
+      res.status(403).json({ message: "Only the group owner or an admin can view group investments." });
+      return;
+    }
+
+    const linkedResult = await pool.query(
+      `SELECT c.id, c.name, c.stage, c.image_file_name, c.is_active
+       FROM campaign_groups cg
+       JOIN campaigns c ON cg.campaigns_id = c.id
+       WHERE cg.groups_id = $1
+       ORDER BY c.name`,
+      [groupId]
+    );
+
+    const linkedIds = linkedResult.rows.map((r: any) => r.id);
+
+    let publicCampaignsQuery = `
+      SELECT c.id, c.name, c.stage, c.image_file_name, c.is_active
+      FROM campaigns c
+      WHERE c.is_active = true
+        AND c.group_for_private_access_id IS NULL
+        AND c.stage IN (2, 7)`;
+    const publicValues: any[] = [];
+    if (linkedIds.length > 0) {
+      const placeholders = linkedIds.map((_: any, i: number) => `$${i + 1}`).join(", ");
+      publicCampaignsQuery += ` AND c.id NOT IN (${placeholders})`;
+      publicValues.push(...linkedIds);
+    }
+    publicCampaignsQuery += ` ORDER BY c.name`;
+
+    const publicResult = await pool.query(publicCampaignsQuery, publicValues);
+
+    let completedQuery = `
+      SELECT c.id, c.name, c.stage, c.image_file_name, c.is_active
+      FROM campaigns c
+      WHERE c.stage = 3`;
+    const completedValues: any[] = [];
+    if (linkedIds.length > 0) {
+      const placeholders = linkedIds.map((_: any, i: number) => `$${i + 1}`).join(", ");
+      completedQuery += ` AND c.id NOT IN (${placeholders})`;
+      completedValues.push(...linkedIds);
+    }
+    completedQuery += ` ORDER BY c.name`;
+    const completedResult = await pool.query(completedQuery, completedValues);
+    const completedCampaigns = completedResult.rows.map((c: any) => ({
+      id: c.id,
+      name: c.name,
+      stage: c.stage,
+      stageLabel: STAGE_LABELS[c.stage] || `Stage ${c.stage}`,
+      imageFileName: resolveFileUrl(c.image_file_name, "campaigns"),
+    }));
+
+    const allCampaignIds = [
+      ...linkedResult.rows,
+      ...publicResult.rows,
+    ].map((c: any) => c.id);
+
+    let raisedByCompaign: Record<number, { raised: number; investorCount: number; avatars: string[] }> = {};
+    if (allCampaignIds.length > 0) {
+      const placeholders = allCampaignIds.map((_: any, i: number) => `$${i + 1}`).join(", ");
+      const raisedResult = await pool.query(
+        `SELECT r.campaign_id,
+                COALESCE(SUM(r.amount), 0) as raised,
+                COUNT(DISTINCT r.user_id) as investor_count
+         FROM recommendations r
+         WHERE r.campaign_id IN (${placeholders})
+           AND (r.is_deleted IS NULL OR r.is_deleted = false)
+         GROUP BY r.campaign_id`,
+        allCampaignIds
+      );
+      for (const row of raisedResult.rows) {
+        raisedByCompaign[row.campaign_id] = {
+          raised: parseFloat(row.raised),
+          investorCount: parseInt(row.investor_count),
+          avatars: [],
+        };
+      }
+
+      const avatarResult = await pool.query(
+        `SELECT DISTINCT ON (r.campaign_id, r.user_id) r.campaign_id, u.picture_file_name
+         FROM recommendations r
+         JOIN users u ON r.user_id = u.id
+         WHERE r.campaign_id IN (${placeholders})
+           AND (r.is_deleted IS NULL OR r.is_deleted = false)
+           AND u.picture_file_name IS NOT NULL
+         ORDER BY r.campaign_id, r.user_id
+         LIMIT ${allCampaignIds.length * 3}`,
+        allCampaignIds
+      );
+      const avatarsByCampaign: Record<number, string[]> = {};
+      for (const row of avatarResult.rows) {
+        if (!avatarsByCampaign[row.campaign_id]) avatarsByCampaign[row.campaign_id] = [];
+        if (avatarsByCampaign[row.campaign_id].length < 3) {
+          avatarsByCampaign[row.campaign_id].push(resolveFileUrl(row.picture_file_name, "users") || "");
+        }
+      }
+      for (const [cid, avatars] of Object.entries(avatarsByCampaign)) {
+        if (raisedByCompaign[Number(cid)]) {
+          raisedByCompaign[Number(cid)].avatars = avatars;
+        }
+      }
+    }
+
+    const mapCampaign = (c: any) => ({
+      id: c.id,
+      name: c.name,
+      stage: c.stage,
+      stageLabel: STAGE_LABELS[c.stage] || `Stage ${c.stage}`,
+      imageFileName: resolveFileUrl(c.image_file_name, "campaigns"),
+      raised: raisedByCompaign[c.id]?.raised || 0,
+      investorCount: raisedByCompaign[c.id]?.investorCount || 0,
+      investorAvatars: raisedByCompaign[c.id]?.avatars || [],
+    });
+
+    res.json({
+      groupCampaigns: linkedResult.rows.map(mapCampaign),
+      publicCampaigns: publicResult.rows.map(mapCampaign),
+      completedCampaigns,
+    });
+  } catch (err) {
+    console.error("Get group investments error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+router.put("/update-group-investments", async (req: Request, res: Response) => {
+  try {
+    const groupId = parseInt((req.query.groupId as string) || "0", 10);
+    const rawBody = req.body;
+
+    if (groupId <= 0) {
+      res.status(400).json({ message: "Valid groupId is required." });
+      return;
+    }
+
+    if (!Array.isArray(rawBody)) {
+      res.status(400).json({ message: "Request body must be an array of campaign IDs." });
+      return;
+    }
+
+    const campaignIds: number[] = [...new Set(
+      rawBody
+        .map((id: any) => Number(id))
+        .filter((id: number) => Number.isInteger(id) && id > 0)
+    )];
+
+    const groupResult = await pool.query(
+      `SELECT id, name, owner_id FROM groups WHERE id = $1`,
+      [groupId]
+    );
+    if (groupResult.rows.length === 0) {
+      res.status(404).json({ message: "Group not found." });
+      return;
+    }
+
+    const group = groupResult.rows[0];
+    const currentUserId = req.user?.id;
+
+    const isOwner = currentUserId === group.owner_id;
+    const isAdmin = req.user?.isSuperAdmin || req.user?.roles?.some((r: string) => ["admin", "superadmin"].includes(r.toLowerCase()));
+    if (!isOwner && !isAdmin) {
+      res.status(403).json({ message: "Only the group owner or an admin can update group investments." });
+      return;
+    }
+
+    const oldLinksResult = await pool.query(
+      `SELECT campaigns_id FROM campaign_groups WHERE groups_id = $1`,
+      [groupId]
+    );
+    const oldIds = new Set(oldLinksResult.rows.map((r: any) => r.campaigns_id));
+    const newIds = new Set(campaignIds);
+
+    const addedIds = campaignIds.filter((id) => !oldIds.has(id));
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      await client.query(`DELETE FROM campaign_groups WHERE groups_id = $1`, [groupId]);
+
+      if (campaignIds.length > 0) {
+        const insertValues: any[] = [];
+        const insertPlaceholders: string[] = [];
+        campaignIds.forEach((cid, idx) => {
+          insertPlaceholders.push(`($${idx * 2 + 1}, $${idx * 2 + 2})`);
+          insertValues.push(groupId, cid);
+        });
+        await client.query(
+          `INSERT INTO campaign_groups (groups_id, campaigns_id) VALUES ${insertPlaceholders.join(", ")}`,
+          insertValues
+        );
+      }
+
+      await client.query("COMMIT");
+    } catch (txErr) {
+      await client.query("ROLLBACK");
+      throw txErr;
+    } finally {
+      client.release();
+    }
+
+    await logAudit({
+      tableName: "campaign_groups",
+      recordId: String(groupId),
+      actionType: "Modified",
+      oldValues: { campaignIds: [...oldIds] },
+      newValues: { campaignIds },
+      updatedBy: currentUserId || null,
+    });
+
+    if (addedIds.length > 0) {
+      const NON_NOTIFY_STAGES = [3, 7, 9];
+
+      let campaignsToNotify: any[] = [];
+      const placeholders = addedIds.map((_: any, i: number) => `$${i + 1}`).join(", ");
+      const campResult = await pool.query(
+        `SELECT id, name, stage, property FROM campaigns WHERE id IN (${placeholders})`,
+        addedIds
+      );
+      campaignsToNotify = campResult.rows.filter((c: any) => !NON_NOTIFY_STAGES.includes(c.stage));
+
+      if (campaignsToNotify.length > 0) {
+        const membersResult = await pool.query(
+          `SELECT DISTINCT r.request_owner_id as user_id, u.email, u.first_name
+           FROM requests r
+           JOIN users u ON r.request_owner_id = u.id
+           WHERE r.group_to_follow_id = $1
+             AND r.status = 'accepted'
+             AND (r.is_deleted IS NULL OR r.is_deleted = false)
+             AND u.is_active = true`,
+          [groupId]
+        );
+
+        const requestOrigin = process.env.REQUEST_ORIGIN || process.env.VITE_FRONTEND_URL || "";
+
+        for (const campaign of campaignsToNotify) {
+          for (const member of membersResult.rows) {
+            try {
+              await pool.query(
+                `INSERT INTO user_notifications (title, description, url_to_redirect, is_read, target_user_id)
+                 VALUES ($1, $2, $3, false, $4)`,
+                [
+                  `New Investment in ${group.name}`,
+                  `${campaign.name} has been added to ${group.name}`,
+                  `/investments/${campaign.property || campaign.id}`,
+                  member.user_id,
+                ]
+              );
+            } catch (notifErr) {
+              console.error(`Failed to create notification for user ${member.user_id}:`, notifErr);
+            }
+
+            if (member.email) {
+              sendTemplateEmail(12, member.email, {
+                groupName: group.name,
+                investmentName: campaign.name,
+                investmentLink: `${requestOrigin}/investments/${campaign.property || campaign.id}`,
+                memberName: member.first_name || "Member",
+              }).catch((emailErr) => {
+                console.error(`[EMAIL] Failed to send group investment notification to ${member.email}:`, emailErr);
+              });
+            }
+          }
+        }
+      }
+    }
+
+    res.json({ success: true, message: "Group investments updated successfully." });
+  } catch (err) {
+    console.error("Update group investments error:", err);
     res.status(500).json({ message: "Internal server error" });
   }
 });
@@ -1345,7 +1643,7 @@ router.get("/:id/transaction-history/export", async (req: Request, res: Response
 
     for (const row of result.rows) {
       const changeDate = row.change_date
-        ? new Date(row.change_date).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })
+        ? dayjs.utc(row.change_date).format("MM/DD/YYYY")
         : "";
 
       const dataRow = worksheet.addRow([
@@ -1724,6 +2022,5 @@ async function processGroupMembers(jsonData: string | null, ownerId?: string): P
 async function enrichMembers(members: any[], ownerId?: string): Promise<any[]> {
   return processGroupMembers(JSON.stringify(members), ownerId);
 }
-
 
 export default router;

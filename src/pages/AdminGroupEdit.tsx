@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import { GroupLeadersSection } from "@/components/group/GroupLeadersSection";
 import { ChampionsCatalystsSection } from "@/components/group/ChampionsCatalystsSection";
+import { GroupInvestmentsSection } from "@/components/group/GroupInvestmentsSection";
 import { fetchGroupDetail, updateGroup, GroupUpdatePayload, GroupLeader, Champion } from "@/api/group/groupApi";
 import { fetchInvestmentData } from "@/api/investment/investmentApi";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -25,6 +26,7 @@ const STEPS = [
   { id: 0, label: "Group Details" },
   { id: 1, label: "Our Why" },
   { id: 2, label: "Community" },
+  { id: 3, label: "Investments" },
 ];
 
 function getToken(): string | null {
@@ -1069,6 +1071,13 @@ export default function AdminGroupEdit() {
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {currentStep === 3 && (
+          <GroupInvestmentsSection
+            apiGroupId={apiGroupId}
+            cardClassName="rounded-t-none rounded-b-xl"
+          />
         )}
 
         <div className="flex items-center justify-between gap-3 mt-8 pt-5 border-t">

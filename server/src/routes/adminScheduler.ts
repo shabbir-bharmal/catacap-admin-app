@@ -92,15 +92,20 @@ router.put("/:jobName", async (req: Request, res: Response) => {
       return;
     }
 
-    const h = parseInt(String(hour), 10);
-    const m = parseInt(String(minute), 10);
-
-    if (isNaN(h) || h < 0 || h > 23) {
-      res.status(400).json({ message: "hour must be between 0 and 23." });
+    if (typeof hour !== "number" || typeof minute !== "number") {
+      res.status(400).json({ message: "hour and minute must be numbers." });
       return;
     }
-    if (isNaN(m) || m < 0 || m > 59) {
-      res.status(400).json({ message: "minute must be between 0 and 59." });
+
+    const h = Math.trunc(hour);
+    const m = Math.trunc(minute);
+
+    if (!Number.isInteger(hour) || h < 0 || h > 23) {
+      res.status(400).json({ message: "hour must be an integer between 0 and 23." });
+      return;
+    }
+    if (!Number.isInteger(minute) || m < 0 || m > 59) {
+      res.status(400).json({ message: "minute must be an integer between 0 and 59 (displayed as two-digit format 00-59)." });
       return;
     }
     if (!isValidTimezone(timezone)) {
@@ -233,6 +238,15 @@ router.get("/logs", async (req: Request, res: Response) => {
     const limit = isNaN(rawLimit) || rawLimit < 1 ? 20 : Math.min(rawLimit, 100);
     const offset = isNaN(rawOffset) || rawOffset < 0 ? 0 : rawOffset;
 
+    const statusColCheck = await pool.query(
+      `SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'scheduler_logs' AND column_name = 'status'`
+    );
+    const hasStatusCol = statusColCheck.rows.length > 0;
+    const statusSelect = hasStatusCol
+      ? `, status`
+      : `, CASE WHEN error_message IS NOT NULL THEN 'Failed' ELSE 'Success' END AS status`;
+
     let query: string;
     const params: unknown[] = [];
 
@@ -240,6 +254,7 @@ router.get("/logs", async (req: Request, res: Response) => {
       query = `SELECT id, job_name AS "jobName", start_time AS "startTime",
                       end_time AS "endTime", day3_email_count AS "day3EmailCount",
                       week2_email_count AS "week2EmailCount", error_message AS "errorMessage"
+                      ${statusSelect}
                FROM scheduler_logs
                WHERE job_name = $1
                ORDER BY start_time DESC
@@ -249,6 +264,7 @@ router.get("/logs", async (req: Request, res: Response) => {
       query = `SELECT id, job_name AS "jobName", start_time AS "startTime",
                       end_time AS "endTime", day3_email_count AS "day3EmailCount",
                       week2_email_count AS "week2EmailCount", error_message AS "errorMessage"
+                      ${statusSelect}
                FROM scheduler_logs
                ORDER BY start_time DESC
                LIMIT $1 OFFSET $2`;

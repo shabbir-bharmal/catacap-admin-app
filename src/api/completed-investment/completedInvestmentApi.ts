@@ -153,7 +153,7 @@ export interface CreateCompletedInvestmentPayload {
   dateOfLastInvestment?: string;
   typeOfInvestmentIds: string;
   typeOfInvestmentName?: string;
-  note: string;
+  note?: string;
   balanceSheet: string;
 }
 

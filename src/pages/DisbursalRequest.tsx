@@ -1,6 +1,9 @@
 import { useState, Fragment } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+dayjs.extend(utc);
 import { Link } from "wouter";
 import { AdminLayout } from "../components/AdminLayout";
 import { currency_format } from "@/helpers/format";
@@ -31,12 +34,9 @@ import {
 
 function formatDate(dateStr: string): string {
   if (!dateStr) return "—";
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return dateStr;
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const yyyy = d.getFullYear();
-  return `${mm}/${dd}/${yyyy}`;
+  const d = dayjs.utc(dateStr);
+  if (!d.isValid()) return dateStr;
+  return d.format("MM/DD/YYYY");
 }
 
 const AdminDisbursalNotes = ({ id }: { id: number }) => {
