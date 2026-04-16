@@ -11,6 +11,7 @@ React 18 + TypeScript + Vite admin panel for the CataCap platform. Handles inves
 - **State Management:** TanStack Query (React Query)
 - **Routing:** wouter
 - **Forms:** React Hook Form + Zod
+- **Date Formatting:** dayjs (shared helpers in `src/helpers/format.ts`)
 - **HTTP Client:** Axios with JWT interceptors
 - **Backend:** Node.js Express server (TypeScript, tsx)
 - **Database:** Supabase PostgreSQL (via `SUPABASE_DB_URL`)
@@ -21,6 +22,7 @@ React 18 + TypeScript + Vite admin panel for the CataCap platform. Handles inves
 - `src/contexts/` — AuthContext with JWT + permission management
 - `src/pages/` — Route-level page components
 - `src/hooks/` — Custom hooks
+- `src/helpers/format.ts` — Shared formatting utilities (currency, dates)
 - `src/lib/` — Utilities and query client config
 - `server/src/` — Node.js Express backend
   - `server/src/index.ts` — Server entry point (port 8200)

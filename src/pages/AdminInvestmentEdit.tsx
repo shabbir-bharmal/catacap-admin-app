@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import dayjs from "dayjs";
+import { formatDate, formatDateISO } from "@/helpers/format";
 import { useParams, useLocation, useSearch } from "wouter";
 import { AdminLayout } from "../components/AdminLayout";
 import { RichTextEditor } from "../components/RichTextEditor";
@@ -29,7 +30,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
@@ -686,7 +686,7 @@ export default function AdminInvestmentEdit() {
     if (Array.isArray(data.investmentNotes)) {
       setInvestmentNotes(data.investmentNotes.map((n: any) => ({
         ...n,
-        date: n.date || (n.createdAt ? dayjs(n.createdAt).format("MM/DD/YYYY") : "—"),
+        date: n.date || formatDate(n.createdAt),
       })));
     }
 
@@ -1041,11 +1041,6 @@ export default function AdminInvestmentEdit() {
 
   const fe = (field: keyof FormData) => errors[field] ? "border-[#f06548] focus-visible:ring-[#f06548]" : "";
 
-  const formatDate = (iso: string) => {
-    if (!iso) return "";
-    if (iso === "Evergreen") return "Evergreen";
-    return dayjs(iso).format("MM/DD/YYYY");
-  };
 
   if (loading) {
     return (
@@ -1498,14 +1493,14 @@ export default function AdminInvestmentEdit() {
                         <PopoverTrigger asChild>
                           <Button variant="outline" className={cn("w-full sm:w-72 justify-start text-left font-normal", !formData.fundraisingCloseDate && "text-muted-foreground")} data-testid="button-calendar">
                             <CalendarIcon className="mr-2 h-4 w-4" />
-                            {formData.fundraisingCloseDate ? formatDate(formData.fundraisingCloseDate) : "Pick a date"}
+                            {formData.fundraisingCloseDate ? formatDate(formData.fundraisingCloseDate, "") : "Pick a date"}
                           </Button>
                         </PopoverTrigger>
                         <PopoverContent className="w-auto p-0" align="start">
                           <Calendar
                             mode="single"
                             selected={formData.fundraisingCloseDate && dayjs(formData.fundraisingCloseDate).isAfter(dayjs(), "day") ? new Date(formData.fundraisingCloseDate) : undefined}
-                            onSelect={(date) => { upd("fundraisingCloseDate", date ? dayjs(date).format("YYYY-MM-DD") : ""); setCalendarOpen(false); }}
+                            onSelect={(date) => { upd("fundraisingCloseDate", date ? formatDateISO(date) : ""); setCalendarOpen(false); }}
                             disabled={(date) => dayjs(date).isBefore(dayjs().add(1, "day"), "day")}
                             modifiers={{ today: [] }}
                             initialFocus
@@ -2287,7 +2282,7 @@ export default function AdminInvestmentEdit() {
                       <PopoverTrigger asChild>
                         <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !formData.fundTerm && "text-muted-foreground")} data-testid="button-fund-term">
                           <CalendarIcon className="mr-2 h-4 w-4" />
-                          {formData.fundTerm ? formatDate(formData.fundTerm) : "MM/DD/YYYY"}
+                          {formData.fundTerm ? formatDate(formData.fundTerm, "") : "MM/DD/YYYY"}
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-0" align="start">
@@ -2321,7 +2316,7 @@ export default function AdminInvestmentEdit() {
                       <PopoverTrigger asChild>
                         <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !formData.debtMaturityDate && "text-muted-foreground")} data-testid="button-debt-maturity">
                           <CalendarIcon className="mr-2 h-4 w-4" />
-                          {formData.debtMaturityDate ? formatDate(formData.debtMaturityDate) : "MM/DD/YYYY"}
+                          {formData.debtMaturityDate ? formatDate(formData.debtMaturityDate, "") : "MM/DD/YYYY"}
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-0" align="start">

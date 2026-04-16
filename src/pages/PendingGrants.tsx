@@ -13,10 +13,9 @@ import { useDebounce } from "../hooks/useDebounce";
 import { SortHeader } from "../components/ui/table-sort";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchPendingGrants, updatePendingGrant, exportPendingGrants, fetchPendingGrantNotes, deletePendingGrant, fetchDafProviders, PendingGrantEntry, NoteEntry } from "../api/pending-grant/pendingGrantApi";
-import { currency_format } from "../helpers/format";
+import { currency_format, formatDate } from "../helpers/format";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import dayjs from "dayjs";
 import { ConfirmationDialog } from "../components/ConfirmationDialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -68,7 +67,7 @@ function PendingGrantNotes({ grantId }: { grantId: number }) {
               notes.map((entry: NoteEntry, idx: number) => (
                 <tr key={idx} className={`border-b last:border-0 ${idx % 2 === 0 ? "bg-card" : "bg-muted/30"}`} data-testid={`row-note-entry-${grantId}-${idx}`}>
                   <td className="px-4 py-3 text-sm" data-testid={`text-note-date-${grantId}-${idx}`}>
-                    {dayjs(entry.createdAt).isValid() ? dayjs(entry.createdAt).format("MM/DD/YYYY") : entry.createdAt}
+                    {formatDate(entry.createdAt)}
                   </td>
                   <td className="px-4 py-3 text-sm" data-testid={`text-note-username-${grantId}-${idx}`}>
                     {entry.userName}
@@ -603,7 +602,7 @@ export default function AdminPendingGrants() {
                         </td>
                         <td className="px-4 py-3">
                           <span className="text-sm" data-testid={`text-grant-created-${grant.id}`}>
-                            {grant.createdDate ? dayjs(grant.createdDate).format("MM/DD/YYYY") : "-"}
+                            {formatDate(grant.createdDate, "-")}
                           </span>
                         </td>
                         <td className="px-4 py-3">

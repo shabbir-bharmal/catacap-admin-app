@@ -10,8 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { MoreVertical, Edit, Trash2, ExternalLink, Calendar, Search, Plus, ArrowUpDown, ChevronLeft, ChevronRight, Pencil, Upload, X } from "lucide-react";
-import { format, parseISO } from "date-fns";
-import dayjs from "dayjs";
+import { formatLongDate, formatTime12h, formatDateISO } from "@/helpers/format";
 import { RichTextEditor } from "../components/RichTextEditor";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
@@ -29,19 +28,6 @@ import { getUrlBlobContainerImage } from "@/lib/image-utils";
 import { PaginationControls } from "../components/ui/pagination-controls";
 import catacapLogo from "@assets/CataCap-Logo.png";
 
-const formatTime12h = (timeVal: string) => {
-  if (!timeVal) return "";
-  try {
-    const [hours, minutes] = timeVal.split(":");
-    const date = new Date();
-    date.setHours(parseInt(hours));
-    date.setMinutes(parseInt(minutes));
-    return format(date, "h:mm a");
-  } catch (error) {
-    console.error("Error formatting time:", error);
-    return timeVal;
-  }
-};
 
 type Event = eventApi.EventApiItem;
 
@@ -242,7 +228,7 @@ export default function EventManagement() {
   };
 
 
-  const selectedDate = form.eventDate ? parseISO(form.eventDate) : undefined;
+  const selectedDate = form.eventDate ? new Date(form.eventDate) : undefined;
 
   const isPending = createMutation.isPending || updateMutation.isPending;
 
@@ -335,7 +321,7 @@ export default function EventManagement() {
                           </div>
                         </td>
                         <td className="px-4 py-3 text-muted-foreground" data-testid={`text-event-date-${event.id}`}>
-                          {event.eventDate ? dayjs(event.eventDate).format("MMM D, YYYY") : "—"}
+                          {formatLongDate(event.eventDate)}
                         </td>
                         <td className="px-4 py-3 text-muted-foreground text-sm" data-testid={`text-event-time-${event.id}`}>
                           {(() => {
@@ -500,7 +486,7 @@ export default function EventManagement() {
                       data-testid="button-event-date"
                     >
                       <Calendar className="mr-2 h-4 w-4 shrink-0" />
-                      {selectedDate ? format(selectedDate, "MMM d, yyyy") : <span className="text-muted-foreground">Pick a date</span>}
+                      {selectedDate ? formatLongDate(selectedDate) : <span className="text-muted-foreground">Pick a date</span>}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0 z-[9999]" align="start">
@@ -510,7 +496,7 @@ export default function EventManagement() {
                       onSelect={(d) => {
                         setForm((f) => ({
                           ...f,
-                          eventDate: d ? dayjs(d).format("YYYY-MM-DD") : ""
+                          eventDate: d ? formatDateISO(d) : ""
                         }));
                         if (errors.eventDate) setErrors((prev) => ({ ...prev, eventDate: undefined }));
                         setCalendarOpen(false);

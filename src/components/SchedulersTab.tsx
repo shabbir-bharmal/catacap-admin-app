@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import dayjs from "dayjs";
+import { formatDateTime } from "@/helpers/format";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -259,9 +259,6 @@ export default function SchedulersTab() {
     return `${h}:${String(minute).padStart(2, "0")} ${period}`;
   };
 
-  const formatDateTime = (dateStr: string): string => {
-    return dayjs(dateStr).format("MM/DD/YYYY, h:mm:ss A");
-  };
 
   const formatDuration = (start: string, end: string): string => {
     const ms = new Date(end).getTime() - new Date(start).getTime();

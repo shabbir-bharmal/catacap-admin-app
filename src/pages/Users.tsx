@@ -1,6 +1,6 @@
 import { useState, Fragment } from "react";
 import { useToast } from "@/hooks/use-toast";
-import dayjs from "dayjs";
+import { formatDate } from "@/helpers/format";
 import { AdminLayout } from "../components/AdminLayout";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -407,7 +407,7 @@ export default function UsersPage() {
                         </td>
                         <td className="px-4 py-3">
                           <span className="text-sm" data-testid={`text-date-${user.id}`}>
-                            {dayjs(user.dateCreated).isValid() ? dayjs(user.dateCreated).format("MM/DD/YYYY") : user.dateCreated}
+                            {formatDate(user.dateCreated)}
                           </span>
                         </td>
                         {filterByGroup && (

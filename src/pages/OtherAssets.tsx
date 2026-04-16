@@ -1,7 +1,6 @@
 import { useState, Fragment } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
-import dayjs from "dayjs";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AdminLayout } from "../components/AdminLayout";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -21,7 +20,7 @@ import { ConfirmationDialog } from "../components/ConfirmationDialog";
 import { PaginationControls } from "@/components/ui/pagination-controls";
 
 import { fetchOtherAssets, updateOtherAsset, exportOtherAssets, fetchOtherAssetNotes, deleteOtherAsset, OtherAssetEntry } from "../api/other-asset/otherAssetApi";
-import { currency_format } from "../helpers/format";
+import { currency_format, formatDate } from "../helpers/format";
 
 const STATUS_OPTIONS = ["All", "Pending", "In Transit", "Received", "Rejected"];
 
@@ -89,7 +88,7 @@ function OtherAssetNotes({ assetId }: { assetId: number }) {
               notes.map((entry, idx) => (
                 <tr key={idx} className={`border-b last:border-0 ${idx % 2 === 0 ? "bg-white dark:bg-background" : "bg-muted/50"}`} data-testid={`row-note-entry-${assetId}-${idx}`}>
                   <td className="px-4 py-3 text-sm" data-testid={`text-note-date-${assetId}-${idx}`}>
-                    {dayjs(entry.createdAt).format("MM/DD/YYYY")}
+                    {formatDate(entry.createdAt)}
                   </td>
                   <td className="px-4 py-3 text-sm" data-testid={`text-note-username-${assetId}-${idx}`}>
                     {entry.userName}
@@ -499,7 +498,7 @@ export default function AdminOtherAssets() {
                           </td>
                           <td className="px-4 py-3 text-center">
                             <span className="text-sm" data-testid={`text-grant-date-${grant.id}`}>
-                              {dayjs(grant.createdAt).isValid() ? dayjs(grant.createdAt).format("MM/DD/YYYY") : grant.createdAt}
+                              {formatDate(grant.createdAt)}
                             </span>
                           </td>
                           <td className="px-4 py-3">

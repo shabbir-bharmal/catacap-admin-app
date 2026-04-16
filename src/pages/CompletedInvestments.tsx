@@ -1,10 +1,9 @@
 import { useState, useMemo, Fragment } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocation } from "wouter";
-import dayjs from "dayjs";
 import { useToast } from "@/hooks/use-toast";
 import { AdminLayout } from "../components/AdminLayout";
-import { currency_format } from "@/helpers/format";
+import { currency_format, formatDate, formatDateISO } from "@/helpers/format";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,7 +14,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { format } from "date-fns";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { Download, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Pencil, FileText, RefreshCw, CalendarIcon, Trash2 } from "lucide-react";
@@ -121,12 +119,6 @@ const CompletedInvestmentNotesRow = ({
   );
 };
 
-function formatDate(dateStr: string): string {
-  if (!dateStr) return "—";
-  const d = dayjs(dateStr);
-  if (!d.isValid()) return dateStr;
-  return d.format("MM/DD/YYYY");
-}
 
 function MultiSelectTypesById({
   options,
@@ -416,7 +408,7 @@ export default function AdminCompletedInvestments() {
         investmentDetail: formDetails.trim(),
         totalInvestmentAmount: formAmount === "" ? undefined : Number(formAmount),
         transactionTypeId: Number(formTransactionTypeId),
-        dateOfLastInvestment: formDate ? format(formDate, "yyyy-MM-dd") : undefined,
+        dateOfLastInvestment: formDate ? formatDateISO(formDate) : undefined,
         typeOfInvestmentIds: formInvestmentTypeIds.join(","),
         typeOfInvestmentName: formCustomType.trim() || undefined,
         note: formNote.trim(),
@@ -468,7 +460,7 @@ export default function AdminCompletedInvestments() {
         investmentDetail: editDetails.trim(),
         totalInvestmentAmount: Number(editAmount),
         transactionTypeId: Number(editTransactionTypeId),
-        dateOfLastInvestment: editDate ? format(editDate, "yyyy-MM-dd") : editItem.dateOfLastInvestment,
+        dateOfLastInvestment: editDate ? formatDateISO(editDate) : editItem.dateOfLastInvestment,
         typeOfInvestmentIds: editTypeIds.join(","),
         typeOfInvestmentName: editCustomType.trim(),
         note: editNote.trim(),
@@ -671,7 +663,7 @@ export default function AdminCompletedInvestments() {
                       <PopoverTrigger asChild>
                         <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !formDate && "text-muted-foreground")} data-testid="input-date">
                           <CalendarIcon className="mr-2 h-4 w-4" />
-                          {formDate ? format(formDate, "MM/dd/yyyy") : "Pick a date"}
+                          {formDate ? formatDate(formDate) : "Pick a date"}
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-0" align="start">
@@ -1067,7 +1059,7 @@ export default function AdminCompletedInvestments() {
                   <PopoverTrigger asChild>
                     <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !editDate && "text-muted-foreground")} data-testid="input-edit-date">
                       <CalendarIcon className="mr-2 h-4 w-4" />
-                      {editDate ? format(editDate, "MM/dd/yyyy") : "Pick a date"}
+                      {editDate ? formatDate(editDate) : "Pick a date"}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="start">

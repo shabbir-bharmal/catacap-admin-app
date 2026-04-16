@@ -12,12 +12,11 @@ import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/comp
 import { Search, Eye, Pencil, Loader2, ClipboardList, Trash2, FileText } from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { format, parseISO } from "date-fns";
 import { useSort } from "../hooks/useSort";
 import { SortHeader } from "../components/ui/table-sort";
 import { PaginationControls } from "@/components/ui/pagination-controls";
 import { fetchFormSubmissions, updateFormSubmissionStatus, deleteFormSubmission, fetchFormSubmissionNotes, type FormSubmission } from "../api/form-submission/formSubmissionApi";
-import dayjs from "dayjs";
+import { formatDate, formatDateTime } from "@/helpers/format";
 import { useDebounce } from "../hooks/useDebounce";
 import { cn } from "@/lib/utils";
 import { ConfirmationDialog } from "../components/ConfirmationDialog";
@@ -310,7 +309,7 @@ export default function FormSubmissionsPage() {
                               {sub.firstName} {sub.lastName}
                             </td>
                             <td className="px-4 py-3 text-muted-foreground">{sub.email}</td>
-                            <td className="px-4 py-3 text-muted-foreground hidden lg:table-cell whitespace-nowrap">{dayjs(sub.createdAt).format("MMM D, YYYY h:mm A")}</td>
+                            <td className="px-4 py-3 text-muted-foreground hidden lg:table-cell whitespace-nowrap">{formatDateTime(sub.createdAt)}</td>
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-2">
                                 {sub.status ? (
@@ -421,7 +420,7 @@ export default function FormSubmissionsPage() {
                                       ) : notesData[sub.id] && notesData[sub.id].length > 0 ? (
                                         notesData[sub.id].map((entry, idx) => (
                                           <tr key={idx} className={`border-b last:border-0 ${idx % 2 === 0 ? "bg-card" : "bg-muted/30"}`}>
-                                            <td className="px-4 py-3 text-sm">{entry.createdAt ? dayjs(entry.createdAt).format("MM/DD/YYYY") : "N/A"}</td>
+                                            <td className="px-4 py-3 text-sm">{formatDate(entry.createdAt, "N/A")}</td>
                                             <td className="px-4 py-3 text-sm">{entry.userName || "N/A"}</td>
                                             <td className="px-4 py-3 text-sm">{getStatusLabel(entry.oldStatus)}</td>
                                             <td className="px-4 py-3 text-sm">{getStatusLabel(entry.newStatus)}</td>
@@ -488,7 +487,7 @@ export default function FormSubmissionsPage() {
                         {formTypeLabel(selectedSubmission.formType)}
                       </span>
                       {" · "}
-                      {dayjs(selectedSubmission.createdAt).format("MMM D, YYYY h:mm A")}
+                      {formatDateTime(selectedSubmission.createdAt)}
                     </p>
                   )}
                 </div>

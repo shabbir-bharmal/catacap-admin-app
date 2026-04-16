@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { SortHeader } from "../components/ui/table-sort";
 import { PaginationControls } from "../components/ui/pagination-controls";
 import { useDebounce } from "../hooks/useDebounce";
-import dayjs from "dayjs";
+import { formatLongDate } from "@/helpers/format";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -169,10 +169,6 @@ export default function SoftCircleInvestments() {
 
   const totalPages = Math.ceil(totalCount / rowsPerPage);
 
-  const formatDate = (str?: string) => {
-    if (!str) return "—";
-    return dayjs(str).isValid() ? dayjs(str).format("MMM D, YYYY") : str;
-  };
 
   const SortButton = ({ field, label }: { field: SortField; label: string }) => (
     <button onClick={() => handleSort(field)} className="flex items-center gap-1 font-semibold hover:text-primary transition-colors" data-testid={`sort-${field}`}>
@@ -268,7 +264,7 @@ export default function SoftCircleInvestments() {
                         <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">{app.organization || "—"}</td>
                         <td className="px-4 py-3 text-muted-foreground hidden lg:table-cell">{app.country || "—"}</td>
                         <td className="px-4 py-3 text-muted-foreground hidden lg:table-cell">{app.goal ? `$${app.goal.toLocaleString()}` : "—"}</td>
-                        <td className="px-4 py-3 text-muted-foreground hidden lg:table-cell whitespace-nowrap">{formatDate(app.submitted)}</td>
+                        <td className="px-4 py-3 text-muted-foreground hidden lg:table-cell whitespace-nowrap">{formatLongDate(app.submitted)}</td>
                         <td className="px-4 py-3">
                           <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${STATUS_COLORS[app.statusName] ?? "bg-gray-100 text-gray-700"}`}>{app.statusName}</span>
                         </td>
@@ -444,7 +440,7 @@ export default function SoftCircleInvestments() {
                 </div>
                 <Field label="Internal Notes" value={viewApp.notes} />
               </div>
-              <div className="text-xs text-muted-foreground">Submitted: {formatDate(viewApp?.submitted)}</div>
+              <div className="text-xs text-muted-foreground">Submitted: {formatLongDate(viewApp?.submitted)}</div>
             </div>
           )}
 

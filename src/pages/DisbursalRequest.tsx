@@ -1,10 +1,9 @@
 import { useState, Fragment } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
-import dayjs from "dayjs";
 import { Link } from "wouter";
 import { AdminLayout } from "../components/AdminLayout";
-import { currency_format } from "@/helpers/format";
+import { currency_format, formatDate } from "@/helpers/format";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -30,12 +29,6 @@ import {
   NoteEntry
 } from "../api/disbursal-request/disbursalRequestApi";
 
-function formatDate(dateStr: string): string {
-  if (!dateStr) return "—";
-  const d = dayjs(dateStr);
-  if (!d.isValid()) return dateStr;
-  return d.format("MM/DD/YYYY");
-}
 
 const AdminDisbursalNotes = ({ id }: { id: number }) => {
   const { data: notes, isLoading } = useQuery({
