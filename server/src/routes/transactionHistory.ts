@@ -4,6 +4,7 @@ import pool from "../db.js";
 import { parsePagination, softDeleteFilter, buildSortClause } from "../utils/softDelete.js";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
+import ExcelJS from "exceljs";
 dayjs.extend(utc);
 
 const router = Router();
@@ -209,6 +210,9 @@ router.get("/export", async (_req: Request, res: Response) => {
        ORDER BY a.id DESC`
     );
 
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("AccountBalanceHistory");
+
     const headers = [
       "User Name",
       "Change Date",
@@ -222,37 +226,48 @@ router.get("/export", async (_req: Request, res: Response) => {
       "Zip Code",
       "Comment",
     ];
-
-    let csv = headers.join(",") + "\n";
+    const headerRow = worksheet.addRow(headers);
+    headerRow.eachCell((cell) => { cell.font = { bold: true }; });
 
     for (const row of result.rows) {
       const changeDate = row.change_date
         ? dayjs.utc(row.change_date).format("MM/DD/YYYY")
         : "";
 
-      const fields = [
-        `"${(row.user_name || "").replace(/"/g, '""')}"`,
-        `"${changeDate}"`,
-        `"${(row.investment_name || "").replace(/"/g, '""')}"`,
-        `"${(row.payment_type || "").replace(/"/g, '""')}"`,
-        row.old_value !== null ? parseFloat(row.old_value).toFixed(2) : "0.00",
-        row.new_value !== null ? parseFloat(row.new_value).toFixed(2) : "0.00",
-        parseFloat(row.gross_amount || 0).toFixed(2),
-        parseFloat(row.fees || 0).toFixed(2),
-        parseFloat(row.net_amount || 0).toFixed(2),
-        `"${(row.zip_code || "").replace(/"/g, '""')}"`,
-        `"${(row.comment || "").replace(/"/g, '""')}"`,
-      ];
+      const dataRow = worksheet.addRow([
+        row.user_name || "",
+        changeDate,
+        row.investment_name || "",
+        row.payment_type || "",
+        row.old_value != null ? parseFloat(row.old_value) : 0,
+        row.new_value != null ? parseFloat(row.new_value) : 0,
+        parseFloat(row.gross_amount || 0),
+        parseFloat(row.fees || 0),
+        parseFloat(row.net_amount || 0),
+        row.zip_code || "",
+        row.comment || "",
+      ]);
 
-      csv += fields.join(",") + "\n";
+      dataRow.getCell(5).numFmt = "$#,##0.00";
+      dataRow.getCell(6).numFmt = "$#,##0.00";
+      dataRow.getCell(7).numFmt = "$#,##0.00";
+      dataRow.getCell(8).numFmt = "$#,##0.00";
+      dataRow.getCell(9).numFmt = "$#,##0.00";
     }
 
-    res.setHeader("Content-Type", "text/csv");
-    res.setHeader(
-      "Content-Disposition",
-      'attachment; filename="AccountBalanceHistory.csv"'
-    );
-    res.send(csv);
+    worksheet.columns.forEach((col) => {
+      let maxLen = 10;
+      col.eachCell?.({ includeEmpty: true }, (cell) => {
+        const len = cell.value ? String(cell.value).length : 0;
+        if (len > maxLen) maxLen = len;
+      });
+      col.width = maxLen + 10;
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", 'attachment; filename="AccountBalanceHistory.xlsx"');
+    res.send(Buffer.from(buffer as ArrayBuffer));
   } catch (err) {
     console.error("Export transaction history error:", err);
     res.status(500).json({ message: "Internal server error" });

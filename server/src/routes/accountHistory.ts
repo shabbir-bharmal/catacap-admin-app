@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import pool from "../db.js";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
+import ExcelJS from "exceljs";
 dayjs.extend(utc);
 
 const router = Router();
@@ -198,44 +199,46 @@ router.get("/Export", async (req: Request, res: Response) => {
       values
     );
 
-    const headers = [
-      "UserName",
-      "ChangeDate",
-      "InvestmentName",
-      "PaymentType",
-      "OldValue",
-      "NewValue",
-      "ZipCode",
-      "Comment",
-    ];
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("AccountBalanceHistory");
 
-    let csv = headers.join(",") + "\n";
+    const headers = ["UserName", "ChangeDate", "InvestmentName", "PaymentType", "OldValue", "NewValue", "ZipCode", "Comment"];
+    const headerRow = worksheet.addRow(headers);
+    headerRow.eachCell((cell) => { cell.font = { bold: true }; });
 
     for (const row of result.rows) {
       const changeDate = row.change_date
         ? dayjs.utc(row.change_date).format("MM/DD/YYYY")
         : "";
 
-      const fields = [
-        `"${(row.user_name || "").replace(/"/g, '""')}"`,
-        `"${changeDate}"`,
-        `"${(row.investment_name || "").replace(/"/g, '""')}"`,
-        `"${(row.payment_type || "").replace(/"/g, '""')}"`,
-        row.old_value !== null ? parseFloat(row.old_value).toFixed(2) : "0.00",
-        row.new_value !== null ? parseFloat(row.new_value).toFixed(2) : "0.00",
-        `"${(row.zip_code || "").replace(/"/g, '""')}"`,
-        `"${(row.comment || "").replace(/"/g, '""')}"`,
-      ];
+      const dataRow = worksheet.addRow([
+        row.user_name || "",
+        changeDate,
+        row.investment_name || "",
+        row.payment_type || "",
+        row.old_value != null ? parseFloat(row.old_value) : 0,
+        row.new_value != null ? parseFloat(row.new_value) : 0,
+        row.zip_code || "",
+        row.comment || "",
+      ]);
 
-      csv += fields.join(",") + "\n";
+      dataRow.getCell(5).numFmt = "$#,##0.00";
+      dataRow.getCell(6).numFmt = "$#,##0.00";
     }
 
-    res.setHeader("Content-Type", "text/csv");
-    res.setHeader(
-      "Content-Disposition",
-      'attachment; filename="AccountBalanceHistory.csv"'
-    );
-    res.send(csv);
+    worksheet.columns.forEach((col) => {
+      let maxLen = 10;
+      col.eachCell?.({ includeEmpty: true }, (cell) => {
+        const len = cell.value ? String(cell.value).length : 0;
+        if (len > maxLen) maxLen = len;
+      });
+      col.width = maxLen + 10;
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", 'attachment; filename="AccountBalanceHistory.xlsx"');
+    res.send(Buffer.from(buffer as ArrayBuffer));
   } catch (err) {
     console.error("Export account history error:", err);
     res.status(500).json({ message: "Internal server error" });
