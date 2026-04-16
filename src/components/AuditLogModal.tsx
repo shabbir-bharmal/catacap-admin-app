@@ -110,7 +110,7 @@ export function AuditLogModal({ isOpen, onOpenChange, entityId, entityType, titl
     return `${entityLabel} ${log.actionType.toLowerCase()}`;
   };
 
-  const parseJson = (str: string) => {
+  const parseJson = (str: string | null) => {
     if (!str) return {};
     try {
       return JSON.parse(str) ?? {};
@@ -119,7 +119,7 @@ export function AuditLogModal({ isOpen, onOpenChange, entityId, entityType, titl
     }
   };
 
-  const parseChangedColumns = (cols: string): string[] => {
+  const parseChangedColumns = (cols: string | null): string[] => {
     try {
       if (!cols) return [];
       const parsed = JSON.parse(cols);
