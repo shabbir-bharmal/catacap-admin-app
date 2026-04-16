@@ -210,48 +210,37 @@ async function fixIncorrectBackfillDates(client: pg.PoolClient): Promise<void> {
 }
 
 async function backfillOrphanedUserRoles(client: pg.PoolClient): Promise<void> {
-  try {
-    const rolesExist = await client.query(
-      `SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'roles')`,
+  const roleCheck = await client.query(
+    `SELECT id FROM roles WHERE name = 'User' LIMIT 1`,
+  );
+  if (roleCheck.rows.length > 0) {
+    const userRoleId = roleCheck.rows[0].id;
+    const result = await client.query(
+      `INSERT INTO user_roles (user_id, role_id, discriminator, is_deleted)
+       SELECT u.id, $1, 'IdentityUserRole<string>', false
+       FROM users u
+       LEFT JOIN user_roles ur ON u.id = ur.user_id
+       WHERE ur.user_id IS NULL
+       ON CONFLICT DO NOTHING`,
+      [userRoleId],
     );
-    if (!rolesExist.rows[0].exists) {
-      return;
-    }
-
-    const roleCheck = await client.query(
-      `SELECT id FROM roles WHERE name = 'User' LIMIT 1`,
-    );
-    if (roleCheck.rows.length > 0) {
-      const userRoleId = roleCheck.rows[0].id;
-      const result = await client.query(
-        `INSERT INTO user_roles (user_id, role_id, discriminator, is_deleted)
-         SELECT u.id, $1, 'IdentityUserRole<string>', false
-         FROM users u
-         LEFT JOIN user_roles ur ON u.id = ur.user_id
-         WHERE ur.user_id IS NULL
-         ON CONFLICT DO NOTHING`,
-        [userRoleId],
-      );
-      if (result.rowCount && result.rowCount > 0) {
-        console.log(
-          `Backfilled user_roles for ${result.rowCount} orphaned user(s).`,
-        );
-      }
-    }
-
-    const updateResult = await client.query(
-      `UPDATE users
-       SET is_active = COALESCE(is_active, true),
-           date_created = COALESCE(date_created, NOW())
-       WHERE is_active IS NULL OR date_created IS NULL`,
-    );
-    if (updateResult.rowCount && updateResult.rowCount > 0) {
+    if (result.rowCount && result.rowCount > 0) {
       console.log(
-        `Backfilled is_active/date_created for ${updateResult.rowCount} user(s).`,
+        `Backfilled user_roles for ${result.rowCount} orphaned user(s).`,
       );
     }
-  } catch (err) {
-    console.warn("backfillOrphanedUserRoles skipped due to error:", err instanceof Error ? err.message : err);
+  }
+
+  const updateResult = await client.query(
+    `UPDATE users
+     SET is_active = COALESCE(is_active, true),
+         date_created = COALESCE(date_created, NOW())
+     WHERE is_active IS NULL OR date_created IS NULL`,
+  );
+  if (updateResult.rowCount && updateResult.rowCount > 0) {
+    console.log(
+      `Backfilled is_active/date_created for ${updateResult.rowCount} user(s).`,
+    );
   }
 }
 
