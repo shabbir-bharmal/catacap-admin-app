@@ -25,7 +25,7 @@ async function getFinancesData(): Promise<FinancesData> {
     const userStatsResult = await pool.query(
       `SELECT
          COUNT(CASE WHEN u.is_active = true THEN 1 END) AS active,
-         COUNT(CASE WHEN u.is_active IS NOT TRUE THEN 1 END) AS inactive,
+         COUNT(CASE WHEN u.is_active = false THEN 1 END) AS inactive,
          COALESCE(SUM(u.account_balance), 0) AS account_balances
        FROM users u
        JOIN user_roles ur ON u.id = ur.user_id
@@ -60,7 +60,7 @@ async function getFinancesData(): Promise<FinancesData> {
     const userIds = userIdsResult.rows.map((r) => r.id);
 
     const userEmailsResult = await pool.query(
-      `SELECT u.email
+      `SELECT LOWER(u.email) AS email
        FROM users u
        JOIN user_roles ur ON u.id = ur.user_id
        JOIN roles r ON ur.role_id = r.id
@@ -71,7 +71,7 @@ async function getFinancesData(): Promise<FinancesData> {
     const userEmails = userEmailsResult.rows.map((r) => r.email);
 
     const nonExcludeEmailsResult = await pool.query(
-      `SELECT u.email
+      `SELECT LOWER(u.email) AS email
        FROM users u
        JOIN user_roles ur ON u.id = ur.user_id
        JOIN roles r ON ur.role_id = r.id
@@ -140,7 +140,7 @@ async function getFinancesData(): Promise<FinancesData> {
            COUNT(CASE WHEN LOWER(TRIM(status)) = '${APPROVED}' THEN 1 END) AS approved_count,
            COUNT(CASE WHEN LOWER(TRIM(status)) = '${PENDING}' OR LOWER(TRIM(status)) = '${APPROVED}' THEN 1 END) AS approved_and_pending_count
          FROM recommendations
-         WHERE user_email IN (${emailPlaceholders})
+         WHERE LOWER(user_email) IN (${emailPlaceholders})
            AND (is_deleted IS NULL OR is_deleted = false)`,
         userEmails
       );
@@ -163,7 +163,7 @@ async function getFinancesData(): Promise<FinancesData> {
            COALESCE(SUM(CASE WHEN LOWER(TRIM(status)) = '${PENDING}' THEN amount ELSE 0 END), 0) AS pending,
            COALESCE(SUM(CASE WHEN LOWER(TRIM(status)) = '${APPROVED}' THEN amount ELSE 0 END), 0) AS approved
          FROM recommendations
-         WHERE user_email IN (${nePlaceholders})
+         WHERE LOWER(user_email) IN (${nePlaceholders})
            AND (is_deleted IS NULL OR is_deleted = false)`,
         nonExcludeEmails
       );
@@ -203,8 +203,9 @@ async function getFinancesData(): Promise<FinancesData> {
       const grantsResult = await pool.query(
         `SELECT amount
          FROM pending_grants
-         WHERE (LOWER(TRIM(status)) = '${PENDING}' OR LOWER(TRIM(status)) = '${IN_TRANSIT}')
-           AND user_id IN (${uidPlaceholders})
+         WHERE (LOWER(TRIM(status)) = '${PENDING}'
+            OR (LOWER(TRIM(status)) = '${IN_TRANSIT}'
+                AND user_id IN (${uidPlaceholders})))
            AND (is_deleted IS NULL OR is_deleted = false)`,
         userIds
       );
@@ -220,8 +221,9 @@ async function getFinancesData(): Promise<FinancesData> {
       const assetsResult = await pool.query(
         `SELECT COALESCE(SUM(approximate_amount), 0) AS total
          FROM asset_based_payment_requests
-         WHERE (LOWER(TRIM(status)) = '${PENDING}' OR LOWER(TRIM(status)) = '${IN_TRANSIT}')
-           AND user_id IN (${uidPlaceholders})
+         WHERE (LOWER(TRIM(status)) = '${PENDING}'
+            OR (LOWER(TRIM(status)) = '${IN_TRANSIT}'
+                AND user_id IN (${uidPlaceholders})))
            AND (is_deleted IS NULL OR is_deleted = false)`,
         userIds
       );
@@ -235,7 +237,7 @@ async function getFinancesData(): Promise<FinancesData> {
         `SELECT r.campaign_id, c.is_active, SUM(r.amount) AS total_amount
          FROM recommendations r
          JOIN campaigns c ON r.campaign_id = c.id AND (c.is_deleted IS NULL OR c.is_deleted = false)
-         WHERE r.user_email IN (${emailPlaceholders})
+         WHERE LOWER(r.user_email) IN (${emailPlaceholders})
            AND (LOWER(TRIM(r.status)) = '${APPROVED}' OR LOWER(TRIM(r.status)) = '${PENDING}')
            AND r.amount > 0
            AND r.user_email IS NOT NULL AND r.user_email != ''
@@ -288,7 +290,7 @@ async function getFinancesData(): Promise<FinancesData> {
       const rrResult = await pool.query(
         `SELECT campaign_id, amount, status
          FROM recommendations
-         WHERE user_email IN (${emailPlaceholders})
+         WHERE LOWER(user_email) IN (${emailPlaceholders})
            AND (LOWER(TRIM(status)) = '${PENDING}' OR LOWER(TRIM(status)) = '${APPROVED}')
            AND (is_deleted IS NULL OR is_deleted = false)`,
         userEmails
