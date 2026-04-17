@@ -143,7 +143,7 @@ export async function runSendReminderEmail(): Promise<void> {
       LEFT JOIN campaigns c ON c.id = pg.campaign_id
       WHERE LOWER(pg.status) = 'pending'
         AND pg.created_date IS NOT NULL
-        AND (CURRENT_DATE - pg.created_date::date) >= 3
+        AND (CURRENT_DATE - pg.created_date::date) IN (3, 14)
         AND (pg.is_deleted = false OR pg.is_deleted IS NULL)
     `;
 
@@ -181,11 +181,12 @@ export async function runSendReminderEmail(): Promise<void> {
       const daysDiff = parseInt(grant.days_diff, 10);
 
       const reminderTypes: string[] = [];
-      if (daysDiff >= 14) {
+      if (daysDiff === 14) {
         reminderTypes.push("Week2");
-      }
-      if (daysDiff >= 3) {
+      } else if (daysDiff === 3) {
         reminderTypes.push("Day3");
+      } else {
+        continue;
       }
 
       for (const reminderType of reminderTypes) {
