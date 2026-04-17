@@ -435,10 +435,10 @@ export default function UsersPage() {
                                       variant="outline"
                                       className="h-8 w-8 rounded-r-none border-r-0 text-[#405189] hover:text-[#405189] hover:bg-[#405189]/5"
                                       onClick={() => handleLoginAsUser(user)}
-                                      disabled={impersonatingUserId !== null}
+                                      disabled={impersonatingUserId === user.id}
                                       data-testid={`action-login-${user.id}`}
                                     >
-                                      <LogIn className={cn("h-4 w-4", impersonatingUserId === user.id ? "animate-spin" : "")} />
+                                      <LogIn className="h-4 w-4" />
                                     </Button>
                                   </TooltipTrigger>
                                   <TooltipContent>{impersonatingUserId === user.id ? "Logging in..." : "Login"}</TooltipContent>

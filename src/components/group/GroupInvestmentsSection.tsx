@@ -3,7 +3,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Plus, X, Save, ChevronLeft, ChevronRight, ImageIcon } from "lucide-react";
+import { Loader2, Plus, X, Save, ChevronLeft, ChevronRight, ImageIcon, Lock } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import {
     fetchGroupInvestments,
     updateGroupInvestments,
@@ -31,7 +32,13 @@ export function GroupInvestmentsSection({ apiGroupId, cardClassName }: GroupInve
         try {
             const data = await fetchGroupInvestments(apiGroupId);
             setSelectedCampaigns(data.groupCampaigns);
-            setInitialIds(new Set(data.groupCampaigns.map((c) => c.id)));
+            setInitialIds(
+                new Set(
+                    data.groupCampaigns
+                        .filter((c) => !c.isPrivateAccess)
+                        .map((c) => c.id)
+                )
+            );
             const combined = [...data.publicCampaigns, ...data.completedCampaigns];
             setAvailableCampaigns(combined);
             setCurrentPage(1);
@@ -60,7 +67,9 @@ export function GroupInvestmentsSection({ apiGroupId, cardClassName }: GroupInve
         if (!apiGroupId) return;
         setSaving(true);
         try {
-            const ids = selectedCampaigns.map((c) => c.id);
+            const ids = selectedCampaigns
+                .filter((c) => !c.isPrivateAccess)
+                .map((c) => c.id);
             await updateGroupInvestments(apiGroupId, ids);
             setInitialIds(new Set(ids));
             toast({ title: "Investments updated", description: "Group investments have been saved successfully." });
@@ -85,9 +94,10 @@ export function GroupInvestmentsSection({ apiGroupId, cardClassName }: GroupInve
         }
     }, [totalPages, currentPage]);
 
+    const editableSelected = selectedCampaigns.filter((c) => !c.isPrivateAccess);
     const hasChanges =
-        selectedCampaigns.length !== initialIds.size ||
-        selectedCampaigns.some((c) => !initialIds.has(c.id));
+        editableSelected.length !== initialIds.size ||
+        editableSelected.some((c) => !initialIds.has(c.id));
 
     if (loading) {
         return (
@@ -117,7 +127,7 @@ export function GroupInvestmentsSection({ apiGroupId, cardClassName }: GroupInve
                             <CampaignRow
                                 key={campaign.id}
                                 campaign={campaign}
-                                action="remove"
+                                action={campaign.isPrivateAccess ? "none" : "remove"}
                                 onAction={() => handleRemove(campaign)}
                             />
                         ))}
@@ -237,7 +247,7 @@ function CampaignRow({
     onAction,
 }: {
     campaign: GroupInvestmentCampaign;
-    action: "add" | "remove";
+    action: "add" | "remove" | "none";
     onAction: () => void;
 }) {
     const imgSrc = campaign.imageFileName || null;
@@ -257,33 +267,47 @@ function CampaignRow({
                     </AvatarFallback>
                 </Avatar>
                 <div className="min-w-0">
-                    <p className="font-medium text-sm truncate">{campaign.name}</p>
+                    <div className="flex items-center gap-2">
+                        <p className="font-medium text-sm truncate">{campaign.name}</p>
+                        {campaign.isPrivateAccess && (
+                            <Badge
+                                variant="secondary"
+                                className="shrink-0 gap-1 text-[10px] px-1.5 py-0"
+                                data-testid={`badge-private-access-${campaign.id}`}
+                            >
+                                <Lock className="w-3 h-3" />
+                                Private Access
+                            </Badge>
+                        )}
+                    </div>
                     <p className="text-xs text-muted-foreground">{campaign.stageLabel}</p>
                 </div>
             </div>
-            <Button
-                variant={action === "add" ? "outline" : "destructive"}
-                size="sm"
-                className={
-                    action === "add"
-                        ? "border-[#405189] text-[#405189] hover:bg-[#405189]/10 shrink-0"
-                        : "shrink-0"
-                }
-                onClick={onAction}
-                data-testid={`button-${action}-investment-${campaign.id}`}
-            >
-                {action === "add" ? (
-                    <>
-                        <Plus className="w-3.5 h-3.5 mr-1" />
-                        ADD
-                    </>
-                ) : (
-                    <>
-                        <X className="w-3.5 h-3.5 mr-1" />
-                        REMOVE
-                    </>
-                )}
-            </Button>
+            {action !== "none" && (
+                <Button
+                    variant={action === "add" ? "outline" : "destructive"}
+                    size="sm"
+                    className={
+                        action === "add"
+                            ? "border-[#405189] text-[#405189] hover:bg-[#405189]/10 shrink-0"
+                            : "shrink-0"
+                    }
+                    onClick={onAction}
+                    data-testid={`button-${action}-investment-${campaign.id}`}
+                >
+                    {action === "add" ? (
+                        <>
+                            <Plus className="w-3.5 h-3.5 mr-1" />
+                            ADD
+                        </>
+                    ) : (
+                        <>
+                            <X className="w-3.5 h-3.5 mr-1" />
+                            REMOVE
+                        </>
+                    )}
+                </Button>
+            )}
         </div>
     );
 }

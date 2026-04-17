@@ -465,7 +465,7 @@ router.get("/export", async (_req: Request, res: Response) => {
         c.meta_description,
       ]);
 
-      const currencyFmt = '$#,##0.00';
+      const currencyFmt = '"$"#,##0.00';
       const monetaryColumns = [9, 26, 40, 42, 49, 51];
       for (const col of monetaryColumns) {
         dataRow.getCell(col).numFmt = currencyFmt;

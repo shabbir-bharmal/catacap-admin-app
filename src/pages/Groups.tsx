@@ -436,7 +436,10 @@ export default function GroupsPage() {
                                   <Button
                                     size="icon"
                                     variant="outline"
-                                    className="h-8 w-8 rounded-none border-r-0 text-[#405189] hover:text-[#405189] hover:bg-[#405189]/5"
+                                    className={cn(
+                                      "h-8 w-8 text-[#405189] hover:text-[#405189] hover:bg-[#405189]/5",
+                                      group.active || authUser?.isSuperAdmin ? "rounded-none border-r-0" : "rounded-l-none"
+                                    )}
                                     onClick={() => openAuditLog(group.id, group.groupName)}
                                     data-testid={`button-audit-${group.id}`}
                                   >
@@ -446,24 +449,26 @@ export default function GroupsPage() {
                                 <TooltipContent>View audit logs</TooltipContent>
                               </Tooltip>
 
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <a href={`${FRONTEND_URL}/group/${group.identifier}`} target="_blank" rel="noopener noreferrer">
-                                    <Button
-                                      size="icon"
-                                      variant="outline"
-                                      className={cn(
-                                        "h-8 w-8 text-[#405189] hover:text-[#405189] hover:bg-[#405189]/5",
-                                        authUser?.isSuperAdmin ? "rounded-none border-r-0" : "rounded-l-none"
-                                      )}
-                                      data-testid={`button-view-${group.id}`}
-                                    >
-                                      <Eye className="h-4 w-4" />
-                                    </Button>
-                                  </a>
-                                </TooltipTrigger>
-                                <TooltipContent>View group</TooltipContent>
-                              </Tooltip>
+                              {group.active && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <a href={`${FRONTEND_URL}/group/${group.identifier}`} target="_blank" rel="noopener noreferrer">
+                                      <Button
+                                        size="icon"
+                                        variant="outline"
+                                        className={cn(
+                                          "h-8 w-8 text-[#405189] hover:text-[#405189] hover:bg-[#405189]/5",
+                                          authUser?.isSuperAdmin ? "rounded-none border-r-0" : "rounded-l-none"
+                                        )}
+                                        data-testid={`button-view-${group.id}`}
+                                      >
+                                        <Eye className="h-4 w-4" />
+                                      </Button>
+                                    </a>
+                                  </TooltipTrigger>
+                                  <TooltipContent>View group</TooltipContent>
+                                </Tooltip>
+                              )}
                               {authUser?.isSuperAdmin && (
                                 <Tooltip>
                                   <TooltipTrigger asChild>
