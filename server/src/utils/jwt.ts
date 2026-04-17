@@ -1,13 +1,14 @@
-import jwt from "jsonwebtoken";
+import jwt, { type SignOptions } from "jsonwebtoken";
 
 const JWT_SECRET = process.env.JWT_SECRET as string;
 if (!JWT_SECRET) {
   console.error("FATAL: JWT_SECRET environment variable is not set.");
   process.exit(1);
 }
-const JWT_ISSUER = "CataCap";
-const JWT_AUDIENCE = "CataCap";
-const JWT_EXPIRES_IN = "7d";
+const JWT_ISSUER = process.env.JWT_ISSUER || "CataCap";
+const JWT_AUDIENCE = process.env.JWT_AUDIENCE || "CataCap";
+const JWT_EXPIRES_IN_DAYS = Number(process.env.JWT_EXPIRES_IN_DAYS || 7);
+const JWT_EXPIRES_IN: SignOptions["expiresIn"] = `${JWT_EXPIRES_IN_DAYS}d`;
 
 export interface JwtPayload {
   id: string;
@@ -57,6 +58,7 @@ export function generateToken(payload: JwtPayload): string {
     },
     JWT_SECRET,
     {
+      algorithm: "HS256",
       issuer: JWT_ISSUER,
       audience: JWT_AUDIENCE,
       expiresIn: JWT_EXPIRES_IN,
@@ -67,6 +69,7 @@ export function generateToken(payload: JwtPayload): string {
 export function verifyToken(token: string): JwtPayload | null {
   try {
     const decoded = jwt.verify(token, JWT_SECRET, {
+      algorithms: ["HS256"],
       issuer: JWT_ISSUER,
       audience: JWT_AUDIENCE,
     });
