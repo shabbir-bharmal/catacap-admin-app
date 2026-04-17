@@ -698,10 +698,13 @@ router.get("/group-investments", async (req: Request, res: Response) => {
     }
 
     const linkedResult = await pool.query(
-      `SELECT c.id, c.name, c.stage, c.image_file_name, c.is_active
-       FROM campaign_groups cg
-       JOIN campaigns c ON cg.campaigns_id = c.id
-       WHERE cg.groups_id = $1
+      `SELECT c.id, c.name, c.stage, c.image_file_name, c.is_active,
+              (c.group_for_private_access_id = $1) AS is_private_access
+       FROM campaigns c
+       LEFT JOIN campaign_groups cg
+         ON cg.campaigns_id = c.id AND cg.groups_id = $1
+       WHERE cg.campaigns_id IS NOT NULL
+          OR c.group_for_private_access_id = $1
        ORDER BY c.name`,
       [groupId]
     );
@@ -727,7 +730,8 @@ router.get("/group-investments", async (req: Request, res: Response) => {
     let completedQuery = `
       SELECT c.id, c.name, c.stage, c.image_file_name, c.is_active
       FROM campaigns c
-      WHERE c.stage = 3`;
+      WHERE c.stage = 3
+        AND c.group_for_private_access_id IS NULL`;
     const completedValues: any[] = [];
     if (linkedIds.length > 0) {
       const placeholders = linkedIds.map((_: any, i: number) => `$${i + 1}`).join(", ");
@@ -804,6 +808,7 @@ router.get("/group-investments", async (req: Request, res: Response) => {
       raised: raisedByCompaign[c.id]?.raised || 0,
       investorCount: raisedByCompaign[c.id]?.investorCount || 0,
       investorAvatars: raisedByCompaign[c.id]?.avatars || [],
+      isPrivateAccess: c.is_private_access === true,
     });
 
     res.json({
@@ -832,11 +837,21 @@ router.put("/update-group-investments", async (req: Request, res: Response) => {
       return;
     }
 
-    const campaignIds: number[] = [...new Set(
+    const rawCampaignIds: number[] = [...new Set(
       rawBody
         .map((id: any) => Number(id))
         .filter((id: number) => Number.isInteger(id) && id > 0)
     )];
+
+    const privateLinkedResult = await pool.query(
+      `SELECT id FROM campaigns WHERE group_for_private_access_id = $1`,
+      [groupId]
+    );
+    const privateLinkedIds = new Set<number>(
+      privateLinkedResult.rows.map((r: any) => Number(r.id))
+    );
+
+    const campaignIds: number[] = rawCampaignIds.filter((id) => !privateLinkedIds.has(id));
 
     const groupResult = await pool.query(
       `SELECT id, name, owner_id FROM groups WHERE id = $1`,

@@ -293,6 +293,7 @@ export interface GroupInvestmentCampaign {
     raised?: number;
     investorCount?: number;
     investorAvatars?: string[];
+    isPrivateAccess?: boolean;
 }
 
 export interface GroupInvestmentsResponse {
