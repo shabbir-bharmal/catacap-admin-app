@@ -489,16 +489,16 @@ router.get("/export-disbursal-request-list", jwtUserAuthMiddleware, async (req: 
     });
 
     for (const row of data) {
-      const amountCell = formatAmount(row.distributed_amount);
-      worksheet.addRow([
+      const dataRow = worksheet.addRow([
         row.name || "",
         row.email || "",
         row.receive_date ? row.receive_date : "",
-        amountCell,
+        parseFloat(row.distributed_amount) || 0,
         resolveInvestmentTypeString(row.investment_types, typeMap),
         getStatusName(row.status),
         row.quote || "",
       ]);
+      dataRow.getCell(4).numFmt = "$#,##0.00";
     }
 
     worksheet.columns.forEach((col) => {

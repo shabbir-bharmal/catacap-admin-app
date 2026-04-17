@@ -293,9 +293,11 @@ router.get("/export", async (_req: Request, res: Response) => {
       const recResult = await pool.query(
         `SELECT campaign_id,
                 SUM(amount) AS balance,
-                COUNT(DISTINCT user_email) AS investors
+                COUNT(DISTINCT LOWER(TRIM(user_email))) AS investors
          FROM recommendations
-         WHERE amount > 0 AND user_email IS NOT NULL
+         WHERE amount > 0
+           AND user_email IS NOT NULL
+           AND TRIM(user_email) <> ''
            AND (LOWER(status) = 'approved' OR LOWER(status) = 'pending')
            AND (is_deleted IS NULL OR is_deleted = false)
          GROUP BY campaign_id`
@@ -781,7 +783,7 @@ router.get("/:id/recommendations/export", async (req: Request, res: Response) =>
         isInTransit,
       ]);
       dataRow.getCell(3).numFmt = "$#,##0.00";
-      dataRow.getCell(4).numFmt = "dd/MM/yy HH:mm";
+      dataRow.getCell(4).numFmt = "MM/dd/yy HH:mm";
     }
 
     worksheet.columns.forEach((col) => {

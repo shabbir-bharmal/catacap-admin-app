@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
+import ExcelJS from "exceljs";
 
 const router = Router();
 
@@ -267,7 +268,9 @@ async function getFinancesData(): Promise<FinancesData> {
     const completedCount = parseInt(completedResult.rows[0].count) || 0;
     const totalCompleted = parseFloat(completedResult.rows[0].total) || 0;
 
-    const allThemesResult = await pool.query(`SELECT id, name FROM themes`);
+    const allThemesResult = await pool.query(
+      `SELECT id, name FROM themes WHERE (is_deleted IS NULL OR is_deleted = false)`
+    );
     const allThemes = allThemesResult.rows;
 
     const rawCampaignThemesResult = await pool.query(
@@ -384,64 +387,138 @@ router.get("/export", async (_req: Request, res: Response) => {
   try {
     const data = await getFinancesData();
 
-    const headers = ["Label", "Value"];
-    const rows: string[][] = [];
+    const workbook = new ExcelJS.Workbook();
+    const ws = workbook.addWorksheet("Consolidated Finances");
 
-    rows.push(["USERS", ""]);
-    rows.push(["Total active users", String(data.users.active)]);
-    rows.push(["Total inactive users", String(data.users.inactive)]);
-    rows.push(["Total user account balances", `$${(data.users.accountBalances ?? 0).toFixed(2)}`]);
-    rows.push(["Total user investments", `$${(data.users.investments ?? 0).toFixed(2)}`]);
-    rows.push(["TOTAL USER INVESTMENTS PLUS ACCOUNT BALANCES", `$${(data.users.investmentsPlusAccountBalances ?? 0).toFixed(2)}`]);
+    ws.getColumn(1).width = 70;
+    ws.getColumn(2).width = 22;
 
-    rows.push(["GROUPS", ""]);
-    rows.push(["Investment groups (group leaders)", `${data.groups.investments} (${data.groups.leaders})`]);
-    rows.push(["Total group members", String(data.groups.members)]);
-    rows.push(["Total corporate groups", String(data.groups.corporate)]);
+    let rowNum = 1;
 
-    rows.push(["RECOMMENDATIONS", ""]);
-    rows.push(["Total pending", `$${(data.recommendations.pending ?? 0).toFixed(2)}`]);
-    rows.push(["Total approved", `$${(data.recommendations.approved ?? 0).toFixed(2)}`]);
-    rows.push(["Count of approved and pending recommendations", String(data.recommendations.approvedAndPending)]);
-    rows.push(["Total rejected", `$${(data.recommendations.rejected ?? 0).toFixed(2)}`]);
-    rows.push(["TOTAL RECOMMENDATIONS", `$${(data.recommendations.total ?? 0).toFixed(2)}`]);
+    const titleCell = ws.getCell(rowNum, 1);
+    titleCell.value = "Consolidated Finances";
+    titleCell.font = { bold: true, size: 16 };
+    ws.mergeCells(rowNum, 1, rowNum, 2);
+    rowNum += 1;
 
-    rows.push(["INVESTMENTS", ""]);
-    rows.push(["Average investment amount", `$${(data.investments.average ?? 0).toFixed(2)}`]);
-    rows.push(["Total active investments", String(data.investments.active)]);
-    rows.push(["Total active investments over $25K", String(data.investments.over25K)]);
-    rows.push(["Total active investments over $50K", String(data.investments.over50K)]);
-    rows.push(["Total completed investments", String(data.investments.completed)]);
-    rows.push(["TOTAL CATACAP INVESTMENTS, ACTIVE", `$${(data.investments.totalActive ?? 0).toFixed(2)}`]);
-    rows.push(["TOTAL CATACAP INVESTMENTS, COMPLETED", `$${(data.investments.totalCompleted ?? 0).toFixed(2)}`]);
-    rows.push(["TOTAL CATACAP INVESTMENTS, ACTIVE AND CLOSED", `$${(data.investments.totalActiveAndClosed ?? 0).toFixed(2)}`]);
-    rows.push(["TOTAL CATACAP ASSETS (User account balances + total recommendations)", `$${(data.investments.assets ?? 0).toFixed(2)}`]);
+    const addSectionHeader = (title: string) => {
+      const cell = ws.getCell(rowNum, 1);
+      cell.value = title;
+      cell.font = { bold: true, size: 13 };
+      ws.mergeCells(rowNum, 1, rowNum, 2);
+      ws.getRow(rowNum).height = 30;
+      rowNum++;
+    };
 
-    rows.push(["INVESTMENTS BY THEME", ""]);
+    const addRow = (label: string, value: string | number) => {
+      ws.getCell(rowNum, 1).value = label;
+      const valCell = ws.getCell(rowNum, 2);
+      valCell.value = value;
+      valCell.alignment = { horizontal: "right" };
+      ws.getRow(rowNum).height = 20;
+      rowNum++;
+    };
+
+    const addCurrencyRow = (label: string, value: number) => {
+      ws.getCell(rowNum, 1).value = label;
+      const valCell = ws.getCell(rowNum, 2);
+      valCell.value = value;
+      valCell.numFmt = '"$"#,##0.00';
+      valCell.alignment = { horizontal: "right" };
+      ws.getRow(rowNum).height = 20;
+      rowNum++;
+    };
+
+    const addTotalRow = (label: string, value: number) => {
+      const labelCell = ws.getCell(rowNum, 1);
+      const valCell = ws.getCell(rowNum, 2);
+      labelCell.value = label;
+      valCell.value = value;
+      valCell.numFmt = '"$"#,##0.00';
+      valCell.alignment = { horizontal: "right" };
+      const fill: ExcelJS.Fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFD3D3D3" },
+      };
+      labelCell.fill = fill;
+      valCell.fill = fill;
+      ws.getRow(rowNum).height = 20;
+      rowNum++;
+    };
+
+    const addBalanceRow = (label: string, value: number) => {
+      const labelCell = ws.getCell(rowNum, 1);
+      const valCell = ws.getCell(rowNum, 2);
+      labelCell.value = label;
+      valCell.value = value;
+      valCell.numFmt = '"$"#,##0.00';
+      valCell.alignment = { horizontal: "right" };
+      labelCell.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FF2B547F" },
+      };
+      labelCell.font = { color: { argb: "FFFFFFFF" } };
+      ws.getRow(rowNum).height = 20;
+      rowNum++;
+    };
+
+    addSectionHeader("USERS");
+    addRow("Total active users", data.users.active);
+    addRow("Total inactive users", data.users.inactive);
+    addCurrencyRow("Total user account balances", data.users.accountBalances ?? 0);
+    addCurrencyRow("Total user investments", data.users.investments ?? 0);
+    addTotalRow("TOTAL USER INVESTMENTS PLUS ACCOUNT BALANCES", data.users.investmentsPlusAccountBalances ?? 0);
+
+    addSectionHeader("GROUPS");
+    addRow("Investment groups (group leaders)", `${data.groups.investments} (${data.groups.leaders})`);
+    addRow("Total group members", data.groups.members);
+    addRow("Total corporate groups", data.groups.corporate);
+
+    addSectionHeader("RECOMMENDATIONS");
+    addCurrencyRow("Total pending", data.recommendations.pending ?? 0);
+    addCurrencyRow("Total approved", data.recommendations.approved ?? 0);
+    addRow("Count of approved and pending recommendations", data.recommendations.approvedAndPending);
+    addCurrencyRow("Total rejected", data.recommendations.rejected ?? 0);
+    addTotalRow("TOTAL RECOMMENDATIONS", data.recommendations.total ?? 0);
+
+    addSectionHeader("INVESTMENTS");
+    addCurrencyRow("Average investment amount", data.investments.average ?? 0);
+    addRow("Total active investments", data.investments.active);
+    addRow("Total active investments over $25K", data.investments.over25K);
+    addRow("Total active investments over $50K", data.investments.over50K);
+    addRow("Total completed investments", data.investments.completed);
+    addTotalRow("TOTAL CATACAP INVESTMENTS, ACTIVE", data.investments.totalActive ?? 0);
+    addTotalRow("TOTAL CATACAP INVESTMENTS, COMPLETED", data.investments.totalCompleted ?? 0);
+    addTotalRow("TOTAL CATACAP INVESTMENTS, ACTIVE AND CLOSED", data.investments.totalActiveAndClosed ?? 0);
+    addTotalRow("TOTAL CATACAP ASSETS (User account balances + total recommendations)", data.investments.assets ?? 0);
+
+    addSectionHeader("INVESTMENTS BY THEME");
     for (const theme of data.investmentThemes) {
-      rows.push([theme.name, `$${(theme.total ?? 0).toFixed(2)}`]);
+      addCurrencyRow(theme.name, theme.total ?? 0);
     }
 
-    rows.push(["GRANTS", ""]);
-    rows.push(["Total pending and in transit grants", `$${(data.grants.pendingAndInTransit ?? 0).toFixed(2)}`]);
-    rows.push(["Total pending and in transit other assets", `$${(data.grants.pendingAndInTransitOtherAssets ?? 0).toFixed(2)}`]);
+    addSectionHeader("GRANTS");
+    addCurrencyRow("Total pending and in transit grants", data.grants.pendingAndInTransit ?? 0);
+    addCurrencyRow("Total pending and in transit other assets", data.grants.pendingAndInTransitOtherAssets ?? 0);
 
-    rows.push(["TO BALANCE", ""]);
-    rows.push(["TOTAL RECOMMENDATIONS", `$${(data.toBalance.recommendations ?? 0).toFixed(2)}`]);
-    rows.push(["TOTAL ACTIVE AND CLOSED CATACAP INVESTMENTS", `$${(data.toBalance.activeAndClosed ?? 0).toFixed(2)}`]);
-    rows.push(["DIFFERENCE", `$${(data.toBalance.difference ?? 0).toFixed(2)}`]);
+    addSectionHeader("TO BALANCE");
+    addBalanceRow("TOTAL RECOMMENDATIONS", data.toBalance.recommendations ?? 0);
+    addBalanceRow("TOTAL ACTIVE AND CLOSED CATACAP INVESTMENTS", data.toBalance.activeAndClosed ?? 0);
+    addBalanceRow("DIFFERENCE", data.toBalance.difference ?? 0);
 
-    let csv = headers.join(",") + "\n";
-    for (const row of rows) {
-      csv += row.map((f) => `"${f.replace(/"/g, '""')}"`).join(",") + "\n";
-    }
+    const buffer = await workbook.xlsx.writeBuffer();
 
-    res.setHeader("Content-Type", "text/csv");
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
     res.setHeader(
       "Content-Disposition",
-      'attachment; filename="Consolidated Finances.csv"'
+      'attachment; filename="Consolidated Finances.xlsx"'
     );
-    res.send(csv);
+    res.send(Buffer.from(buffer));
   } catch (err) {
     console.error("Export finances error:", err);
     res.status(500).json({ message: "Internal server error" });

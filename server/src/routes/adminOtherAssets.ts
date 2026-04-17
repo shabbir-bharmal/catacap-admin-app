@@ -371,18 +371,23 @@ router.get("/export", async (_req: Request, res: Response) => {
         ? dayjs.utc(row.created_at).format("MM-DD-YYYY HH:mm")
         : "";
 
-      worksheet.addRow([
+      const dataRow = worksheet.addRow([
         fullName,
         row.email,
         row.campaign_name,
         assetType,
-        `$${approxAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-        `$${receivedAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        approxAmount,
+        receivedAmount,
         row.contact_method,
         row.contact_value,
         row.status,
         dateStr,
       ]);
+
+      dataRow.getCell(5).numFmt = "$#,##0.00";
+      dataRow.getCell(6).numFmt = "$#,##0.00";
+      dataRow.getCell(5).alignment = { horizontal: "right" };
+      dataRow.getCell(6).alignment = { horizontal: "right" };
     }
 
     worksheet.columns.forEach((col) => {

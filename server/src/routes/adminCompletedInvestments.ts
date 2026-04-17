@@ -42,11 +42,6 @@ function formatDateMMDDYYYY(dateVal: any): string {
   return d.format("MM/DD/YYYY");
 }
 
-function formatAmount(amount: any): string {
-  const num = parseFloat(amount) || 0;
-  return `$${num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
 router.get("/", async (req: Request, res: Response) => {
   try {
     const params = parsePagination(req.query as Record<string, unknown>);
@@ -434,19 +429,20 @@ router.get("/export", async (_req: Request, res: Response) => {
       const invTypeIds = parseCommaSeparatedIds(row.type_of_investment);
       const investmentTypesNames = invTypeIds.map((id) => invTypeMap[id]).filter(Boolean).join(", ");
 
-      worksheet.addRow([
+      const dataRow = worksheet.addRow([
         row.date_of_last_investment || "",
         row.campaign_name || "",
         getStageDescription(row.stage),
         row.associated_fund_id ? (fundNameMap[row.associated_fund_id] || "") : "",
         row.investment_detail || "",
-        formatAmount(row.amount),
+        parseFloat(row.amount) || 0,
         row.transaction_type_value || "",
         investmentTypesNames,
         row.donors || 0,
         row.balance_sheet || "",
         themeNames,
       ]);
+      dataRow.getCell(6).numFmt = "$#,##0.00";
     }
 
     const amountColIndex = 6;

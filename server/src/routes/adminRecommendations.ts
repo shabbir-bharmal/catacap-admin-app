@@ -301,9 +301,13 @@ router.get("/export", async (req: Request, res: Response) => {
         row.rejected_by_name,
         row.rejection_date,
       ]);
+      const amountCell = dataRow.getCell(5);
+      if (row.amount != null) {
+        amountCell.numFmt = "$#,##0.00";
+      }
       const dateCreatedCell = dataRow.getCell(6);
       if (row.date_created) {
-        dateCreatedCell.numFmt = "dd/MM/yy HH:mm";
+        dateCreatedCell.numFmt = "MM/dd/yy HH:mm";
       }
       const rejectionDateCell = dataRow.getCell(10);
       if (row.rejection_date) {
