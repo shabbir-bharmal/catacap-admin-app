@@ -17,6 +17,7 @@ import { useDebounce } from "../hooks/useDebounce";
 import { SortHeader } from "../components/ui/table-sort";
 import { PaginationControls } from "@/components/ui/pagination-controls";
 import { fetchGroups, exportGroupsData, updateGroupSettings, fetchGroupLeaders, fetchGroupChampions, deleteGroup, type GroupApiItem, type GroupLeader, type Champion } from "../api/group/groupApi";
+import { getToken } from "../api/axios";
 import { AuditLogModal } from "../components/AuditLogModal";
 import { ConfirmationDialog } from "../components/ConfirmationDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -448,7 +449,7 @@ export default function GroupsPage() {
 
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <a href={`${FRONTEND_URL}/group/${group.identifier}`} target="_blank" rel="noopener noreferrer">
+                                  <a href={`${FRONTEND_URL}/group/${group.identifier}/edit?token=${getToken()}`} target="_blank" rel="noopener noreferrer">
                                     <Button
                                       size="icon"
                                       variant="outline"
