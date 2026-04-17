@@ -17,11 +17,6 @@ function formatDateShort(dateVal: any): string {
   return d.format("MM/DD/YY");
 }
 
-function formatAmount(amount: any): string {
-  const num = parseFloat(amount) || 0;
-  return `$${num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
 router.get("/", async (req: Request, res: Response) => {
   try {
     const params = parsePagination(req.query as Record<string, unknown>);
@@ -434,9 +429,9 @@ router.get("/export", async (_req: Request, res: Response) => {
         row.first_name || "",
         row.last_name || "",
         row.email || "",
-        formatAmount(row.investment_amount),
+        parseFloat(row.investment_amount) || 0,
         percentage / 100,
-        formatAmount(row.detail_return_amount),
+        parseFloat(row.detail_return_amount) || 0,
         row.memo_note || "",
         row.status || "",
       ]);
@@ -444,6 +439,8 @@ router.get("/export", async (_req: Request, res: Response) => {
 
     const percentageCol = 8;
     worksheet.getColumn(percentageCol).numFmt = "0.00%";
+    worksheet.getColumn(7).numFmt = "$#,##0.00";
+    worksheet.getColumn(9).numFmt = "$#,##0.00";
 
     const rightAlignCols = [7, 8, 9];
     for (const colIdx of rightAlignCols) {

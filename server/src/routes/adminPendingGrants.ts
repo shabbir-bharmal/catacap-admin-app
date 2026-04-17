@@ -93,8 +93,8 @@ router.get("/export", async (_req: Request, res: Response) => {
       const dataRow = worksheet.addRow([
         fullName,
         row.email,
-        `$${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-        `$${amountAfterFees.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        amount,
+        amountAfterFees,
         row.daf_provider,
         row.daf_name,
         row.campaign_name,
@@ -105,6 +105,8 @@ router.get("/export", async (_req: Request, res: Response) => {
         dayCount,
       ]);
 
+      dataRow.getCell(3).numFmt = "$#,##0.00";
+      dataRow.getCell(4).numFmt = "$#,##0.00";
       dataRow.getCell(3).alignment = { horizontal: "right" };
       dataRow.getCell(4).alignment = { horizontal: "right" };
     }

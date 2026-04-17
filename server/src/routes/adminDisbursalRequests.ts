@@ -93,11 +93,6 @@ function formatDateSlash(dateVal: any): string {
   return d.format("MM/DD/YYYY");
 }
 
-function formatAmount(amount: any): string {
-  const num = parseFloat(amount) || 0;
-  return `$${num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
 router.get("/", async (req: Request, res: Response) => {
   try {
     const params = parsePagination(req.query as Record<string, unknown>);
@@ -250,16 +245,16 @@ router.get("/export", async (_req: Request, res: Response) => {
     });
 
     for (const row of data) {
-      const amountCell = formatAmount(row.distributed_amount);
-      worksheet.addRow([
+      const dataRow = worksheet.addRow([
         row.name || "",
         row.email || "",
         row.receive_date ? row.receive_date : "",
-        amountCell,
+        parseFloat(row.distributed_amount) || 0,
         resolveInvestmentTypeString(row.investment_types, typeMap),
         getStatusName(row.status),
         row.quote || "",
       ]);
+      dataRow.getCell(4).numFmt = "$#,##0.00";
     }
 
     worksheet.columns.forEach((col) => {

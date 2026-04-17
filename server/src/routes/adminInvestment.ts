@@ -781,7 +781,7 @@ router.get("/:id/recommendations/export", async (req: Request, res: Response) =>
         isInTransit,
       ]);
       dataRow.getCell(3).numFmt = "$#,##0.00";
-      dataRow.getCell(4).numFmt = "dd/MM/yy HH:mm";
+      dataRow.getCell(4).numFmt = "MM/dd/yy HH:mm";
     }
 
     worksheet.columns.forEach((col) => {
