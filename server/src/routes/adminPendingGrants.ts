@@ -179,14 +179,36 @@ router.get("/", async (req: Request, res: Response) => {
 
     if (dafProvider) {
       const dafProviderList = dafProvider.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
-      if (dafProviderList.length === 1) {
-        conditions.push(`LOWER(TRIM(pg.daf_provider)) = LOWER(TRIM($${paramIdx}))`);
-        values.push(dafProviderList[0]);
+      const hasOther = dafProviderList.includes("other");
+      const selectedProviders = dafProviderList.filter((p) => p !== "other");
+
+      const knownProvidersResult = await pool.query(
+        `SELECT LOWER(TRIM(provider_name)) AS name FROM daf_providers`
+      );
+      const knownProviders: string[] = knownProvidersResult.rows.map((r: any) => r.name);
+
+      const branches: string[] = [];
+
+      if (selectedProviders.length > 0) {
+        branches.push(`LOWER(TRIM(pg.daf_provider)) = ANY($${paramIdx})`);
+        values.push(selectedProviders);
         paramIdx++;
-      } else if (dafProviderList.length > 1) {
-        conditions.push(`LOWER(TRIM(pg.daf_provider)) = ANY($${paramIdx})`);
-        values.push(dafProviderList);
-        paramIdx++;
+      }
+
+      if (hasOther) {
+        if (knownProviders.length > 0) {
+          branches.push(
+            `(LOWER(TRIM(pg.daf_provider)) <> ALL($${paramIdx}) AND LOWER(TRIM(pg.daf_provider)) <> 'foundation grant')`
+          );
+          values.push(knownProviders);
+          paramIdx++;
+        } else {
+          branches.push(`LOWER(TRIM(pg.daf_provider)) <> 'foundation grant'`);
+        }
+      }
+
+      if (branches.length > 0) {
+        conditions.push(`(${branches.join(" OR ")})`);
       }
     }
 
