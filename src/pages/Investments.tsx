@@ -19,10 +19,12 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { Search, Download, Copy, ClipboardCopy, Pencil, Trash2, ChevronLeft, ChevronRight, FileText, History } from "lucide-react";
+import { Search, Download, Copy, ClipboardCopy, Pencil, Trash2, ChevronLeft, ChevronRight, ChevronDown, Check, FileText, History } from "lucide-react";
 import { useSort } from "../hooks/useSort";
 import { useDebounce } from "../hooks/useDebounce";
 import { SortHeader } from "../components/ui/table-sort";
@@ -102,7 +104,7 @@ interface InvestmentData {
   imageFileName: string;
 }
 
-const stageOptions = ["All", "New", "Compliance Review", "Private", "Public", "Completed - Ongoing", "Closed - Invested", "Closed - Not Invested", "Vetting", "Completed - Ongoing/Private"];
+const stageOptions = ["New", "Compliance Review", "Private", "Public", "Completed - Ongoing", "Closed - Invested", "Closed - Not Invested", "Vetting", "Completed - Ongoing/Private"];
 
 const statusOptions = ["Active", "Inactive", "All"];
 
@@ -116,7 +118,8 @@ export default function InvestmentsPage() {
   const debouncedSearch = useDebounce(searchQuery, 500);
   const effectiveSearch = debouncedSearch.length >= 3 || debouncedSearch.length === 0 ? debouncedSearch : "";
 
-  const [stageFilter, setStageFilter] = useState("All");
+  const [selectedStages, setSelectedStages] = useState<string[]>([]);
+  const [stageFilterOpen, setStageFilterOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState("Active");
   const { sortField, sortDir, handleSort: originalHandleSort } = useSort<SortField>();
 
@@ -157,7 +160,7 @@ export default function InvestmentsPage() {
       return;
     }
     loadInvestments();
-  }, [effectiveSearch, stageFilter, statusFilter, sortField, sortDir, currentPage, rowsPerPage, searchQuery, debouncedSearch]);
+  }, [effectiveSearch, selectedStages, statusFilter, sortField, sortDir, currentPage, rowsPerPage, searchQuery, debouncedSearch]);
 
   const loadInvestments = async (setLoader: boolean = true) => {
     setLoader && setIsLoading(true);
@@ -169,7 +172,9 @@ export default function InvestmentsPage() {
         sortDirection: sortDir || undefined,
         searchValue: effectiveSearch,
         status: statusFilter,
-        stages: stageFilter !== "All" ? String(STAGE_NAME_TO_ID[stageFilter]) : undefined,
+        stages: selectedStages.length > 0
+          ? selectedStages.map((s) => STAGE_NAME_TO_ID[s]).filter((n) => n !== undefined).join(",")
+          : undefined,
         investmentStatus: statusFilter === "Active" ? true : statusFilter === "Inactive" ? false : undefined
       });
       if (response && response.items) {
@@ -425,24 +430,62 @@ export default function InvestmentsPage() {
               </div>
               <div className="flex flex-col gap-0.5">
                 <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">Filter By Stage</Label>
-                <Select
-                  value={stageFilter}
-                  onValueChange={(v) => {
-                    setStageFilter(v);
-                    setCurrentPage(1);
-                  }}
-                >
-                  <SelectTrigger className="w-[220px]" data-testid="select-stage-filter">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {stageOptions.map((opt) => (
-                      <SelectItem key={opt} value={opt}>
-                        {opt}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Popover open={stageFilterOpen} onOpenChange={setStageFilterOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={stageFilterOpen}
+                      className={cn(
+                        "flex h-9 w-[300px] items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-normal"
+                      )}
+                      data-testid="select-stage-filter"
+                    >
+                      <span className="truncate">
+                        {selectedStages.length === 0 ? "All Stages" : selectedStages.join(", ")}
+                      </span>
+                      <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[300px] p-0 bg-popover" align="start">
+                    <Command className="bg-transparent">
+                      <CommandInput placeholder="Search stage..." />
+                      <CommandList className="max-h-[264px]">
+                        <CommandEmpty>No stage found.</CommandEmpty>
+                        <CommandGroup>
+                          <CommandItem
+                            onSelect={() => {
+                              if (selectedStages.length === 0) return;
+                              setSelectedStages([]);
+                              setCurrentPage(1);
+                            }}
+                            data-testid="stage-filter-option-all"
+                          >
+                            <Check className={`h-4 w-4 ${selectedStages.length === 0 ? "opacity-100" : "opacity-0"}`} />
+                            All Stages
+                          </CommandItem>
+                          {stageOptions.map((opt) => (
+                            <CommandItem
+                              key={opt}
+                              onSelect={() => {
+                                setSelectedStages((prev) =>
+                                  prev.includes(opt) ? prev.filter((s) => s !== opt) : [...prev, opt]
+                                );
+                                setCurrentPage(1);
+                              }}
+                              data-testid={`stage-filter-option-${opt}`}
+                            >
+                              <Check
+                                className={`h-4 w-4 ${selectedStages.includes(opt) ? "opacity-100" : "opacity-0"}`}
+                              />
+                              {opt}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
               <div className="flex flex-col gap-0.5">
                 <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">Status</Label>
