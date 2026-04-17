@@ -106,7 +106,13 @@ router.get("/", async (req: Request, res: Response) => {
       `SELECT cg.groups_id, c.id as campaign_id, c.is_active, c.stage
        FROM campaign_groups cg
        JOIN campaigns c ON cg.campaigns_id = c.id
-       WHERE cg.groups_id IN (${cgPlaceholders})`,
+       WHERE cg.groups_id IN (${cgPlaceholders})
+         AND (c.is_deleted IS NULL OR c.is_deleted = false)
+       UNION
+       SELECT c.group_for_private_access_id as groups_id, c.id as campaign_id, c.is_active, c.stage
+       FROM campaigns c
+       WHERE c.group_for_private_access_id IN (${cgPlaceholders})
+         AND (c.is_deleted IS NULL OR c.is_deleted = false)`,
       groupIds
     );
 
@@ -298,6 +304,11 @@ router.get("/export", async (req: Request, res: Response) => {
          FROM campaign_groups cg
          JOIN campaigns c ON cg.campaigns_id = c.id
          WHERE cg.groups_id IN (${cgPlaceholders})
+           AND (c.is_deleted IS NULL OR c.is_deleted = false)
+         UNION
+         SELECT c.group_for_private_access_id as groups_id, c.id as campaign_id, c.is_active, c.stage
+         FROM campaigns c
+         WHERE c.group_for_private_access_id IN (${cgPlaceholders})
            AND (c.is_deleted IS NULL OR c.is_deleted = false)`,
         groupIds
       );
@@ -1119,7 +1130,13 @@ router.get("/:identifier", async (req: Request, res: Response) => {
       `SELECT c.id, c.name, c.image_file_name, c.stage, c.is_active
        FROM campaign_groups cg
        JOIN campaigns c ON cg.campaigns_id = c.id
-       WHERE cg.groups_id = $1`,
+       WHERE cg.groups_id = $1
+         AND (c.is_deleted IS NULL OR c.is_deleted = false)
+       UNION
+       SELECT c.id, c.name, c.image_file_name, c.stage, c.is_active
+       FROM campaigns c
+       WHERE c.group_for_private_access_id = $1
+         AND (c.is_deleted IS NULL OR c.is_deleted = false)`,
       [group.id]
     );
 
