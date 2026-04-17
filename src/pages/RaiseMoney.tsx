@@ -1164,6 +1164,11 @@ export default function AdminRaiseMoney() {
                     <SelectContent>
                       <SelectItem value="Company/Fund Executive">Company/Fund Executive</SelectItem>
                       <SelectItem value="Investor">Investor</SelectItem>
+                      <SelectItem value="Founder / Co-Founder">Founder / Co-Founder</SelectItem>
+                      <SelectItem value="CEO / Executive Director">CEO / Executive Director</SelectItem>
+                      <SelectItem value="CFO / Finance Lead">CFO / Finance Lead</SelectItem>
+                      <SelectItem value="Fundraiser / Development">Fundraiser / Development</SelectItem>
+                      <SelectItem value="Advisor / Consultant">Advisor / Consultant</SelectItem>
                       <SelectItem value="Other">Other</SelectItem>
                     </SelectContent>
                   </Select>
