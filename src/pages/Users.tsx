@@ -15,6 +15,7 @@ import { useSort } from "../hooks/useSort";
 import { useDebounce } from "../hooks/useDebounce";
 import { SortHeader } from "../components/ui/table-sort";
 import { exportUsers, fetchUsers, UserEntry, updateAccountBalance, updateUserSettings, assignGroupAdmin, loginAsUser, deleteUser } from "../api/user/userApi";
+import { fetchUserRecommendations, UserRecommendationItem } from "../api/recommendation/recommendationApi";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { ConfirmationDialog } from "../components/ConfirmationDialog";
@@ -51,6 +52,28 @@ export default function UsersPage() {
   const [impersonatingUserId, setImpersonatingUserId] = useState<string | null>(null);
   const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
   const [auditTarget, setAuditTarget] = useState<{ id: string; name: string } | null>(null);
+  const [recsDialogOpen, setRecsDialogOpen] = useState(false);
+  const [recsDialogUser, setRecsDialogUser] = useState<UserEntry | null>(null);
+  const [recsDialogItems, setRecsDialogItems] = useState<UserRecommendationItem[]>([]);
+  const [recsDialogLoading, setRecsDialogLoading] = useState(false);
+  const [recsDialogError, setRecsDialogError] = useState<string | null>(null);
+
+  const openRecsDialog = async (user: UserEntry) => {
+    setRecsDialogUser(user);
+    setRecsDialogOpen(true);
+    setRecsDialogItems([]);
+    setRecsDialogError(null);
+    setRecsDialogLoading(true);
+    try {
+      const items = await fetchUserRecommendations(user.id);
+      setRecsDialogItems(items);
+    } catch (err) {
+      console.error("Failed to load user recommendations", err);
+      setRecsDialogError("Failed to load recommendations.");
+    } finally {
+      setRecsDialogLoading(false);
+    }
+  };
 
   // Delete state
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -308,7 +331,7 @@ export default function UsersPage() {
                       Email
                     </th>
                     <SortHeader field="recommendations" sortField={sortField} sortDir={sortDir} handleSort={handleSort}>
-                      Recommendations
+                      Recs
                     </SortHeader>
                     <SortHeader field="accountbalance" sortField={sortField} sortDir={sortDir} handleSort={handleSort}>
                       Account Balance
@@ -362,9 +385,20 @@ export default function UsersPage() {
                           </div>
                         </td>
                         <td className="px-4 py-3">
-                          <span className="text-sm" data-testid={`text-recommendations-${user.id}`}>
-                            {user.recommendationsCount}
-                          </span>
+                          {user.recommendationsCount > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => openRecsDialog(user)}
+                              className="text-sm font-medium text-[#0ab39c] hover:underline focus:outline-none focus-visible:underline cursor-pointer"
+                              data-testid={`button-recommendations-${user.id}`}
+                            >
+                              {user.recommendationsCount}
+                            </button>
+                          ) : (
+                            <span className="text-sm" data-testid={`text-recommendations-${user.id}`}>
+                              {user.recommendationsCount}
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-3">
                           <span className="text-sm" data-testid={`text-balance-${user.id}`}>
@@ -620,6 +654,69 @@ export default function UsersPage() {
         entityType="users"
         title={`Audit Logs - ${auditTarget?.name}`}
       />
+
+      <Dialog open={recsDialogOpen} onOpenChange={setRecsDialogOpen}>
+        <DialogContent className="max-w-2xl" data-testid="dialog-user-recommendations">
+          <DialogHeader>
+            <DialogTitle>
+              Recommendations{recsDialogUser ? ` - ${recsDialogUser.fullName}` : ""}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto">
+            {recsDialogLoading && (
+              <div className="py-6 text-center text-sm text-muted-foreground">Loading...</div>
+            )}
+            {!recsDialogLoading && recsDialogError && (
+              <div className="py-6 text-center text-sm text-destructive">{recsDialogError}</div>
+            )}
+            {!recsDialogLoading && !recsDialogError && recsDialogItems.length === 0 && (
+              <div className="py-6 text-center text-sm text-muted-foreground">
+                No recommendations found.
+              </div>
+            )}
+            {!recsDialogLoading && !recsDialogError && recsDialogItems.length > 0 && (
+              <table className="w-full text-sm" data-testid="table-user-recommendations">
+                <thead>
+                  <tr className="border-b bg-muted/50 text-xs uppercase tracking-wider text-muted-foreground">
+                    <th className="px-3 py-2 text-left font-semibold">Investment</th>
+                    <th className="px-3 py-2 text-right font-semibold">Amount</th>
+                    <th className="px-3 py-2 text-left font-semibold">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recsDialogItems.map((rec) => (
+                    <tr key={rec.id} className="border-b last:border-b-0" data-testid={`row-user-recommendation-${rec.id}`}>
+                      <td className="px-3 py-2" data-testid={`text-rec-campaign-${rec.id}`}>
+                        {rec.campaignName || "-"}
+                      </td>
+                      <td className="px-3 py-2 text-right font-medium" data-testid={`text-rec-amount-${rec.id}`}>
+                        ${(rec.amount ?? 0).toFixed(2)}
+                      </td>
+                      <td className="px-3 py-2 capitalize" data-testid={`text-rec-status-${rec.id}`}>
+                        {rec.status || "-"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t bg-muted/30 font-semibold">
+                    <td className="px-3 py-2 text-left">Total</td>
+                    <td className="px-3 py-2 text-right" data-testid="text-rec-total">
+                      ${recsDialogItems.reduce((sum, r) => sum + (r.amount ?? 0), 0).toFixed(2)}
+                    </td>
+                    <td className="px-3 py-2"></td>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRecsDialogOpen(false)} data-testid="button-close-recommendations">
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AdminLayout>
   );
 }

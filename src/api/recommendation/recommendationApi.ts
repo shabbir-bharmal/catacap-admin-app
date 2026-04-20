@@ -131,6 +131,22 @@ export async function exportRecommendations(): Promise<void> {
   window.URL.revokeObjectURL(downloadUrl);
 }
 
+export interface UserRecommendationItem {
+  id: number;
+  amount: number;
+  status: string;
+  dateCreated: string;
+  campaignId: number | null;
+  campaignName: string | null;
+}
+
+export async function fetchUserRecommendations(userId: string): Promise<UserRecommendationItem[]> {
+  const response = await axiosInstance.get<{ success: boolean; items: UserRecommendationItem[] }>(
+    `/api/admin/recommendation/by-user/${userId}`
+  );
+  return response.data?.items || [];
+}
+
 export async function deleteRecommendation(id: number): Promise<any> {
   const response = await axiosInstance.delete(`/api/admin/recommendation/${id}`);
   return response.data;
