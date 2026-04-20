@@ -564,6 +564,29 @@ export async function runDailyCleanup(): Promise<void> {
         console.log(`  campaign_groups: deleted ${result.rowCount} row(s)`);
       });
 
+      await runStep("Level5: CampaignGroups delete by group", async () => {
+        const byGroup = await client.query(
+          `DELETE FROM campaign_groups cdg
+           USING groups g
+           WHERE g.id = cdg.groups_id
+             AND g.deleted_at IS NOT NULL
+             AND g.deleted_at <= $1`,
+          [cutoffDate]
+        );
+        console.log(`  campaign_groups (by deleted group): deleted ${byGroup.rowCount} row(s)`);
+
+        const byOwner = await client.query(
+          `DELETE FROM campaign_groups cdg
+           USING groups g, users u
+           WHERE g.id = cdg.groups_id
+             AND u.id = g.owner_id
+             AND u.deleted_at IS NOT NULL
+             AND u.deleted_at <= $1`,
+          [cutoffDate]
+        );
+        console.log(`  campaign_groups (by group owner user): deleted ${byOwner.rowCount} row(s)`);
+      });
+
       await runStep("Level5: ReturnMasters orphan", () =>
         archiveAndDeleteOrphan(client, "ReturnMasters", "CampaignId", "Campaigns", "Id", cutoffDate));
       await runStep("Level5: ScheduledEmailLogs", () =>
@@ -713,6 +736,11 @@ export async function runDailyCleanup(): Promise<void> {
       await runStep("Nullify: PendingGrantNotes.CreatedBy", () =>
         nullifyFkColumn(client, "PendingGrantNotes", "CreatedBy", cutoffDate));
 
+      await runStep("Nullify: ModuleAccessPermission.UpdatedBy", () =>
+        nullifyFkColumn(client, "ModuleAccessPermission", "UpdatedBy", cutoffDate));
+      await runStep("Nullify: ReturnMasters.CreatedBy", () =>
+        nullifyFkColumn(client, "ReturnMasters", "CreatedBy", cutoffDate));
+
       console.log("-- FK RESOLUTION: Remove non-deleted records blocking user deletion --");
 
       await runStep("FK-resolve: completed_investment_notes via completed_investment_details→campaigns→users", async () => {
@@ -781,11 +809,107 @@ export async function runDailyCleanup(): Promise<void> {
       await runStep("FK-resolve: AccountBalanceChangeLogs via user-campaign", () =>
         archiveAndDeleteCampaignChildByUser(client, "AccountBalanceChangeLogs", "CampaignId", cutoffDate));
 
+      await runStep("FK-resolve: AspNetUserRoles by user_id", async () => {
+        await client.query(
+          `INSERT INTO archived_user_data
+            (source_table, record_id, user_id, deleted_at, days_old, record_json, archived_at)
+           SELECT
+             'user_roles',
+             CAST(ur.user_id AS TEXT) || ':' || CAST(ur.role_id AS TEXT),
+             CAST(ur.user_id AS VARCHAR(450)),
+             u.deleted_at,
+             (CURRENT_DATE - u.deleted_at::date),
+             row_to_json(ur)::TEXT,
+             NOW()
+           FROM user_roles ur
+           JOIN users u
+             ON u.id = ur.user_id
+             AND u.deleted_at IS NOT NULL
+             AND u.deleted_at <= $1
+           WHERE NOT EXISTS (
+             SELECT 1 FROM archived_user_data a
+             WHERE a.source_table = 'user_roles'
+               AND a.record_id = CAST(ur.user_id AS TEXT) || ':' || CAST(ur.role_id AS TEXT)
+               AND CAST(a.archived_at AS DATE) = CURRENT_DATE
+           )`,
+          [cutoffDate]
+        );
+        const result = await client.query(
+          `DELETE FROM user_roles ur
+           USING users u
+           WHERE u.id = ur.user_id
+             AND u.deleted_at IS NOT NULL
+             AND u.deleted_at <= $1`,
+          [cutoffDate]
+        );
+        console.log(`  user_roles (by deleted user): archived & deleted ${result.rowCount} row(s)`);
+      });
+
       await runStep("FK-resolve: Campaigns by user_id", () =>
         archiveAndDeleteByUserFK(client, "Campaigns", "UserId", cutoffDate));
 
       await runStep("FK-resolve: GroupAccountBalance by user_id", () =>
         archiveAndDeleteByUserFK(client, "GroupAccountBalance", "UserId", cutoffDate));
+
+      await runStep("FK-resolve: AssetBasedPaymentRequest by user_id", () =>
+        archiveAndDeleteByUserFK(client, "AssetBasedPaymentRequest", "UserId", cutoffDate));
+      await runStep("FK-resolve: DisbursalRequest by user_id", () =>
+        archiveAndDeleteByUserFK(client, "DisbursalRequest", "UserId", cutoffDate));
+      await runStep("FK-resolve: InvestmentFeedback by user_id", () =>
+        archiveAndDeleteByUserFK(client, "InvestmentFeedback", "UserId", cutoffDate));
+      await runStep("FK-resolve: InvestmentRequest by user_id", () =>
+        archiveAndDeleteByUserFK(client, "InvestmentRequest", "UserId", cutoffDate));
+      await runStep("FK-resolve: LeaderGroup by user_id", () =>
+        archiveAndDeleteByUserFK(client, "LeaderGroup", "UserId", cutoffDate));
+      await runStep("FK-resolve: PendingGrants by user_id", () =>
+        archiveAndDeleteByUserFK(client, "PendingGrants", "UserId", cutoffDate));
+      await runStep("FK-resolve: Recommendations by user_id", () =>
+        archiveAndDeleteByUserFK(client, "Recommendations", "UserId", cutoffDate));
+      await runStep("FK-resolve: ReturnDetails by user_id", () =>
+        archiveAndDeleteByUserFK(client, "ReturnDetails", "UserId", cutoffDate));
+      await runStep("FK-resolve: ScheduledEmailLogs by user_id", () =>
+        archiveAndDeleteByUserFK(client, "ScheduledEmailLogs", "UserId", cutoffDate));
+      await runStep("FK-resolve: Testimonial by user_id", () =>
+        archiveAndDeleteByUserFK(client, "Testimonial", "UserId", cutoffDate));
+      await runStep("FK-resolve: UserInvestments by user_id", () =>
+        archiveAndDeleteByUserFK(client, "UserInvestments", "UserId", cutoffDate));
+      await runStep("FK-resolve: UsersNotifications by target_user_id", () =>
+        archiveAndDeleteByUserFK(client, "UsersNotifications", "TargetUserId", cutoffDate));
+
+      await runStep("FK-resolve: AspNetUserClaims by user_id", async () => {
+        if (!(await tableExists(client, "user_claims"))) {
+          console.log(`  SKIP (table not found): user_claims`);
+          return;
+        }
+        const result = await client.query(
+          `DELETE FROM user_claims uc
+           USING users u
+           WHERE u.id = uc.user_id
+             AND u.deleted_at IS NOT NULL
+             AND u.deleted_at <= $1`,
+          [cutoffDate]
+        );
+        console.log(`  user_claims (by deleted user): deleted ${result.rowCount} row(s)`);
+      });
+
+      await runStep("FK-resolve: AspNetUserLogins by user_id", async () => {
+        if (!(await tableExists(client, "user_logins"))) {
+          console.log(`  SKIP (table not found): user_logins`);
+          return;
+        }
+        const result = await client.query(
+          `DELETE FROM user_logins ul
+           USING users u
+           WHERE u.id = ul.user_id
+             AND u.deleted_at IS NOT NULL
+             AND u.deleted_at <= $1`,
+          [cutoffDate]
+        );
+        console.log(`  user_logins (by deleted user): deleted ${result.rowCount} row(s)`);
+      });
+
+      await runStep("Nullify: CompletedInvestmentsDetails.CreatedBy", () =>
+        nullifyFkColumn(client, "CompletedInvestmentsDetails", "CreatedBy", cutoffDate));
 
       console.log("-- LEVEL 1: Root --");
       await runStep("Level1: AspNetUsers", () =>
