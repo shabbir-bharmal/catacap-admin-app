@@ -1502,113 +1502,178 @@ router.delete("/:id", async (req: Request, res: Response) => {
     try {
       await client.query("BEGIN");
 
-      const campaignsResult = await client.query(
-        `SELECT id FROM campaigns WHERE user_id = $1 AND (is_deleted IS NULL OR is_deleted = false)`,
+      const tableExists = async (table: string): Promise<boolean> => {
+        const r = await client.query(
+          `SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1`,
+          [table]
+        );
+        return r.rows.length > 0;
+      };
+
+      const columnExists = async (table: string, column: string): Promise<boolean> => {
+        const r = await client.query(
+          `SELECT 1 FROM information_schema.columns
+           WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2`,
+          [table, column]
+        );
+        return r.rows.length > 0;
+      };
+
+      const collectIds = async (
+        table: string,
+        where: string,
+        params: unknown[]
+      ): Promise<string[]> => {
+        if (!(await tableExists(table))) return [];
+        const r = await client.query(`SELECT id FROM ${table} WHERE ${where}`, params);
+        return r.rows.map((row: { id: string }) => row.id);
+      };
+
+      const softDelete = async (
+        table: string,
+        where: string,
+        params: unknown[]
+      ): Promise<void> => {
+        if (!(await tableExists(table))) return;
+        if (!(await columnExists(table, "is_deleted"))) return;
+        const setParts: string[] = ["is_deleted = true"];
+        if (await columnExists(table, "deleted_at")) setParts.push("deleted_at = $1");
+        if (await columnExists(table, "deleted_by")) setParts.push("deleted_by = $2");
+        await client.query(
+          `UPDATE ${table} SET ${setParts.join(", ")}
+           WHERE (${where}) AND (is_deleted IS NULL OR is_deleted = false)`,
+          [now, currentUserId, ...params]
+        );
+      };
+
+      // -------- Phase 1: collect IDs of every record that will be cascaded --------
+      const campaignIds = await collectIds(
+        "campaigns",
+        `user_id = $1 AND (is_deleted IS NULL OR is_deleted = false)`,
         [id]
       );
-      const campaignIds = campaignsResult.rows.map((r: { id: string }) => r.id);
+
+      const buildOwnedOrCampaignWhere = (idParamIdx: number, campaignParamIdx: number) =>
+        campaignIds.length > 0
+          ? `(user_id = $${idParamIdx} OR campaign_id = ANY($${campaignParamIdx})) AND (is_deleted IS NULL OR is_deleted = false)`
+          : `user_id = $${idParamIdx} AND (is_deleted IS NULL OR is_deleted = false)`;
+      const ownedOrCampaignParams = (): unknown[] =>
+        campaignIds.length > 0 ? [id, campaignIds] : [id];
+
+      const pendingGrantIds = await collectIds(
+        "pending_grants",
+        buildOwnedOrCampaignWhere(1, 2),
+        ownedOrCampaignParams()
+      );
+      const disbursalIds = await collectIds(
+        "disbursal_requests",
+        buildOwnedOrCampaignWhere(1, 2),
+        ownedOrCampaignParams()
+      );
+      const assetIds = await collectIds(
+        "asset_based_payment_requests",
+        buildOwnedOrCampaignWhere(1, 2),
+        ownedOrCampaignParams()
+      );
+      const completedIds = campaignIds.length
+        ? await collectIds(
+            "completed_investment_details",
+            `campaign_id = ANY($1) AND (is_deleted IS NULL OR is_deleted = false)`,
+            [campaignIds]
+          )
+        : [];
+      const returnMasterIds = campaignIds.length
+        ? await collectIds("return_masters", `campaign_id = ANY($1)`, [campaignIds])
+        : [];
+      const formSubmissionIds = await collectIds(
+        "form_submissions",
+        `LOWER(TRIM(email)) = $1 AND (is_deleted IS NULL OR is_deleted = false)`,
+        [email]
+      );
+      const groupIds = await collectIds(
+        "groups",
+        `owner_id = $1 AND (is_deleted IS NULL OR is_deleted = false)`,
+        [id]
+      );
+
+      // Helper: cascade a *_notes table by parent_id list AND by created_by = user.
+      const cascadeNotes = async (
+        table: string,
+        parentColumn: string,
+        parentIds: string[] | number[]
+      ): Promise<void> => {
+        if (!(await tableExists(table))) return;
+        const conds: string[] = [`created_by = $3`];
+        const params: unknown[] = [id];
+        if (parentIds.length > 0) {
+          conds.push(`${parentColumn} = ANY($4)`);
+          params.push(parentIds);
+        }
+        await softDelete(table, conds.join(" OR "), params);
+      };
+
+      // -------- Phase 2: notes & log children (must run before parents) --------
+
+      // account_balance_change_logs: user_id, campaign_id, asset_based_payment_request_id, pending_grants_id
+      {
+        const conds: string[] = [`user_id = $3`];
+        const params: unknown[] = [id];
+        let idx = 4;
+        if (campaignIds.length) { conds.push(`campaign_id = ANY($${idx++})`); params.push(campaignIds); }
+        if (assetIds.length) { conds.push(`asset_based_payment_request_id = ANY($${idx++})`); params.push(assetIds); }
+        if (pendingGrantIds.length) { conds.push(`pending_grants_id = ANY($${idx++})`); params.push(pendingGrantIds); }
+        await softDelete("account_balance_change_logs", conds.join(" OR "), params);
+      }
+
+      // scheduled_email_logs: user_id and pending_grant_id
+      {
+        const conds: string[] = [`user_id = $3`];
+        const params: unknown[] = [id];
+        if (pendingGrantIds.length) { conds.push(`pending_grant_id = ANY($4)`); params.push(pendingGrantIds); }
+        await softDelete("scheduled_email_logs", conds.join(" OR "), params);
+      }
+
+      // recommendations: user_id, pending_grants_id, campaign_id
+      {
+        const conds: string[] = [`user_id = $3`];
+        const params: unknown[] = [id];
+        let idx = 4;
+        if (pendingGrantIds.length) { conds.push(`pending_grants_id = ANY($${idx++})`); params.push(pendingGrantIds); }
+        if (campaignIds.length) { conds.push(`campaign_id = ANY($${idx++})`); params.push(campaignIds); }
+        await softDelete("recommendations", conds.join(" OR "), params);
+      }
+
+      // return_details: user_id and return_master_id
+      {
+        const conds: string[] = [`user_id = $3`];
+        const params: unknown[] = [id];
+        if (returnMasterIds.length) { conds.push(`return_master_id = ANY($4)`); params.push(returnMasterIds); }
+        await softDelete("return_details", conds.join(" OR "), params);
+      }
+
+      // *_notes tables (children of their respective parents + by created_by)
+      await cascadeNotes("pending_grant_notes", "pending_grant_id", pendingGrantIds);
+      await cascadeNotes("disbursal_request_notes", "disbursal_request_id", disbursalIds);
+      await cascadeNotes("asset_based_payment_request_notes", "request_id", assetIds);
+      await cascadeNotes("completed_investment_notes", "completed_investment_id", completedIds);
+      await cascadeNotes("investment_notes", "campaign_id", campaignIds);
+      await cascadeNotes("form_submission_notes", "form_submission_id", formSubmissionIds);
+
+      // -------- Phase 3: parent rows for owned-campaign sub-entities --------
+      if (pendingGrantIds.length) {
+        await softDelete("pending_grants", `id = ANY($3)`, [pendingGrantIds]);
+      }
+      if (assetIds.length) {
+        await softDelete("asset_based_payment_requests", `id = ANY($3)`, [assetIds]);
+      }
+      if (disbursalIds.length) {
+        await softDelete("disbursal_requests", `id = ANY($3)`, [disbursalIds]);
+      }
+      if (completedIds.length) {
+        await softDelete("completed_investment_details", `id = ANY($3)`, [completedIds]);
+      }
 
       if (campaignIds.length > 0) {
-        const pgResult = await client.query(
-          `SELECT id FROM pending_grants WHERE campaign_id = ANY($1) AND (is_deleted IS NULL OR is_deleted = false)`,
-          [campaignIds]
-        );
-        const pendingGrantIds = pgResult.rows.map((r: { id: string }) => r.id);
-
-        const assetResult = await client.query(
-          `SELECT id FROM asset_based_payment_requests WHERE campaign_id = ANY($1) AND (is_deleted IS NULL OR is_deleted = false)`,
-          [campaignIds]
-        );
-        const assetIds = assetResult.rows.map((r: { id: string }) => r.id);
-
-        const disbursalResult = await client.query(
-          `SELECT id FROM disbursal_requests WHERE campaign_id = ANY($1) AND (is_deleted IS NULL OR is_deleted = false)`,
-          [campaignIds]
-        );
-
-        const completedResult = await client.query(
-          `SELECT id FROM completed_investment_details WHERE campaign_id = ANY($1) AND (is_deleted IS NULL OR is_deleted = false)`,
-          [campaignIds]
-        );
-
-        const rmResult = await client.query(
-          `SELECT id FROM return_masters WHERE campaign_id = ANY($1)`,
-          [campaignIds]
-        );
-        const returnMasterIds = rmResult.rows.map((r: { id: string }) => r.id);
-
-        const logConditions: string[] = [];
-        const logParams: (string | string[] | undefined)[] = [now, currentUserId];
-        let pIdx = 3;
-
-        logParams.push(campaignIds);
-        logConditions.push(`campaign_id = ANY($${pIdx++})`);
-
-        if (assetIds.length > 0) {
-          logParams.push(assetIds);
-          logConditions.push(`asset_based_payment_request_id = ANY($${pIdx++})`);
-        }
-        if (pendingGrantIds.length > 0) {
-          logParams.push(pendingGrantIds);
-          logConditions.push(`pending_grants_id = ANY($${pIdx++})`);
-        }
-
-        await client.query(
-          `UPDATE account_balance_change_logs SET is_deleted = true, deleted_at = $1, deleted_by = $2
-           WHERE (${logConditions.join(" OR ")}) AND (is_deleted IS NULL OR is_deleted = false)`,
-          logParams
-        );
-
-        if (pendingGrantIds.length > 0) {
-          await client.query(
-            `UPDATE scheduled_email_logs SET is_deleted = true, deleted_at = $1, deleted_by = $2
-             WHERE pending_grant_id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
-            [now, currentUserId, pendingGrantIds]
-          );
-
-          await client.query(
-            `UPDATE recommendations SET is_deleted = true, deleted_at = $1, deleted_by = $2
-             WHERE pending_grants_id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
-            [now, currentUserId, pendingGrantIds]
-          );
-        }
-
-        if (returnMasterIds.length > 0) {
-          await client.query(
-            `UPDATE return_details SET is_deleted = true, deleted_at = $1, deleted_by = $2
-             WHERE return_master_id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
-            [now, currentUserId, returnMasterIds]
-          );
-        }
-
-        if (pendingGrantIds.length > 0) {
-          await client.query(
-            `UPDATE pending_grants SET is_deleted = true, deleted_at = $1, deleted_by = $2
-             WHERE id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
-            [now, currentUserId, pendingGrantIds]
-          );
-        }
-
-        if (assetIds.length > 0) {
-          await client.query(
-            `UPDATE asset_based_payment_requests SET is_deleted = true, deleted_at = $1, deleted_by = $2
-             WHERE id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
-            [now, currentUserId, assetIds]
-          );
-        }
-
-        await client.query(
-          `UPDATE disbursal_requests SET is_deleted = true, deleted_at = $1, deleted_by = $2
-           WHERE campaign_id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
-          [now, currentUserId, campaignIds]
-        );
-
-        await client.query(
-          `UPDATE completed_investment_details SET is_deleted = true, deleted_at = $1, deleted_by = $2
-           WHERE campaign_id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
-          [now, currentUserId, campaignIds]
-        );
-
         await client.query(
           `DELETE FROM ach_payment_requests WHERE campaign_id = ANY($1)`,
           [campaignIds]
@@ -1619,120 +1684,62 @@ router.delete("/:id", async (req: Request, res: Response) => {
           [campaignIds]
         );
 
-        await client.query(
-          `UPDATE user_investments SET is_deleted = true, deleted_at = $1, deleted_by = $2
-           WHERE campaign_id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
-          [now, currentUserId, campaignIds]
-        );
-
-        await client.query(
-          `UPDATE recommendations SET is_deleted = true, deleted_at = $1, deleted_by = $2
-           WHERE campaign_id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
-          [now, currentUserId, campaignIds]
-        );
-
-        await client.query(
-          `UPDATE campaigns SET is_deleted = true, deleted_at = $1, deleted_by = $2
-           WHERE id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
-          [now, currentUserId, campaignIds]
-        );
+        await softDelete("user_investments", `campaign_id = ANY($3)`, [campaignIds]);
+        await softDelete("campaigns", `id = ANY($3)`, [campaignIds]);
       }
 
-      const ownedGroupsResult = await client.query(
-        `SELECT id FROM groups WHERE owner_id = $1 AND (is_deleted IS NULL OR is_deleted = false)`,
-        [id]
-      );
-      const groupIds = ownedGroupsResult.rows.map((r: { id: string }) => r.id);
-
+      // -------- Phase 4: groups --------
       if (groupIds.length > 0) {
-        await client.query(
-          `UPDATE requests SET is_deleted = true, deleted_at = $1, deleted_by = $2
-           WHERE group_to_follow_id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
-          [now, currentUserId, groupIds]
-        );
-
-        await client.query(
-          `UPDATE group_account_balances SET is_deleted = true, deleted_at = $1, deleted_by = $2
-           WHERE group_id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
-          [now, currentUserId, groupIds]
-        );
-
-        await client.query(
-          `UPDATE leader_groups SET is_deleted = true, deleted_at = $1, deleted_by = $2
-           WHERE group_id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
-          [now, currentUserId, groupIds]
-        );
-
-        await client.query(
-          `UPDATE groups SET is_deleted = true, deleted_at = $1, deleted_by = $2
-           WHERE id = ANY($3) AND (is_deleted IS NULL OR is_deleted = false)`,
-          [now, currentUserId, groupIds]
-        );
+        await softDelete("requests", `group_to_follow_id = ANY($3)`, [groupIds]);
+        await softDelete("group_account_balances", `group_id = ANY($3)`, [groupIds]);
+        await softDelete("leader_groups", `group_id = ANY($3)`, [groupIds]);
+        await softDelete("groups", `id = ANY($3)`, [groupIds]);
       }
 
-      await client.query(
-        `UPDATE user_investments SET is_deleted = true, deleted_at = $1, deleted_by = $2
-         WHERE user_id = $3 AND (is_deleted IS NULL OR is_deleted = false)`,
-        [now, currentUserId, id]
-      );
+      // -------- Phase 5: user-direct ownership references --------
+      await softDelete("user_investments", `user_id = $3`, [id]);
+      await softDelete("user_notifications", `target_user_id = $3`, [id]);
+      await softDelete("investment_requests", `user_id = $3`, [id]);
+      await softDelete("investment_feedbacks", `user_id = $3`, [id]);
+      if (formSubmissionIds.length) {
+        await softDelete("form_submissions", `id = ANY($3)`, [formSubmissionIds]);
+      }
+      await softDelete("return_details", `user_id = $3`, [id]);
+      await softDelete("testimonials", `user_id = $3`, [id]);
 
-      await client.query(
-        `UPDATE user_notifications SET is_deleted = true, deleted_at = $1, deleted_by = $2
-         WHERE target_user_id = $3 AND (is_deleted IS NULL OR is_deleted = false)`,
-        [now, currentUserId, id]
-      );
+      if (await tableExists("user_stripe_customer_mappings")) {
+        const hasIsDeleted = await client.query(
+          `SELECT 1 FROM information_schema.columns
+           WHERE table_schema = 'public' AND table_name = 'user_stripe_customer_mappings' AND column_name = 'is_deleted'`
+        );
+        if (hasIsDeleted.rows.length > 0) {
+          await softDelete("user_stripe_customer_mappings", `user_id = $3`, [id]);
+        } else {
+          await client.query(
+            `DELETE FROM user_stripe_customer_mappings WHERE user_id = $1`,
+            [id]
+          );
+        }
+      }
+      if (await tableExists("user_stripe_transaction_mappings")) {
+        const hasIsDeleted = await client.query(
+          `SELECT 1 FROM information_schema.columns
+           WHERE table_schema = 'public' AND table_name = 'user_stripe_transaction_mappings' AND column_name = 'is_deleted'`
+        );
+        if (hasIsDeleted.rows.length > 0) {
+          await softDelete("user_stripe_transaction_mappings", `user_id = $3`, [id]);
+        } else {
+          await client.query(
+            `DELETE FROM user_stripe_transaction_mappings WHERE user_id = $1`,
+            [id]
+          );
+        }
+      }
 
-      await client.query(
-        `UPDATE investment_requests SET is_deleted = true, deleted_at = $1, deleted_by = $2
-         WHERE user_id = $3 AND (is_deleted IS NULL OR is_deleted = false)`,
-        [now, currentUserId, id]
-      );
-
-      await client.query(
-        `UPDATE investment_feedbacks SET is_deleted = true, deleted_at = $1, deleted_by = $2
-         WHERE user_id = $3 AND (is_deleted IS NULL OR is_deleted = false)`,
-        [now, currentUserId, id]
-      );
-
-      await client.query(
-        `UPDATE form_submissions SET is_deleted = true, deleted_at = $1, deleted_by = $2
-         WHERE LOWER(TRIM(email)) = $3 AND (is_deleted IS NULL OR is_deleted = false)`,
-        [now, currentUserId, email]
-      );
-
-      await client.query(
-        `UPDATE scheduled_email_logs SET is_deleted = true, deleted_at = $1, deleted_by = $2
-         WHERE user_id = $3 AND (is_deleted IS NULL OR is_deleted = false)`,
-        [now, currentUserId, id]
-      );
-
-      await client.query(
-        `UPDATE pending_grants SET is_deleted = true, deleted_at = $1, deleted_by = $2
-         WHERE user_id = $3 AND (is_deleted IS NULL OR is_deleted = false)`,
-        [now, currentUserId, id]
-      );
-
-      await client.query(
-        `UPDATE disbursal_requests SET is_deleted = true, deleted_at = $1, deleted_by = $2
-         WHERE user_id = $3 AND (is_deleted IS NULL OR is_deleted = false)`,
-        [now, currentUserId, id]
-      );
-
-      await client.query(
-        `UPDATE asset_based_payment_requests SET is_deleted = true, deleted_at = $1, deleted_by = $2
-         WHERE user_id = $3 AND (is_deleted IS NULL OR is_deleted = false)`,
-        [now, currentUserId, id]
-      );
-
+      // Hard-deletes (kept as today)
       await client.query(
         `DELETE FROM return_masters WHERE created_by = $1`,
         [id]
-      );
-
-      await client.query(
-        `UPDATE return_details SET is_deleted = true, deleted_at = $1, deleted_by = $2
-         WHERE user_id = $3 AND (is_deleted IS NULL OR is_deleted = false)`,
-        [now, currentUserId, id]
       );
 
       await client.query(
@@ -1752,24 +1759,34 @@ router.delete("/:id", async (req: Request, res: Response) => {
         );
       }
 
-      await client.query(
-        `UPDATE testimonials SET is_deleted = true, deleted_at = $1, deleted_by = $2
-         WHERE user_id = $3 AND (is_deleted IS NULL OR is_deleted = false)`,
-        [now, currentUserId, id]
+      // -------- Phase 6: authorship/audit cascades --------
+      await softDelete(
+        "events",
+        `created_by = $3 OR modified_by = $3`,
+        [id]
+      );
+      await softDelete(
+        "catacap_teams",
+        `created_by = $3 OR modified_by = $3`,
+        [id]
+      );
+      await softDelete(
+        "email_templates",
+        `created_by = $3 OR modified_by = $3`,
+        [id]
+      );
+      await softDelete(
+        "faqs",
+        `created_by = $3 OR modified_by = $3`,
+        [id]
+      );
+      await softDelete(
+        "news",
+        `created_by = $3 OR modified_by = $3`,
+        [id]
       );
 
-      await client.query(
-        `UPDATE events SET is_deleted = true, deleted_at = $1, deleted_by = $2
-         WHERE (created_by = $3 OR modified_by = $3) AND (is_deleted IS NULL OR is_deleted = false)`,
-        [now, currentUserId, id]
-      );
-
-      await client.query(
-        `UPDATE catacap_teams SET is_deleted = true, deleted_at = $1, deleted_by = $2
-         WHERE (created_by = $3 OR modified_by = $3) AND (is_deleted IS NULL OR is_deleted = false)`,
-        [now, currentUserId, id]
-      );
-
+      // -------- Phase 7: finally soft-delete the user --------
       await client.query(
         `UPDATE users SET is_deleted = true, deleted_at = $1, deleted_by = $2
          WHERE id = $3`,
@@ -1794,8 +1811,21 @@ router.delete("/:id", async (req: Request, res: Response) => {
       client.release();
     }
   } catch (err) {
+    const e = err as { message?: string; code?: string; detail?: string; hint?: string; where?: string };
     console.error("Delete user error:", err);
-    res.status(500).json({ message: "Internal server error" });
+    console.error("Delete user error details:", {
+      message: e?.message,
+      code: e?.code,
+      detail: e?.detail,
+      hint: e?.hint,
+      where: e?.where,
+    });
+    res.status(500).json({
+      message: "Internal server error",
+      error: e?.message,
+      code: e?.code,
+      detail: e?.detail,
+    });
   }
 });
 
