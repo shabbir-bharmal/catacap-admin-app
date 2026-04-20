@@ -1068,7 +1068,7 @@ export default function AdminInvestmentEdit() {
         />
       )}
 
-      <Dialog open={noteDialogOpen} onOpenChange={(open) => { if (!open) return; }}>
+      <Dialog open={noteDialogOpen} onOpenChange={(open) => { if (!open) setNoteDialogOpen(false); }}>
         <DialogContent
           className="sm:max-w-[750px]"
           onInteractOutside={(e) => e.preventDefault()}
