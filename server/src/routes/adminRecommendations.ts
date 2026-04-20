@@ -29,8 +29,12 @@ router.get("/", async (req: Request, res: Response) => {
 
     softDeleteFilter("r", params.isDeleted, conditions);
 
-    values.push(USER_ROLE);
-    paramIdx++;
+    const archivedView = params.isDeleted === true;
+
+    if (!archivedView) {
+      values.push(USER_ROLE);
+      paramIdx++;
+    }
 
     if (investmentIds && investmentIds.length > 0) {
       conditions.push(`r.campaign_id = ANY($${paramIdx}::int[])`);
@@ -57,7 +61,12 @@ router.get("/", async (req: Request, res: Response) => {
     const sortClause = buildSortClause(params.sortField, isAsc, columnMap, "r.date_created");
     const orderBy = `${sortClause}, r.id ASC`;
 
-    const userRoleJoin = `
+    // For the archived view, we must surface every soft-deleted recommendation so
+    // the count matches the recycle-bin summary even when the recommending user
+    // was hard-deleted, has no "User" role, or had their email changed.
+    const userRoleJoin = archivedView
+      ? ``
+      : `
        INNER JOIN users u_role ON LOWER(r.user_email) = LOWER(u_role.email)
          AND (u_role.is_deleted IS NULL OR u_role.is_deleted = false)
        INNER JOIN user_roles ur_role ON u_role.id = ur_role.user_id

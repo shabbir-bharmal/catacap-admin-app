@@ -26,11 +26,20 @@ router.get("/", async (req: Request, res: Response) => {
     const conditions: string[] = [];
     const values: any[] = [];
 
+    if (params.isDeleted === true) {
+      conditions.push(`rd.is_deleted = true`);
+    } else {
+      conditions.push(`(rd.is_deleted IS NULL OR rd.is_deleted = false)`);
+    }
+
     if (investmentId > 0) {
       values.push(investmentId);
       conditions.push(`rm.campaign_id = $${values.length}`);
     }
 
+    // Drive the query from return_details so every soft-deleted detail is counted,
+    // even if its parent return_master row was hard-deleted. The joins are LEFT
+    // joins for the same reason (orphaned details are still surfaced).
     const queryText = `
       SELECT rm.id AS master_id, rm.campaign_id, rm.created_on, rm.memo_note, rm.status,
              rm.private_debt_start_date, rm.private_debt_end_date, rm.post_date,
@@ -39,12 +48,12 @@ router.get("/", async (req: Request, res: Response) => {
              rd.return_amount AS detail_return_amount, rd.is_deleted, rd.deleted_at,
              u.first_name, u.last_name, u.email,
              du.first_name AS deleted_by_first_name, du.last_name AS deleted_by_last_name
-      FROM return_masters rm
+      FROM return_details rd
+      LEFT JOIN return_masters rm ON rd.return_master_id = rm.id
       LEFT JOIN campaigns c ON rm.campaign_id = c.id
-      LEFT JOIN return_details rd ON rd.return_master_id = rm.id
       LEFT JOIN users u ON rd.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
       LEFT JOIN users du ON du.id = rd.deleted_by
-      ${conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : ""}
+      WHERE ${conditions.join(" AND ")}
     `;
 
     const result = await pool.query(queryText, values);
@@ -54,13 +63,7 @@ router.get("/", async (req: Request, res: Response) => {
       return;
     }
 
-    let rows = result.rows.filter((r: any) => r.detail_id !== null);
-
-    if (params.isDeleted === true) {
-      rows = rows.filter((r: any) => r.is_deleted === true);
-    } else {
-      rows = rows.filter((r: any) => r.is_deleted !== true);
-    }
+    let rows = result.rows;
 
     rows.sort((a: any, b: any) => {
       const dateA = new Date(a.created_on || 0).getTime();

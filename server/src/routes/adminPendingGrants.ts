@@ -150,7 +150,10 @@ router.get("/", async (req: Request, res: Response) => {
 
     softDeleteFilter("pg", params.isDeleted, conditions);
     if (params.isDeleted !== true) {
-      conditions.push("(u.is_deleted IS NULL OR u.is_deleted = false)");
+      // Active view: require the user to exist and not be soft-deleted. The
+      // LEFT JOIN below is used so the archived view can still surface grants
+      // whose user was hard-deleted, matching the recycle-bin summary count.
+      conditions.push("u.id IS NOT NULL AND (u.is_deleted IS NULL OR u.is_deleted = false)");
     }
 
     if (statusList && statusList.length > 0) {
@@ -219,7 +222,7 @@ router.get("/", async (req: Request, res: Response) => {
     const countResult = await pool.query(
       `SELECT COUNT(*)
        FROM pending_grants pg
-       JOIN users u ON pg.user_id = u.id
+       LEFT JOIN users u ON pg.user_id = u.id
        LEFT JOIN campaigns c ON pg.campaign_id = c.id
        ${whereClause}`,
       values
@@ -256,7 +259,7 @@ router.get("/", async (req: Request, res: Response) => {
               pg.deleted_at AS "deletedAt",
               CASE WHEN del.id IS NOT NULL THEN CONCAT(del.first_name, ' ', del.last_name) ELSE NULL END AS "deletedBy"
        FROM pending_grants pg
-       JOIN users u ON pg.user_id = u.id
+       LEFT JOIN users u ON pg.user_id = u.id
        LEFT JOIN campaigns c ON pg.campaign_id = c.id
        LEFT JOIN users del ON pg.deleted_by = del.id
        ${whereClause}
