@@ -43,6 +43,9 @@ const TABLE_NAME_MAP: Record<string, string> = {
   News: "news",
   Testimonial: "testimonials",
   Themes: "themes",
+  EventRegistration: "event_registrations",
+  UserClaims: "user_claims",
+  UserLogins: "user_logins",
 };
 
 const COL_NAME_MAP: Record<string, string> = {
@@ -617,6 +620,8 @@ export async function runDailyCleanup(): Promise<void> {
 
       await runStep("Level5: ReturnMasters orphan", () =>
         archiveAndDeleteOrphan(client, "ReturnMasters", "CampaignId", "Campaigns", "Id", cutoffDate));
+      await runStep("Level5: ScheduledEmailLogs orphan by PendingGrant", () =>
+        archiveAndDeleteOrphan(client, "ScheduledEmailLogs", "PendingGrantId", "PendingGrants", "Id", cutoffDate));
       await runStep("Level5: ScheduledEmailLogs", () =>
         archiveAndDelete(client, "ScheduledEmailLogs", "Id", "UserId", cutoffDate));
 
@@ -662,6 +667,48 @@ export async function runDailyCleanup(): Promise<void> {
         archiveAndDelete(client, "UsersNotifications", "Id", "TargetUserId", cutoffDate));
       await runStep("Level3: AspNetUserRoles", () =>
         archiveAndDelete(client, "AspNetUserRoles", "UserId", "UserId", cutoffDate));
+      await runStep("Level3: AspNetUserClaims by user", () =>
+        archiveAndDeleteByUserFK(client, "UserClaims", "UserId", cutoffDate));
+      await runStep("Level3: AspNetUserLogins by user", async () => {
+        const pgChild = "user_logins";
+        if (!(await tableExists(client, pgChild))) {
+          console.log(`  SKIP (table not found): ${pgChild}`);
+          return;
+        }
+        await client.query(
+          `INSERT INTO archived_user_data
+            (source_table, record_id, user_id, deleted_at, days_old, record_json, archived_at)
+           SELECT
+             $1,
+             ch.login_provider || '|' || ch.provider_key,
+             CAST(ch.user_id AS VARCHAR(450)),
+             u.deleted_at,
+             (CURRENT_DATE - u.deleted_at::date),
+             row_to_json(ch)::TEXT,
+             NOW()
+           FROM ${pgChild} ch
+           JOIN users u
+             ON u.id = ch.user_id
+             AND u.deleted_at IS NOT NULL
+             AND u.deleted_at <= $2
+           WHERE NOT EXISTS (
+             SELECT 1 FROM archived_user_data a
+             WHERE a.source_table = $1
+               AND a.record_id = ch.login_provider || '|' || ch.provider_key
+               AND CAST(a.archived_at AS DATE) = CURRENT_DATE
+           )`,
+          [pgChild, cutoffDate]
+        );
+        const deleteResult = await client.query(
+          `DELETE FROM ${pgChild} ch
+           USING users u
+           WHERE u.id = ch.user_id
+             AND u.deleted_at IS NOT NULL
+             AND u.deleted_at <= $1`,
+          [cutoffDate]
+        );
+        console.log(`  ${pgChild} (by user_id): archived & deleted ${deleteResult.rowCount} row(s)`);
+      });
 
       console.log("-- NULLIFY (pre-Groups): FK columns referencing soft-deleted groups --");
       await runStep("Nullify: Campaigns.GroupForPrivateAccessId by group", () =>
@@ -762,6 +809,10 @@ export async function runDailyCleanup(): Promise<void> {
         nullifyFkColumn(client, "SiteConfiguration", "DeletedBy", cutoffDate));
       await runStep("Nullify: Testimonial.DeletedBy", () =>
         nullifyFkColumn(client, "Testimonial", "DeletedBy", cutoffDate));
+      await runStep("Nullify: Testimonial.UserId", () =>
+        nullifyFkColumn(client, "Testimonial", "UserId", cutoffDate));
+      await runStep("Nullify: EventRegistration.DeletedBy", () =>
+        nullifyFkColumn(client, "EventRegistration", "DeletedBy", cutoffDate));
       await runStep("Nullify: Themes.DeletedBy", () =>
         nullifyFkColumn(client, "Themes", "DeletedBy", cutoffDate));
       await runStep("Nullify: UserInvestments.DeletedBy", () =>
