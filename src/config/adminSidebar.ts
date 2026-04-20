@@ -220,13 +220,13 @@ export const sidebarConfig = [
         children: [
           {
             title: "Event Management",
-            url: "/event-registrations",
+            url: "/event-management",
             icon: CalendarCheck,
             permission: { module: "event-registrations", action: "view" }
           },
           {
             title: "Event Registrations",
-            url: "/event-registrations-list",
+            url: "/event-registrations",
             icon: CalendarCheck,
             permission: { module: "event-registrations", action: "view" }
           }

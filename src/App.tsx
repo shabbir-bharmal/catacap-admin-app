@@ -58,8 +58,9 @@ function Router() {
         {/* <ProtectedRoute path="/soft-circle-investments" component={SoftCircleInvestments} moduleName="soft-circle-investments" /> */}
         <ProtectedRoute path="/groups" component={AdminGroups} moduleName="group" />
         <ProtectedRoute path="/groups/:identifier/edit" component={AdminGroupEdit} moduleName="group" />
-        <ProtectedRoute path="/event-registrations" component={EventManagement} moduleName="event registrations" />
-        <ProtectedRoute path="/event-registrations-list" component={EventRegistrationsList} moduleName="event registrations" />
+        <ProtectedRoute path="/event-management" component={EventManagement} moduleName="event registrations" />
+        <ProtectedRoute path="/event-registrations" component={EventRegistrationsList} moduleName="event registrations" />
+        <Route path="/event-registrations-list" component={() => <Redirect to="/event-registrations" />} />
         <ProtectedRoute path="/investments" component={AdminInvestments} moduleName="all-investments" />
         <ProtectedRoute path="/recommendations" component={AdminRecommendations} moduleName="recommendation" />
         <ProtectedRoute path="/account-history" component={AdminAccountHistory} moduleName="account history" />
