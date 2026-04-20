@@ -69,19 +69,27 @@ router.get("/", async (req: Request, res: Response) => {
       groupAdminUserIds = gaResult.rows.map((r: { user_id: string }) => r.user_id);
     }
 
-    let softDeleteFilter: string;
-    if (isDeletedParam === "true") {
-      softDeleteFilter = `AND u.is_deleted = true`;
-    } else {
-      softDeleteFilter = `AND (u.is_deleted IS NULL OR u.is_deleted = false)`;
-    }
+    const showArchived = isDeletedParam === "true";
+    const softDeleteFilter = showArchived
+      ? `AND u.is_deleted = true`
+      : `AND (u.is_deleted IS NULL OR u.is_deleted = false)`;
+
+    const roleJoin = showArchived
+      ? `LEFT JOIN user_roles ur ON u.id = ur.user_id
+         LEFT JOIN roles r ON ur.role_id = r.id`
+      : `JOIN user_roles ur ON u.id = ur.user_id
+         JOIN roles r ON ur.role_id = r.id`;
+
+    const roleFilter = showArchived
+      ? ``
+      : `AND r.name = 'User'
+         AND (ur.is_deleted IS NULL OR ur.is_deleted = false)`;
 
     let baseQuery = `
       FROM users u
-      JOIN user_roles ur ON u.id = ur.user_id
-      JOIN roles r ON ur.role_id = r.id
-      WHERE r.name = 'User'
-      AND (ur.is_deleted IS NULL OR ur.is_deleted = false)
+      ${roleJoin}
+      WHERE 1=1
+      ${roleFilter}
       ${softDeleteFilter}
     `;
     const params: (string | number)[] = [];
