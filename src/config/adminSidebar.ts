@@ -219,7 +219,7 @@ export const sidebarConfig = [
         icon: CalendarCheck,
         children: [
           {
-            title: "Event Registrations",
+            title: "Event Management",
             url: "/event-registrations",
             icon: CalendarCheck,
             permission: { module: "event-registrations", action: "view" }
