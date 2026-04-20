@@ -92,8 +92,24 @@ app.use("/api/Users", usersAliasRouter);
 
 const distPath = path.resolve(process.cwd(), "dist");
 app.use(express.static(distPath));
-app.get("/{*splat}", (_req, res) => {
-  res.sendFile(path.join(distPath, "index.html"));
+
+app.use("/api", (_req, res) => {
+  res.status(404).json({ error: "Not Found" });
+});
+
+const ASSET_EXTENSION_RE = /\.(?:js|mjs|cjs|map|css|json|txt|xml|ico|png|jpe?g|gif|svg|webp|avif|bmp|woff2?|ttf|otf|eot|mp4|webm|ogg|mp3|wav|pdf|zip|wasm)$/i;
+
+app.use((req, res, next) => {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    return next();
+  }
+  const pathname = req.path;
+  if (pathname.startsWith("/assets/") || ASSET_EXTENSION_RE.test(pathname)) {
+    return res.status(404).type("text/plain").send("Not Found");
+  }
+  res.sendFile(path.join(distPath, "index.html"), (err) => {
+    if (err) next(err);
+  });
 });
 
 async function start() {
