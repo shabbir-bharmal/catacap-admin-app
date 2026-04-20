@@ -99,3 +99,46 @@ export async function fetchUpcomingEvents(): Promise<EventApiItem[]> {
     const response = await axiosInstance.get<EventApiItem[]>("/api/event");
     return response.data;
 }
+
+export interface EventRegistrationItem {
+    id: number;
+    eventSlug: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    guestName: string | null;
+    referredBy: string | null;
+    createdAt: string;
+}
+
+export interface PaginatedEventRegistrationResponse {
+    totalRecords: number;
+    items: EventRegistrationItem[];
+}
+
+export async function fetchEventRegistrations(params?: {
+    currentPage?: number;
+    perPage?: number;
+    searchValue?: string;
+    sortField?: string;
+    sortDirection?: "asc" | "desc";
+}): Promise<PaginatedEventRegistrationResponse> {
+    const queryParams: Record<string, string> = {};
+    if (params) {
+        if (params.currentPage !== undefined) queryParams.CurrentPage = params.currentPage.toString();
+        if (params.perPage !== undefined) queryParams.PerPage = params.perPage.toString();
+        if (params.searchValue !== undefined) queryParams.SearchValue = params.searchValue;
+        if (params.sortField) queryParams.SortField = params.sortField;
+        if (params.sortDirection) queryParams.SortDirection = params.sortDirection;
+    }
+    const response = await axiosInstance.get<PaginatedEventRegistrationResponse>(
+        "/api/admin/event/registrations",
+        { params: queryParams }
+    );
+    return response.data;
+}
+
+export async function deleteEventRegistration(id: number): Promise<ApiResponse> {
+    const response = await axiosInstance.delete<ApiResponse>(`/api/admin/event/registrations/${id}`);
+    return response.data;
+}

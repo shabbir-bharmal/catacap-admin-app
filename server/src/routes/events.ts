@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter, buildSortClause, handleMissingTableError } from "../utils/softDelete.js";
 import { resolveFileUrl, uploadBase64Image, extractStoragePath, ensureFolderPrefix } from "../utils/uploadBase64Image.js";
+import { modulePermission } from "../middleware/jwtAuth.js";
 
 const router = Router();
 
@@ -71,6 +72,106 @@ router.get("/", async (req: Request, res: Response) => {
   } catch (err: any) {
     if (handleMissingTableError(err, res)) return;
     console.error("Events GetAll error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+router.get("/registrations", modulePermission("event-registrations", "Manage"), async (req: Request, res: Response) => {
+  try {
+    const params = parsePagination(req.query as Record<string, unknown>);
+    const isAsc = params.sortDirection?.toLowerCase() === "asc";
+    const offset = (params.currentPage - 1) * params.perPage;
+
+    const conditions: string[] = [];
+    const values: (string | number | boolean)[] = [];
+    let paramIdx = 1;
+
+    softDeleteFilter("er", params.isDeleted, conditions);
+
+    if (params.searchValue) {
+      conditions.push(
+        `(LOWER(er.first_name) LIKE $${paramIdx} OR LOWER(er.last_name) LIKE $${paramIdx} OR LOWER(er.email) LIKE $${paramIdx} OR LOWER(er.event_slug) LIKE $${paramIdx})`
+      );
+      values.push(`%${params.searchValue.toLowerCase()}%`);
+      paramIdx++;
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const sortCol = buildSortClause(
+      params.sortField,
+      isAsc,
+      {
+        eventslug: "er.event_slug",
+        firstname: "er.first_name",
+        lastname: "er.last_name",
+        email: "er.email",
+        createdat: "er.created_at",
+      },
+      "er.created_at"
+    );
+
+    const countResult = await pool.query(
+      `SELECT COUNT(*) AS total FROM event_registrations er ${whereClause}`,
+      values
+    );
+
+    const dataResult = await pool.query(
+      `SELECT er.id, er.event_slug, er.first_name, er.last_name, er.email,
+              er.guest_name, er.referred_by, er.created_at
+       FROM event_registrations er
+       ${whereClause}
+       ORDER BY ${sortCol}
+       LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
+      [...values, params.perPage, offset]
+    );
+
+    const items = dataResult.rows.map((r: any) => ({
+      id: r.id,
+      eventSlug: r.event_slug,
+      firstName: r.first_name,
+      lastName: r.last_name,
+      email: r.email,
+      guestName: r.guest_name,
+      referredBy: r.referred_by,
+      createdAt: r.created_at,
+    }));
+
+    res.json({ totalRecords: parseInt(countResult.rows[0].total) || 0, items });
+  } catch (err: any) {
+    if (handleMissingTableError(err, res)) return;
+    console.error("Event Registrations GetAll error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+router.delete("/registrations/:id", modulePermission("event-registrations", "Delete"), async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(String(req.params.id), 10);
+    if (isNaN(id)) {
+      res.status(400).json({ message: "Invalid ID" });
+      return;
+    }
+
+    const userId = req.user?.id || null;
+
+    const existing = await pool.query(
+      `SELECT id FROM event_registrations WHERE id = $1 AND (is_deleted IS NULL OR is_deleted = false)`,
+      [id]
+    );
+    if (existing.rows.length === 0) {
+      res.json({ success: false, message: "Event registration not found." });
+      return;
+    }
+
+    await pool.query(
+      `UPDATE event_registrations SET is_deleted = true, deleted_at = NOW(), deleted_by = $1 WHERE id = $2`,
+      [userId, id]
+    );
+
+    res.json({ success: true, message: "Event registration deleted successfully." });
+  } catch (err) {
+    console.error("Event Registration Delete error:", err);
     res.status(500).json({ message: "Internal server error" });
   }
 });

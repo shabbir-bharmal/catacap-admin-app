@@ -11,6 +11,7 @@ import AdminRaiseMoney from "@/pages/RaiseMoney";
 import AdminUsers from "@/pages/Users";
 import AdminGroups from "@/pages/Groups";
 import EventManagement from "@/pages/EventManagement";
+import EventRegistrationsList from "@/pages/EventRegistrationsList";
 import AdminInvestments from "@/pages/Investments";
 import AdminRecommendations from "@/pages/Recommendations";
 import AdminAccountHistory from "@/pages/AccountHistory";
@@ -58,6 +59,7 @@ function Router() {
         <ProtectedRoute path="/groups" component={AdminGroups} moduleName="group" />
         <ProtectedRoute path="/groups/:identifier/edit" component={AdminGroupEdit} moduleName="group" />
         <ProtectedRoute path="/event-registrations" component={EventManagement} moduleName="event registrations" />
+        <ProtectedRoute path="/event-registrations-list" component={EventRegistrationsList} moduleName="event registrations" />
         <ProtectedRoute path="/investments" component={AdminInvestments} moduleName="all-investments" />
         <ProtectedRoute path="/recommendations" component={AdminRecommendations} moduleName="recommendation" />
         <ProtectedRoute path="/account-history" component={AdminAccountHistory} moduleName="account history" />
