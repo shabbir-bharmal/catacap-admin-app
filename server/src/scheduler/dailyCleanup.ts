@@ -627,6 +627,18 @@ export async function runDailyCleanup(): Promise<void> {
       console.log("-- LEVEL 2: Top-level domain parents --");
       await runStep("Level2: Groups", () =>
         archiveAndDelete(client, "Groups", "Id", "OwnerId", cutoffDate));
+
+      await runStep("Level5: AssetBasedPaymentRequest orphan by Campaign", () =>
+        archiveAndDeleteOrphan(client, "AssetBasedPaymentRequest", "CampaignId", "Campaigns", "Id", cutoffDate));
+      await runStep("Level5: DisbursalRequest orphan by Campaign", () =>
+        archiveAndDeleteOrphan(client, "DisbursalRequest", "CampaignId", "Campaigns", "Id", cutoffDate));
+      await runStep("Level5: PendingGrants orphan by Campaign", () =>
+        archiveAndDeleteOrphan(client, "PendingGrants", "CampaignId", "Campaigns", "Id", cutoffDate));
+      await runStep("Level5: Recommendations orphan by Campaign", () =>
+        archiveAndDeleteOrphan(client, "Recommendations", "CampaignId", "Campaigns", "Id", cutoffDate));
+      await runStep("Level5: UserInvestments orphan by Campaign", () =>
+        archiveAndDeleteOrphan(client, "UserInvestments", "CampaignId", "Campaigns", "Id", cutoffDate));
+
       await runStep("Level2: Campaigns", () =>
         archiveAndDelete(client, "Campaigns", "Id", "UserId", cutoffDate));
 
