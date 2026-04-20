@@ -1,0 +1,257 @@
+import { useState, useMemo } from "react";
+import { AdminLayout } from "../components/AdminLayout";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Search, Trash2 } from "lucide-react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import * as eventApi from "../api/event/eventApi";
+import { useAuth } from "@/contexts/AuthContext";
+import { useSort } from "../hooks/useSort";
+import { SortHeader } from "../components/ui/table-sort";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import { ConfirmationDialog } from "../components/ConfirmationDialog";
+import { useDebounce } from "../hooks/useDebounce";
+import { PaginationControls } from "../components/ui/pagination-controls";
+import { formatDateTime } from "@/helpers/format";
+
+type Registration = eventApi.EventRegistrationItem;
+
+export default function EventRegistrationsList() {
+  const { toast } = useToast();
+  const { hasActionPermission } = useAuth();
+  const [search, setSearch] = useState("");
+  const { sortField, sortDir, handleSort: originalHandleSort } = useSort<keyof Registration>(null, null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(100);
+
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletingRegistration, setDeletingRegistration] = useState<Registration | null>(null);
+
+  const handleSort = (field: keyof Registration) => {
+    originalHandleSort(field);
+    setCurrentPage(1);
+  };
+
+  const debouncedSearch = useDebounce(search, 500);
+
+  const effectiveSearch = useMemo(() => {
+    const trimmed = debouncedSearch.trim();
+    if (trimmed.length === 0) return "";
+    if (trimmed.length < 3) return "";
+    return trimmed;
+  }, [debouncedSearch]);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-event-registrations", currentPage, rowsPerPage, effectiveSearch, sortField, sortDir],
+    queryFn: () =>
+      eventApi.fetchEventRegistrations({
+        currentPage,
+        perPage: rowsPerPage,
+        searchValue: effectiveSearch || undefined,
+        sortField: sortField || undefined,
+        sortDirection: sortDir || undefined,
+      }),
+    staleTime: 0,
+    gcTime: 0,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => eventApi.deleteEventRegistration(id),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["admin-event-registrations"] });
+      toast({ title: result.message || "Event registration deleted" });
+      setDeleteDialogOpen(false);
+      setDeletingRegistration(null);
+    },
+    onError: () => {
+      toast({ title: "Failed to delete event registration", variant: "destructive" });
+    },
+  });
+
+  const rows = data?.items || [];
+  const totalCount = data?.totalRecords || 0;
+  const startIdx = totalCount > 0 ? (currentPage - 1) * rowsPerPage + 1 : 0;
+
+  const canDelete = hasActionPermission("event registrations", "delete");
+
+  return (
+    <AdminLayout title="Event Registrations">
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="text-xl font-semibold" data-testid="text-event-registrations-title">
+              Event Registrations
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              View RSVPs submitted via the public event registration form
+            </p>
+          </div>
+        </div>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-4 flex-wrap border-b px-6 py-4">
+            <div className="relative w-full max-w-xs">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search registrations..."
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="pl-9"
+                data-testid="input-search-event-registrations"
+              />
+            </div>
+          </CardHeader>
+
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider w-12">
+                      #
+                    </th>
+                    <SortHeader field="eventSlug" sortField={sortField} sortDir={sortDir} handleSort={handleSort}>
+                      Event Slug
+                    </SortHeader>
+                    <SortHeader field="firstName" sortField={sortField} sortDir={sortDir} handleSort={handleSort}>
+                      First Name
+                    </SortHeader>
+                    <SortHeader field="lastName" sortField={sortField} sortDir={sortDir} handleSort={handleSort}>
+                      Last Name
+                    </SortHeader>
+                    <SortHeader field="email" sortField={sortField} sortDir={sortDir} handleSort={handleSort}>
+                      Email
+                    </SortHeader>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+                      Guest Name
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+                      Referred By
+                    </th>
+                    <SortHeader field="createdAt" sortField={sortField} sortDir={sortDir} handleSort={handleSort}>
+                      Registered At
+                    </SortHeader>
+                    {canDelete && (
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                        Actions
+                      </th>
+                    )}
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {isLoading ? (
+                    <tr>
+                      <td colSpan={canDelete ? 9 : 8} className="text-center py-10 text-muted-foreground">
+                        Loading registrations...
+                      </td>
+                    </tr>
+                  ) : rows.length === 0 ? (
+                    <tr>
+                      <td colSpan={canDelete ? 9 : 8} className="text-center py-10 text-muted-foreground">
+                        {search ? "No registrations match your search." : "No registrations yet."}
+                      </td>
+                    </tr>
+                  ) : (
+                    rows.map((r, idx) => (
+                      <tr
+                        key={r.id}
+                        className="hover:bg-muted/20 transition-colors"
+                        data-testid={`row-event-registration-${r.id}`}
+                      >
+                        <td className="px-4 py-3 text-muted-foreground">{startIdx + idx}</td>
+                        <td className="px-4 py-3" data-testid={`text-event-slug-${r.id}`}>
+                          {r.eventSlug || "—"}
+                        </td>
+                        <td className="px-4 py-3">{r.firstName || "—"}</td>
+                        <td className="px-4 py-3">{r.lastName || "—"}</td>
+                        <td className="px-4 py-3">{r.email || "—"}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{r.guestName || "—"}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{r.referredBy || "—"}</td>
+                        <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
+                          {formatDateTime(r.createdAt)}
+                        </td>
+                        {canDelete && (
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex items-center justify-end">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="icon"
+                                    variant="outline"
+                                    className={cn("h-8 w-8 text-[#f06548] hover:text-[#f06548] hover:bg-[#f06548]/5")}
+                                    onClick={() => {
+                                      setDeletingRegistration(r);
+                                      setDeleteDialogOpen(true);
+                                    }}
+                                    data-testid={`button-delete-event-registration-${r.id}`}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Delete Registration</TooltipContent>
+                              </Tooltip>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <PaginationControls
+              currentPage={currentPage}
+              totalCount={totalCount}
+              rowsPerPage={rowsPerPage}
+              onPageChange={setCurrentPage}
+              onRowsPerPageChange={(v) => {
+                setRowsPerPage(v);
+                setCurrentPage(1);
+              }}
+            />
+          </CardContent>
+        </Card>
+      </div>
+
+      <ConfirmationDialog
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteDialogOpen(false);
+            setDeletingRegistration(null);
+          }
+        }}
+        title="Delete Event Registration"
+        description={
+          deletingRegistration ? (
+            <>
+              Are you sure you want to delete the registration for{" "}
+              <span className="font-medium text-foreground">
+                {deletingRegistration.firstName} {deletingRegistration.lastName}
+              </span>{" "}
+              ({deletingRegistration.email})? This action cannot be undone from this page.
+            </>
+          ) : (
+            "Are you sure you want to delete this event registration?"
+          )
+        }
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        confirmButtonClass="bg-[#f06548] hover:bg-[#f06548]/90 text-white"
+        isSubmitting={deleteMutation.isPending}
+        onConfirm={() => {
+          if (deletingRegistration) deleteMutation.mutate(deletingRegistration.id);
+        }}
+        dataTestId="dialog-delete-event-registration"
+      />
+    </AdminLayout>
+  );
+}

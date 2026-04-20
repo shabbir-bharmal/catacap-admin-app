@@ -233,12 +233,12 @@ export default function EventManagement() {
   const isPending = createMutation.isPending || updateMutation.isPending;
 
   return (
-    <AdminLayout title="Event Registration">
+    <AdminLayout title="Event Management">
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-xl font-semibold" data-testid="text-events-title">
-              Event Registration
+              Event Management
             </h1>
             <p className="text-sm text-muted-foreground">Create and manage platform events</p>
           </div>
