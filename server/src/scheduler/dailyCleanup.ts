@@ -68,6 +68,8 @@ const COL_NAME_MAP: Record<string, string> = {
   DeletedAt: "deleted_at",
   CampaignsId: "campaigns_id",
   GroupToFollowId: "group_to_follow_id",
+  GroupId: "group_id",
+  GroupForPrivateAccessId: "group_for_private_access_id",
 };
 
 function t(name: string): string {
@@ -263,6 +265,38 @@ async function nullifyFkColumn(
 
   console.log(
     `  ${pgChild}.${pgFk} → nullified ${result.rowCount} row(s)`
+  );
+}
+
+async function nullifyFkColumnByParent(
+  client: PoolClient,
+  childTable: string,
+  fkColumn: string,
+  parentTable: string,
+  parentPkCol: string,
+  cutoffDate: string
+): Promise<void> {
+  const pgChild = t(childTable);
+  const pgFk = c(fkColumn);
+  const pgParent = t(parentTable);
+  const pgParentPk = c(parentPkCol);
+
+  if (!(await tableExists(client, pgChild))) return;
+  if (!(await columnExists(client, pgChild, pgFk))) return;
+  if (!(await tableExists(client, pgParent))) return;
+
+  const result = await client.query(
+    `UPDATE ${pgChild} ch
+     SET ${pgFk} = NULL
+     FROM ${pgParent} p
+     WHERE p.${pgParentPk} = ch.${pgFk}
+       AND p.deleted_at IS NOT NULL
+       AND p.deleted_at <= $1`,
+    [cutoffDate]
+  );
+
+  console.log(
+    `  ${pgChild}.${pgFk} → nullified ${result.rowCount} row(s) (by ${pgParent})`
   );
 }
 
@@ -576,6 +610,11 @@ export async function runDailyCleanup(): Promise<void> {
         console.log(`  campaign_groups (by group): deleted ${result.rowCount} row(s)`);
       });
 
+      await runStep("Level5: GroupAccountBalance orphan by group", () =>
+        archiveAndDeleteOrphan(client, "GroupAccountBalance", "GroupId", "Groups", "Id", cutoffDate));
+      await runStep("Level5: LeaderGroup orphan by group", () =>
+        archiveAndDeleteOrphan(client, "LeaderGroup", "GroupId", "Groups", "Id", cutoffDate));
+
       await runStep("Level5: ReturnMasters orphan", () =>
         archiveAndDeleteOrphan(client, "ReturnMasters", "CampaignId", "Campaigns", "Id", cutoffDate));
       await runStep("Level5: ScheduledEmailLogs", () =>
@@ -623,6 +662,12 @@ export async function runDailyCleanup(): Promise<void> {
         archiveAndDelete(client, "UsersNotifications", "Id", "TargetUserId", cutoffDate));
       await runStep("Level3: AspNetUserRoles", () =>
         archiveAndDelete(client, "AspNetUserRoles", "UserId", "UserId", cutoffDate));
+
+      console.log("-- NULLIFY (pre-Groups): FK columns referencing soft-deleted groups --");
+      await runStep("Nullify: Campaigns.GroupForPrivateAccessId by group", () =>
+        nullifyFkColumnByParent(client, "Campaigns", "GroupForPrivateAccessId", "Groups", "Id", cutoffDate));
+      await runStep("Nullify: Requests.GroupToFollowId by group", () =>
+        nullifyFkColumnByParent(client, "Requests", "GroupToFollowId", "Groups", "Id", cutoffDate));
 
       console.log("-- LEVEL 2: Top-level domain parents --");
       await runStep("Level2: Groups", () =>
