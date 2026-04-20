@@ -3,7 +3,7 @@ import { AdminLayout } from "../components/AdminLayout";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, Trash2 } from "lucide-react";
+import { Search, Trash2, Download } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -30,6 +30,7 @@ export default function EventRegistrationsList() {
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletingRegistration, setDeletingRegistration] = useState<Registration | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
 
   const handleSort = (field: keyof Registration) => {
     originalHandleSort(field);
@@ -78,6 +79,72 @@ export default function EventRegistrationsList() {
 
   const canDelete = hasActionPermission("event registrations", "delete");
 
+  const handleExportCsv = async () => {
+    setIsExporting(true);
+    try {
+      const all = await eventApi.fetchEventRegistrations({
+        currentPage: 1,
+        perPage: 100000,
+        searchValue: effectiveSearch || undefined,
+        sortField: sortField || undefined,
+        sortDirection: sortDir || undefined,
+      });
+      const items = all.items || [];
+      if (items.length === 0) {
+        toast({ title: "Nothing to export", description: "No registrations match the current filter." });
+        return;
+      }
+
+      const escape = (val: unknown) => {
+        const s = val === null || val === undefined ? "" : String(val);
+        return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+
+      const headers = [
+        "Event Slug",
+        "First Name",
+        "Last Name",
+        "Email",
+        "Guest Name",
+        "Referred By",
+        "Registered At",
+      ];
+      const lines = [headers.join(",")];
+      for (const r of items) {
+        lines.push(
+          [
+            r.eventSlug,
+            r.firstName,
+            r.lastName,
+            r.email,
+            r.guestName ?? "",
+            r.referredBy ?? "",
+            formatDateTime(r.createdAt),
+          ]
+            .map(escape)
+            .join(",")
+        );
+      }
+      const csv = "\uFEFF" + lines.join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      const stamp = new Date().toISOString().slice(0, 10);
+      link.download = `event-registrations-${stamp}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      toast({ title: `Exported ${items.length} registration${items.length === 1 ? "" : "s"}` });
+    } catch (err) {
+      toast({ title: "Failed to export registrations", variant: "destructive" });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <AdminLayout title="Event Registrations">
       <div className="space-y-4">
@@ -107,6 +174,15 @@ export default function EventRegistrationsList() {
                 data-testid="input-search-event-registrations"
               />
             </div>
+            <Button
+              variant="outline"
+              onClick={handleExportCsv}
+              disabled={isExporting || isLoading || totalCount === 0}
+              data-testid="button-export-event-registrations"
+            >
+              <Download className="mr-2 h-4 w-4" />
+              {isExporting ? "Exporting..." : "Export CSV"}
+            </Button>
           </CardHeader>
 
           <CardContent className="p-0">
