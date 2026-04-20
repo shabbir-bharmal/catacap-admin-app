@@ -564,6 +564,18 @@ export async function runDailyCleanup(): Promise<void> {
         console.log(`  campaign_groups: deleted ${result.rowCount} row(s)`);
       });
 
+      await runStep("Level5: CampaignGroups delete by group", async () => {
+        const result = await client.query(
+          `DELETE FROM campaign_groups cdg
+           USING groups g
+           WHERE g.id = cdg.groups_id
+             AND g.deleted_at IS NOT NULL
+             AND g.deleted_at <= $1`,
+          [cutoffDate]
+        );
+        console.log(`  campaign_groups (by group): deleted ${result.rowCount} row(s)`);
+      });
+
       await runStep("Level5: ReturnMasters orphan", () =>
         archiveAndDeleteOrphan(client, "ReturnMasters", "CampaignId", "Campaigns", "Id", cutoffDate));
       await runStep("Level5: ScheduledEmailLogs", () =>
