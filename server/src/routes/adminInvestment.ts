@@ -809,19 +809,28 @@ router.get("/:id/recommendations/export", async (req: Request, res: Response) =>
 
 router.get("/:id", async (req: Request, res: Response) => {
   try {
-    const id = parseInt(req.params.id, 10);
-    if (!id || id <= 0) {
-      res.status(404).json({ message: "Not found" });
-      return;
-    }
+    const idOrSlug = req.params.id;
+    const numericId = /^\d+$/.test(idOrSlug) ? parseInt(idOrSlug, 10) : NaN;
 
-    const campaignResult = await pool.query(
-      `SELECT c.*, gpa.id AS gpa_id, gpa.name AS gpa_name
-       FROM campaigns c
-       LEFT JOIN groups gpa ON c.group_for_private_access_id = gpa.id
-       WHERE c.id = $1`,
-      [id]
-    );
+    let campaignResult;
+    if (Number.isFinite(numericId) && numericId > 0) {
+      campaignResult = await pool.query(
+        `SELECT c.*, gpa.id AS gpa_id, gpa.name AS gpa_name
+         FROM campaigns c
+         LEFT JOIN groups gpa ON c.group_for_private_access_id = gpa.id
+         WHERE c.id = $1`,
+        [numericId]
+      );
+    } else {
+      campaignResult = await pool.query(
+        `SELECT c.*, gpa.id AS gpa_id, gpa.name AS gpa_name
+         FROM campaigns c
+         LEFT JOIN groups gpa ON c.group_for_private_access_id = gpa.id
+         WHERE LOWER(TRIM(COALESCE(c.property, ''))) = LOWER(TRIM($1))
+         LIMIT 1`,
+        [idOrSlug]
+      );
+    }
 
     if (campaignResult.rows.length === 0) {
       res.status(404).json({ message: "Not found" });
@@ -829,6 +838,7 @@ router.get("/:id", async (req: Request, res: Response) => {
     }
 
     const c = campaignResult.rows[0];
+    const id = c.id;
 
     const balanceResult = await pool.query(
       `SELECT COALESCE(SUM(CASE WHEN LOWER(status) = 'approved' OR LOWER(status) = 'pending' THEN amount ELSE 0 END), 0) AS balance,
