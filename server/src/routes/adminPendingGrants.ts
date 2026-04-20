@@ -149,7 +149,9 @@ router.get("/", async (req: Request, res: Response) => {
     let paramIdx = 1;
 
     softDeleteFilter("pg", params.isDeleted, conditions);
-    conditions.push("(u.is_deleted IS NULL OR u.is_deleted = false)");
+    if (params.isDeleted !== true) {
+      conditions.push("(u.is_deleted IS NULL OR u.is_deleted = false)");
+    }
 
     if (statusList && statusList.length > 0) {
       if (statusList.includes("pending")) {
@@ -280,11 +282,7 @@ router.get("/", async (req: Request, res: Response) => {
       };
     });
 
-    if (pagedData.length > 0) {
-      res.json({ items: pagedData, totalCount });
-    } else {
-      res.json({ success: false, message: "Data not found." });
-    }
+    res.json({ items: pagedData, totalCount });
   } catch (err: any) {
     if (handleMissingTableError(err, res)) return;
     console.error("Error fetching pending grants:", err);
