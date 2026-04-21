@@ -746,9 +746,10 @@ namespace Invest.Controllers.Admin
                                         .Concat(parentUserIdsByEmail)
                                         .Distinct()
                                         .ToList();
+            int restoredUserCount = 0;
             if (allParentUserIds.Any())
             {
-                await UserCascadeRestoreHelper.RestoreUsersWithCascadeAsync(_context, allParentUserIds);
+                restoredUserCount = await UserCascadeRestoreHelper.RestoreUsersWithCascadeAsync(_context, allParentUserIds);
             }
 
             deletedEntities.RestoreRange();
@@ -756,7 +757,16 @@ namespace Invest.Controllers.Admin
             await _context.SaveChangesAsync();
             await transaction.CommitAsync();
 
-            return Ok(new { Success = true, Message = $"{deletedEntities.Count} recommendation(s) restored successfully." });
+            var userSuffix = restoredUserCount > 0
+                ? $" {restoredUserCount} owning user account(s) were also restored."
+                : string.Empty;
+            return Ok(new
+            {
+                Success = true,
+                Message = $"{deletedEntities.Count} recommendation(s) restored successfully.{userSuffix}",
+                RestoredCount = deletedEntities.Count,
+                RestoredUserCount = restoredUserCount,
+            });
         }
 
         private async Task AddPersonalDeduction(User user, decimal amount, string investmentName, int? campaignId, string? grantType, string? assetType)
