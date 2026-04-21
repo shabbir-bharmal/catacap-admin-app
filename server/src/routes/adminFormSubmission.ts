@@ -507,12 +507,9 @@ router.put("/restore", async (req: Request, res: Response) => {
       throw txErr;
     }
 
-    const userSuffix = restoredUserCount > 0
-      ? ` ${restoredUserCount} owning user account(s) were also restored.`
-      : "";
     res.json({
       success: true,
-      message: `${restoredCount} form(s) restored successfully.${userSuffix}`,
+      message: `${restoredCount} form(s) restored successfully.`,
       restoredCount,
       restoredUserCount,
     });

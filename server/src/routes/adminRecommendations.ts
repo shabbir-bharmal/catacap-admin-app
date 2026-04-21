@@ -220,12 +220,9 @@ router.put("/restore", async (req: Request, res: Response) => {
       throw txErr;
     }
 
-    const userSuffix = restoredUserCount > 0
-      ? ` ${restoredUserCount} owning user account(s) were also restored.`
-      : "";
     res.json({
       success: true,
-      message: `${restoredCount} recommendation(s) restored successfully.${userSuffix}`,
+      message: `${restoredCount} recommendation(s) restored successfully.`,
       restoredCount,
       restoredUserCount,
     });

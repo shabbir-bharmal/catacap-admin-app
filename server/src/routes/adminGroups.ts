@@ -1370,12 +1370,9 @@ router.put("/restore", async (req: Request, res: Response) => {
       });
     }
 
-    const userSuffix = restoredUserCount > 0
-      ? ` ${restoredUserCount} owning user account(s) were also restored.`
-      : "";
     res.json({
       success: true,
-      message: `${groupIds.length} group(s) restored successfully.${userSuffix}`,
+      message: `${groupIds.length} group(s) restored successfully.`,
       restoredCount: groupIds.length,
       restoredUserCount,
     });
