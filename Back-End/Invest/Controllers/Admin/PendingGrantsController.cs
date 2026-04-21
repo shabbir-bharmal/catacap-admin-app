@@ -577,9 +577,10 @@ namespace Invest.Controllers.Admin
                                                      .Where(u => parentUserIds.Contains(u.Id) && u.IsDeleted)
                                                      .Select(u => u.Id)
                                                      .ToListAsync();
+            int restoredUserCount = 0;
             if (deletedParentUserIds.Any())
             {
-                await UserCascadeRestoreHelper.RestoreUsersWithCascadeAsync(_context, deletedParentUserIds);
+                restoredUserCount = await UserCascadeRestoreHelper.RestoreUsersWithCascadeAsync(_context, deletedParentUserIds);
             }
 
             var logs = await _context.AccountBalanceChangeLogs
@@ -610,7 +611,16 @@ namespace Invest.Controllers.Admin
             await _context.SaveChangesAsync();
             await transaction.CommitAsync();
 
-            return Ok(new { Success = true, Message = $"{deletedGrants.Count} pending grant(s) restored successfully." });
+            var userSuffix = restoredUserCount > 0
+                ? $" {restoredUserCount} owning user account(s) were also restored."
+                : string.Empty;
+            return Ok(new
+            {
+                Success = true,
+                Message = $"{deletedGrants.Count} pending grant(s) restored successfully.{userSuffix}",
+                RestoredCount = deletedGrants.Count,
+                RestoredUserCount = restoredUserCount,
+            });
         }
 
         private async Task<(bool Success, string Message)> UpdateAccountBalance(string email, decimal accountBalance, decimal originalAmount, decimal totalCataCapFee, string grantType, int pendingGrantsId, decimal totalInvestmentAmount, string? reference = null, string? investmentName = null, string? zipCode = null)

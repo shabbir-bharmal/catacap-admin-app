@@ -222,11 +222,40 @@ namespace Invest.Controllers.Admin
             if (!deletedTestimonials.Any())
                 return Ok(new { Success = false, Message = "No deleted testimonials found." });
 
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+
+            var parentUserIds = deletedTestimonials
+                                    .Select(x => x.UserId)
+                                    .Where(id => !string.IsNullOrEmpty(id))
+                                    .Select(id => id!)
+                                    .Distinct()
+                                    .ToList();
+            var deletedParentUserIds = await _context.Users
+                                                     .IgnoreQueryFilters()
+                                                     .Where(u => parentUserIds.Contains(u.Id) && u.IsDeleted)
+                                                     .Select(u => u.Id)
+                                                     .ToListAsync();
+            int restoredUserCount = 0;
+            if (deletedParentUserIds.Any())
+            {
+                restoredUserCount = await UserCascadeRestoreHelper.RestoreUsersWithCascadeAsync(_context, deletedParentUserIds);
+            }
+
             deletedTestimonials.RestoreRange();
 
             await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
 
-            return Ok(new { Success = true, Message = $"{deletedTestimonials.Count} testimonial(s) restored successfully." });
+            var userSuffix = restoredUserCount > 0
+                ? $" {restoredUserCount} owning user account(s) were also restored."
+                : string.Empty;
+            return Ok(new
+            {
+                Success = true,
+                Message = $"{deletedTestimonials.Count} testimonial(s) restored successfully.{userSuffix}",
+                RestoredCount = deletedTestimonials.Count,
+                RestoredUserCount = restoredUserCount,
+            });
         }
     }
 }

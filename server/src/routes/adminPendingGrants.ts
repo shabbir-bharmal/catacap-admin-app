@@ -314,6 +314,7 @@ router.put("/restore", async (req: Request, res: Response) => {
     }
 
     const grantIds = grantsResult.rows.map((r: any) => r.id);
+    let restoredUserCount = 0;
 
     try {
       await client.query("BEGIN");
@@ -326,7 +327,8 @@ router.put("/restore", async (req: Request, res: Response) => {
         grantIds
       );
       if (parentUserIds.length > 0) {
-        await restoreUsersWithCascadeInTx(client, parentUserIds);
+        const restoredUsers = await restoreUsersWithCascadeInTx(client, parentUserIds);
+        restoredUserCount = restoredUsers.length;
       }
 
       await client.query(
@@ -359,7 +361,15 @@ router.put("/restore", async (req: Request, res: Response) => {
       throw txErr;
     }
 
-    res.json({ success: true, message: `${grantIds.length} pending grant(s) restored successfully.` });
+    const userSuffix = restoredUserCount > 0
+      ? ` ${restoredUserCount} owning user account(s) were also restored.`
+      : "";
+    res.json({
+      success: true,
+      message: `${grantIds.length} pending grant(s) restored successfully.${userSuffix}`,
+      restoredCount: grantIds.length,
+      restoredUserCount,
+    });
   } catch (err: any) {
     console.error("Error restoring pending grants:", err);
     res.status(500).json({ success: false, message: err.message });

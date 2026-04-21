@@ -155,6 +155,7 @@ router.put("/restore", async (req: Request, res: Response) => {
     }
 
     let restoredCount = 0;
+    let restoredUserCount = 0;
     try {
       await client.query("BEGIN");
 
@@ -182,7 +183,8 @@ router.put("/restore", async (req: Request, res: Response) => {
         deletedIds
       );
       if (parentUserIds.length > 0) {
-        await restoreUsersWithCascadeInTx(client, parentUserIds);
+        const restoredUsers = await restoreUsersWithCascadeInTx(client, parentUserIds);
+        restoredUserCount = restoredUsers.length;
       }
 
       await client.query(
@@ -199,9 +201,14 @@ router.put("/restore", async (req: Request, res: Response) => {
       throw txErr;
     }
 
+    const userSuffix = restoredUserCount > 0
+      ? ` ${restoredUserCount} owning user account(s) were also restored.`
+      : "";
     res.json({
       success: true,
-      message: `${restoredCount} account history record(s) restored successfully.`,
+      message: `${restoredCount} account history record(s) restored successfully.${userSuffix}`,
+      restoredCount,
+      restoredUserCount,
     });
   } catch (err) {
     console.error("Restore transaction history error:", err);

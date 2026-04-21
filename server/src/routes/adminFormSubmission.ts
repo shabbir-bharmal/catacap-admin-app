@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter, buildSortClause, handleMissingTableError } from "../utils/softDelete.js";
+import { restoreUsersWithCascadeInTx, findDeletedParentUserIdsByEmail } from "../utils/userRestore.js";
 
 const router = Router();
 
@@ -451,6 +452,7 @@ router.delete("/:id", async (req: Request, res: Response) => {
 });
 
 router.put("/restore", async (req: Request, res: Response) => {
+  const client = await pool.connect();
   try {
     const ids: number[] = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
@@ -468,22 +470,57 @@ router.put("/restore", async (req: Request, res: Response) => {
       return;
     }
 
-    const result = await pool.query(
-      `UPDATE form_submissions SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
-       WHERE id = ANY($1) AND is_deleted = true
-       RETURNING id`,
-      [ids]
-    );
+    let restoredCount = 0;
+    let restoredUserCount = 0;
+    try {
+      await client.query("BEGIN");
 
-    if (result.rowCount === 0) {
-      res.json({ success: false, message: "No deleted forms found to restore." });
-      return;
+      const parentUserIds = await findDeletedParentUserIdsByEmail(
+        client,
+        "form_submissions",
+        "id",
+        "email",
+        ids
+      );
+      if (parentUserIds.length > 0) {
+        const restoredUsers = await restoreUsersWithCascadeInTx(client, parentUserIds);
+        restoredUserCount = restoredUsers.length;
+      }
+
+      const result = await client.query(
+        `UPDATE form_submissions SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE id = ANY($1) AND is_deleted = true
+         RETURNING id`,
+        [ids]
+      );
+      restoredCount = result.rowCount ?? 0;
+
+      if (restoredCount === 0 && restoredUserCount === 0) {
+        await client.query("ROLLBACK");
+        res.json({ success: false, message: "No deleted forms found to restore." });
+        return;
+      }
+
+      await client.query("COMMIT");
+    } catch (txErr) {
+      await client.query("ROLLBACK");
+      throw txErr;
     }
 
-    res.json({ success: true, message: `${result.rowCount} form(s) restored successfully.` });
+    const userSuffix = restoredUserCount > 0
+      ? ` ${restoredUserCount} owning user account(s) were also restored.`
+      : "";
+    res.json({
+      success: true,
+      message: `${restoredCount} form(s) restored successfully.${userSuffix}`,
+      restoredCount,
+      restoredUserCount,
+    });
   } catch (err) {
     console.error("Admin FormSubmission Restore error:", err);
     res.status(500).json({ message: "Internal server error" });
+  } finally {
+    client.release();
   }
 });
 

@@ -414,11 +414,39 @@ namespace Invest.Controllers.Admin
             if (!deletedEntities.Any())
                 return Ok(new { Success = false, Message = "No deleted records found to restore." });
 
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+
+            var parentUserIds = deletedEntities
+                                    .Select(x => x.UserId)
+                                    .Where(id => !string.IsNullOrEmpty(id))
+                                    .Distinct()
+                                    .ToList();
+            var deletedParentUserIds = await _context.Users
+                                                     .IgnoreQueryFilters()
+                                                     .Where(u => parentUserIds.Contains(u.Id) && u.IsDeleted)
+                                                     .Select(u => u.Id)
+                                                     .ToListAsync();
+            int restoredUserCount = 0;
+            if (deletedParentUserIds.Any())
+            {
+                restoredUserCount = await UserCascadeRestoreHelper.RestoreUsersWithCascadeAsync(_context, deletedParentUserIds);
+            }
+
             deletedEntities.RestoreRange();
 
             await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
 
-            return Ok(new { Success = true, Message = $"{deletedEntities.Count} disbursal request(s) restored successfully." });
+            var userSuffix = restoredUserCount > 0
+                ? $" {restoredUserCount} owning user account(s) were also restored."
+                : string.Empty;
+            return Ok(new
+            {
+                Success = true,
+                Message = $"{deletedEntities.Count} disbursal request(s) restored successfully.{userSuffix}",
+                RestoredCount = deletedEntities.Count,
+                RestoredUserCount = restoredUserCount,
+            });
         }
     }
 }

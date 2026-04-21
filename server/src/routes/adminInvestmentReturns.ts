@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, handleMissingTableError } from "../utils/softDelete.js";
+import { restoreUsersWithCascadeInTx, findDeletedParentUserIdsByFk } from "../utils/userRestore.js";
 import { sendTemplateEmail } from "../utils/emailService.js";
 import ExcelJS from "exceljs";
 import dayjs from "dayjs";
@@ -498,6 +499,7 @@ router.delete("/:id", async (req: Request, res: Response) => {
 });
 
 router.put("/restore", async (req: Request, res: Response) => {
+  const client = await pool.connect();
   try {
     const ids: number[] = req.body;
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
@@ -505,23 +507,57 @@ router.put("/restore", async (req: Request, res: Response) => {
       return;
     }
 
-    const placeholders = ids.map((_, i) => `$${i + 1}`).join(", ");
-    const result = await pool.query(
-      `UPDATE return_details SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
-       WHERE id IN (${placeholders}) AND is_deleted = true
-       RETURNING id`,
-      ids
-    );
+    let restoredCount = 0;
+    let restoredUserCount = 0;
+    try {
+      await client.query("BEGIN");
 
-    if (result.rowCount === 0) {
-      res.json({ success: false, message: "No deleted returns found to restore." });
-      return;
+      const parentUserIds = await findDeletedParentUserIdsByFk(
+        client,
+        "return_details",
+        "id",
+        "user_id",
+        ids
+      );
+      if (parentUserIds.length > 0) {
+        const restoredUsers = await restoreUsersWithCascadeInTx(client, parentUserIds);
+        restoredUserCount = restoredUsers.length;
+      }
+
+      const result = await client.query(
+        `UPDATE return_details SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE id = ANY($1) AND is_deleted = true
+         RETURNING id`,
+        [ids]
+      );
+      restoredCount = result.rowCount ?? 0;
+
+      if (restoredCount === 0 && restoredUserCount === 0) {
+        await client.query("ROLLBACK");
+        res.json({ success: false, message: "No deleted returns found to restore." });
+        return;
+      }
+
+      await client.query("COMMIT");
+    } catch (txErr) {
+      await client.query("ROLLBACK");
+      throw txErr;
     }
 
-    res.json({ success: true, message: `${result.rowCount} return(s) restored successfully.` });
+    const userSuffix = restoredUserCount > 0
+      ? ` ${restoredUserCount} owning user account(s) were also restored.`
+      : "";
+    res.json({
+      success: true,
+      message: `${restoredCount} return(s) restored successfully.${userSuffix}`,
+      restoredCount,
+      restoredUserCount,
+    });
   } catch (err: any) {
     console.error("Error restoring investment returns:", err);
     res.status(500).json({ success: false, message: err.message });
+  } finally {
+    client.release();
   }
 });
 

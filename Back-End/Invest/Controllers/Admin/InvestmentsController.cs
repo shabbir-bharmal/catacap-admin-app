@@ -1012,9 +1012,10 @@ namespace Invest.Controllers.Admin
                                                      .Where(u => parentUserIds.Contains(u.Id) && u.IsDeleted)
                                                      .Select(u => u.Id)
                                                      .ToListAsync();
+            int restoredUserCount = 0;
             if (deletedParentUserIds.Any())
             {
-                await UserCascadeRestoreHelper.RestoreUsersWithCascadeAsync(_context, deletedParentUserIds);
+                restoredUserCount = await UserCascadeRestoreHelper.RestoreUsersWithCascadeAsync(_context, deletedParentUserIds);
             }
 
             var pendingGrants = await _context.PendingGrants
@@ -1099,7 +1100,16 @@ namespace Invest.Controllers.Admin
             await _context.SaveChangesAsync();
             await transaction.CommitAsync();
 
-            return Ok(new { Success = true, Message = $"{deletedCampaigns.Count} campaign(s) restored successfully." });
+            var userSuffix = restoredUserCount > 0
+                ? $" {restoredUserCount} owning user account(s) were also restored."
+                : string.Empty;
+            return Ok(new
+            {
+                Success = true,
+                Message = $"{deletedCampaigns.Count} campaign(s) restored successfully.{userSuffix}",
+                RestoredCount = deletedCampaigns.Count,
+                RestoredUserCount = restoredUserCount,
+            });
         }
 
         [HttpGet("{id}/notes")]

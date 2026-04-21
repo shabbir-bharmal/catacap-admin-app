@@ -844,9 +844,10 @@ namespace Invest.Controllers.Admin
                                                 .Where(u => ownerIds.Contains(u.Id) && u.IsDeleted)
                                                 .Select(u => u.Id)
                                                 .ToListAsync();
+            int restoredUserCount = 0;
             if (deletedOwnerIds.Any())
             {
-                await UserCascadeRestoreHelper.RestoreUsersWithCascadeAsync(_context, deletedOwnerIds);
+                restoredUserCount = await UserCascadeRestoreHelper.RestoreUsersWithCascadeAsync(_context, deletedOwnerIds);
             }
 
             var requests = await _context.Requests
@@ -877,7 +878,16 @@ namespace Invest.Controllers.Admin
             await _context.SaveChangesAsync();
             await transaction.CommitAsync();
 
-            return Ok(new { Success = true, Message = $"{deletedGroups.Count} group(s) restored successfully." });
+            var userSuffix = restoredUserCount > 0
+                ? $" {restoredUserCount} owning user account(s) were also restored."
+                : string.Empty;
+            return Ok(new
+            {
+                Success = true,
+                Message = $"{deletedGroups.Count} group(s) restored successfully.{userSuffix}",
+                RestoredCount = deletedGroups.Count,
+                RestoredUserCount = restoredUserCount,
+            });
         }
 
         [HttpDelete("member/{id}")]

@@ -129,9 +129,10 @@ namespace Invest.Controllers.Admin
                                                      .Where(u => parentUserIds.Contains(u.Id) && u.IsDeleted)
                                                      .Select(u => u.Id)
                                                      .ToListAsync();
+            int restoredUserCount = 0;
             if (deletedParentUserIds.Any())
             {
-                await UserCascadeRestoreHelper.RestoreUsersWithCascadeAsync(_context, deletedParentUserIds);
+                restoredUserCount = await UserCascadeRestoreHelper.RestoreUsersWithCascadeAsync(_context, deletedParentUserIds);
             }
 
             deletedLogs.RestoreRange();
@@ -139,7 +140,16 @@ namespace Invest.Controllers.Admin
             await _context.SaveChangesAsync();
             await transaction.CommitAsync();
 
-            return Ok(new { Success = true, Message = $"{deletedLogs.Count} account history record(s) restored successfully." });
+            var userSuffix = restoredUserCount > 0
+                ? $" {restoredUserCount} owning user account(s) were also restored."
+                : string.Empty;
+            return Ok(new
+            {
+                Success = true,
+                Message = $"{deletedLogs.Count} account history record(s) restored successfully.{userSuffix}",
+                RestoredCount = deletedLogs.Count,
+                RestoredUserCount = restoredUserCount,
+            });
         }
 
         [HttpGet("export")]

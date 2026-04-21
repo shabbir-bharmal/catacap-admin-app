@@ -1266,6 +1266,7 @@ router.put("/restore", async (req: Request, res: Response) => {
     }
 
     const campaignIds = campaignResult.rows.map((r: any) => Number(r.id));
+    let restoredUserCount = 0;
 
     const client = await pool.connect();
     try {
@@ -1279,7 +1280,8 @@ router.put("/restore", async (req: Request, res: Response) => {
         campaignIds
       );
       if (parentUserIds.length > 0) {
-        await restoreUsersWithCascadeInTx(client, parentUserIds);
+        const restoredUsers = await restoreUsersWithCascadeInTx(client, parentUserIds);
+        restoredUserCount = restoredUsers.length;
       }
 
       const pgResult = await client.query(
@@ -1413,7 +1415,15 @@ router.put("/restore", async (req: Request, res: Response) => {
     }
 
     const count = campaignIds.length;
-    res.json({ success: true, message: `${count} campaign(s) restored successfully.` });
+    const userSuffix = restoredUserCount > 0
+      ? ` ${restoredUserCount} owning user account(s) were also restored.`
+      : "";
+    res.json({
+      success: true,
+      message: `${count} campaign(s) restored successfully.${userSuffix}`,
+      restoredCount: count,
+      restoredUserCount,
+    });
   } catch (err: any) {
     console.error("Error restoring campaigns:", err);
     res.status(500).json({ success: false, message: err.message });

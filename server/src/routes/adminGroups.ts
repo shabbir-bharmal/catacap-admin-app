@@ -1309,6 +1309,7 @@ router.put("/restore", async (req: Request, res: Response) => {
     }
 
     const groupIds = groupsResult.rows.map((r: any) => r.id);
+    let restoredUserCount = 0;
 
     const client = await pool.connect();
     try {
@@ -1322,7 +1323,8 @@ router.put("/restore", async (req: Request, res: Response) => {
         groupIds
       );
       if (parentUserIds.length > 0) {
-        await restoreUsersWithCascadeInTx(client, parentUserIds);
+        const restoredUsers = await restoreUsersWithCascadeInTx(client, parentUserIds);
+        restoredUserCount = restoredUsers.length;
       }
 
       await client.query(
@@ -1368,7 +1370,15 @@ router.put("/restore", async (req: Request, res: Response) => {
       });
     }
 
-    res.json({ success: true, message: `${groupIds.length} group(s) restored successfully.` });
+    const userSuffix = restoredUserCount > 0
+      ? ` ${restoredUserCount} owning user account(s) were also restored.`
+      : "";
+    res.json({
+      success: true,
+      message: `${groupIds.length} group(s) restored successfully.${userSuffix}`,
+      restoredCount: groupIds.length,
+      restoredUserCount,
+    });
   } catch (err) {
     console.error("Restore groups error:", err);
     res.status(500).json({ success: false, message: "Internal server error" });

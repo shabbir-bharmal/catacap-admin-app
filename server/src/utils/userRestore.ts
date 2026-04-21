@@ -306,6 +306,9 @@ export async function restoreUsersWithCascadeInTx(
 /**
  * Find soft-deleted parent user IDs for a given set of child records by
  * matching the user's email to a column on the child table (case-insensitive).
+ * Only considers child rows that are themselves currently soft-deleted, so a
+ * caller cannot accidentally restore a parent user when the child being
+ * restored is not actually deleted.
  */
 export async function findDeletedParentUserIdsByEmail(
   client: PoolClient,
@@ -319,7 +322,9 @@ export async function findDeletedParentUserIdsByEmail(
     `SELECT DISTINCT u.id
      FROM ${childTable} c
      JOIN users u ON LOWER(TRIM(u.email)) = LOWER(TRIM(c.${childEmailColumn}))
-     WHERE c.${childIdColumn} = ANY($1) AND u.is_deleted = true`,
+     WHERE c.${childIdColumn} = ANY($1)
+       AND c.is_deleted = true
+       AND u.is_deleted = true`,
     [childIds]
   );
   return r.rows.map((row: { id: string }) => row.id);
@@ -327,7 +332,8 @@ export async function findDeletedParentUserIdsByEmail(
 
 /**
  * Find soft-deleted parent user IDs for a given set of child records by
- * a direct foreign-key column on the child table.
+ * a direct foreign-key column on the child table. Only considers child rows
+ * that are themselves currently soft-deleted.
  */
 export async function findDeletedParentUserIdsByFk(
   client: PoolClient,
@@ -341,7 +347,39 @@ export async function findDeletedParentUserIdsByFk(
     `SELECT DISTINCT u.id
      FROM ${childTable} c
      JOIN users u ON u.id = c.${fkColumn}
-     WHERE c.${childIdColumn} = ANY($1) AND u.is_deleted = true`,
+     WHERE c.${childIdColumn} = ANY($1)
+       AND c.is_deleted = true
+       AND u.is_deleted = true`,
+    [childIds]
+  );
+  return r.rows.map((row: { id: string }) => row.id);
+}
+
+/**
+ * Find soft-deleted parent user IDs for a given set of child records by
+ * matching either a direct FK column OR a case-insensitive email column on
+ * the child table. Useful for legacy tables (e.g. recommendations) that may
+ * carry one or both linkages to the owning user. Only considers child rows
+ * that are themselves currently soft-deleted.
+ */
+export async function findDeletedParentUserIdsByFkOrEmail(
+  client: PoolClient,
+  childTable: string,
+  childIdColumn: string,
+  fkColumn: string,
+  emailColumn: string,
+  childIds: Array<number | string>
+): Promise<string[]> {
+  if (!childIds.length) return [];
+  const r = await client.query(
+    `SELECT DISTINCT u.id
+     FROM ${childTable} c
+     JOIN users u
+       ON u.id = c.${fkColumn}
+       OR LOWER(TRIM(u.email)) = LOWER(TRIM(c.${emailColumn}))
+     WHERE c.${childIdColumn} = ANY($1)
+       AND c.is_deleted = true
+       AND u.is_deleted = true`,
     [childIds]
   );
   return r.rows.map((row: { id: string }) => row.id);
