@@ -323,32 +323,11 @@ namespace Invest.Controllers.Admin
             if (!deletedForms.Any())
                 return Ok(new { Success = false, Message = "No deleted forms found to restore." });
 
-            await using var transaction = await _context.Database.BeginTransactionAsync();
-
-            var emails = deletedForms.Select(x => x.Email).ToList();
-            var parentUserIds = await UserCascadeRestoreHelper
-                                        .FindDeletedParentUserIdsByEmailAsync(_context, emails!);
-            int restoredUserCount = 0;
-            if (parentUserIds.Any())
-            {
-                restoredUserCount = await UserCascadeRestoreHelper.RestoreUsersWithCascadeAsync(_context, parentUserIds);
-            }
-
             deletedForms.RestoreRange();
 
             await _context.SaveChangesAsync();
-            await transaction.CommitAsync();
 
-            var userSuffix = restoredUserCount > 0
-                ? $" {restoredUserCount} owning user account(s) were also restored."
-                : string.Empty;
-            return Ok(new
-            {
-                Success = true,
-                Message = $"{deletedForms.Count} form(s) restored successfully.{userSuffix}",
-                RestoredCount = deletedForms.Count,
-                RestoredUserCount = restoredUserCount,
-            });
+            return Ok(new { Success = true, Message = $"{deletedForms.Count} form(s) restored successfully." });
         }
 
         private static IEnumerable<int> ExtractIds(string description)

@@ -116,40 +116,11 @@ namespace Invest.Controllers.Admin
             if (!deletedLogs.Any())
                 return Ok(new { Success = false, Message = "No deleted account history found." });
 
-            await using var transaction = await _context.Database.BeginTransactionAsync();
-
-            var parentUserIds = deletedLogs
-                                    .Select(x => x.UserId)
-                                    .Where(id => !string.IsNullOrEmpty(id))
-                                    .Select(id => id!)
-                                    .Distinct()
-                                    .ToList();
-            var deletedParentUserIds = await _context.Users
-                                                     .IgnoreQueryFilters()
-                                                     .Where(u => parentUserIds.Contains(u.Id) && u.IsDeleted)
-                                                     .Select(u => u.Id)
-                                                     .ToListAsync();
-            int restoredUserCount = 0;
-            if (deletedParentUserIds.Any())
-            {
-                restoredUserCount = await UserCascadeRestoreHelper.RestoreUsersWithCascadeAsync(_context, deletedParentUserIds);
-            }
-
             deletedLogs.RestoreRange();
 
             await _context.SaveChangesAsync();
-            await transaction.CommitAsync();
 
-            var userSuffix = restoredUserCount > 0
-                ? $" {restoredUserCount} owning user account(s) were also restored."
-                : string.Empty;
-            return Ok(new
-            {
-                Success = true,
-                Message = $"{deletedLogs.Count} account history record(s) restored successfully.{userSuffix}",
-                RestoredCount = deletedLogs.Count,
-                RestoredUserCount = restoredUserCount,
-            });
+            return Ok(new { Success = true, Message = $"{deletedLogs.Count} account history record(s) restored successfully." });
         }
 
         [HttpGet("export")]

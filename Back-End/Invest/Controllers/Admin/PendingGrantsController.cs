@@ -564,25 +564,6 @@ namespace Invest.Controllers.Admin
 
             var grantIds = deletedGrants.Select(x => x.Id).ToList();
 
-            await using var transaction = await _context.Database.BeginTransactionAsync();
-
-            var parentUserIds = deletedGrants
-                                    .Select(x => x.UserId)
-                                    .Where(id => !string.IsNullOrEmpty(id))
-                                    .Select(id => id!)
-                                    .Distinct()
-                                    .ToList();
-            var deletedParentUserIds = await _context.Users
-                                                     .IgnoreQueryFilters()
-                                                     .Where(u => parentUserIds.Contains(u.Id) && u.IsDeleted)
-                                                     .Select(u => u.Id)
-                                                     .ToListAsync();
-            int restoredUserCount = 0;
-            if (deletedParentUserIds.Any())
-            {
-                restoredUserCount = await UserCascadeRestoreHelper.RestoreUsersWithCascadeAsync(_context, deletedParentUserIds);
-            }
-
             var logs = await _context.AccountBalanceChangeLogs
                                      .IgnoreQueryFilters()
                                      .Where(x => x.PendingGrantsId != null &&
@@ -609,18 +590,8 @@ namespace Invest.Controllers.Admin
             scheduledEmails.RestoreRange();
 
             await _context.SaveChangesAsync();
-            await transaction.CommitAsync();
 
-            var userSuffix = restoredUserCount > 0
-                ? $" {restoredUserCount} owning user account(s) were also restored."
-                : string.Empty;
-            return Ok(new
-            {
-                Success = true,
-                Message = $"{deletedGrants.Count} pending grant(s) restored successfully.{userSuffix}",
-                RestoredCount = deletedGrants.Count,
-                RestoredUserCount = restoredUserCount,
-            });
+            return Ok(new { Success = true, Message = $"{deletedGrants.Count} pending grant(s) restored successfully." });
         }
 
         private async Task<(bool Success, string Message)> UpdateAccountBalance(string email, decimal accountBalance, decimal originalAmount, decimal totalCataCapFee, string grantType, int pendingGrantsId, decimal totalInvestmentAmount, string? reference = null, string? investmentName = null, string? zipCode = null)

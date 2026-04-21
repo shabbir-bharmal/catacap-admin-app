@@ -815,7 +815,6 @@ namespace Invest.Controllers.Admin
 
             var groups = await _context.Groups
                                        .IgnoreQueryFilters()
-                                       .Include(x => x.Owner)
                                        .Where(x => ids.Contains(x.Id))
                                        .ToListAsync();
 
@@ -828,27 +827,6 @@ namespace Invest.Controllers.Admin
                 return Ok(new { Success = false, Message = "No deleted groups found." });
 
             var groupIds = deletedGroups.Select(x => x.Id).ToList();
-
-            await using var transaction = await _context.Database.BeginTransactionAsync();
-
-            // Cascade-restore parent (owner) users that are currently
-            // soft-deleted, so the restored group is owned by an active user.
-            var ownerIds = deletedGroups
-                                .Where(g => g.Owner != null)
-                                .Select(g => g.Owner!.Id)
-                                .Where(id => !string.IsNullOrEmpty(id))
-                                .Distinct()
-                                .ToList();
-            var deletedOwnerIds = await _context.Users
-                                                .IgnoreQueryFilters()
-                                                .Where(u => ownerIds.Contains(u.Id) && u.IsDeleted)
-                                                .Select(u => u.Id)
-                                                .ToListAsync();
-            int restoredUserCount = 0;
-            if (deletedOwnerIds.Any())
-            {
-                restoredUserCount = await UserCascadeRestoreHelper.RestoreUsersWithCascadeAsync(_context, deletedOwnerIds);
-            }
 
             var requests = await _context.Requests
                                          .IgnoreQueryFilters()
@@ -876,18 +854,8 @@ namespace Invest.Controllers.Admin
             balances.RestoreRange();
 
             await _context.SaveChangesAsync();
-            await transaction.CommitAsync();
 
-            var userSuffix = restoredUserCount > 0
-                ? $" {restoredUserCount} owning user account(s) were also restored."
-                : string.Empty;
-            return Ok(new
-            {
-                Success = true,
-                Message = $"{deletedGroups.Count} group(s) restored successfully.{userSuffix}",
-                RestoredCount = deletedGroups.Count,
-                RestoredUserCount = restoredUserCount,
-            });
+            return Ok(new { Success = true, Message = $"{deletedGroups.Count} group(s) restored successfully." });
         }
 
         [HttpDelete("member/{id}")]
