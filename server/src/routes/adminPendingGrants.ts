@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter, handleMissingTableError } from "../utils/softDelete.js";
+import { restoreOwningUsersForRecordsInTx } from "../utils/userRestore.js";
 import ExcelJS from "exceljs";
 
 const router = Router();
@@ -303,7 +304,7 @@ router.put("/restore", async (req: Request, res: Response) => {
     }
 
     const grantsResult = await pool.query(
-      `SELECT id FROM pending_grants WHERE id = ANY($1) AND is_deleted = true`,
+      `SELECT id, user_id FROM pending_grants WHERE id = ANY($1) AND is_deleted = true`,
       [ids]
     );
 
@@ -313,6 +314,8 @@ router.put("/restore", async (req: Request, res: Response) => {
     }
 
     const grantIds = grantsResult.rows.map((r: any) => r.id);
+    const ownerIds = grantsResult.rows.map((r: any) => r.user_id);
+    let restoredUserCount = 0;
 
     try {
       await client.query("BEGIN");
@@ -322,6 +325,9 @@ router.put("/restore", async (req: Request, res: Response) => {
          WHERE id = ANY($1)`,
         [grantIds]
       );
+
+      const restoredUsers = await restoreOwningUsersForRecordsInTx(client, ownerIds, req.user?.id || null);
+      restoredUserCount = restoredUsers.length;
 
       await client.query(
         `UPDATE account_balance_change_logs SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
@@ -351,7 +357,7 @@ router.put("/restore", async (req: Request, res: Response) => {
       success: true,
       message: `${grantIds.length} pending grant(s) restored successfully.`,
       restoredCount: grantIds.length,
-      restoredUserCount: 0,
+      restoredUserCount,
     });
   } catch (err: any) {
     console.error("Error restoring pending grants:", err);

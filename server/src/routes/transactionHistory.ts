@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter, buildSortClause } from "../utils/softDelete.js";
+import { restoreOwningUsersForRecordsInTx } from "../utils/userRestore.js";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
 import ExcelJS from "exceljs";
@@ -154,11 +155,12 @@ router.put("/restore", async (req: Request, res: Response) => {
     }
 
     let restoredCount = 0;
+    let restoredUserCount = 0;
     try {
       await client.query("BEGIN");
 
       const logs = await client.query(
-        `SELECT id, is_deleted FROM account_balance_change_logs WHERE id = ANY($1)`,
+        `SELECT id, user_id, is_deleted FROM account_balance_change_logs WHERE id = ANY($1)`,
         [ids]
       );
       if (logs.rows.length === 0) {
@@ -166,7 +168,8 @@ router.put("/restore", async (req: Request, res: Response) => {
         res.json({ success: false, message: "Account history not found." });
         return;
       }
-      const deletedIds = logs.rows.filter((r) => r.is_deleted === true).map((r) => r.id);
+      const deletedRows = logs.rows.filter((r) => r.is_deleted === true);
+      const deletedIds = deletedRows.map((r) => r.id);
       if (deletedIds.length === 0) {
         await client.query("ROLLBACK");
         res.json({ success: false, message: "No deleted account history found." });
@@ -180,6 +183,10 @@ router.put("/restore", async (req: Request, res: Response) => {
         [deletedIds]
       );
 
+      const ownerIds = deletedRows.map((r) => r.user_id);
+      const restoredUsers = await restoreOwningUsersForRecordsInTx(client, ownerIds, req.user?.id || null);
+      restoredUserCount = restoredUsers.length;
+
       await client.query("COMMIT");
       restoredCount = deletedIds.length;
     } catch (txErr) {
@@ -191,7 +198,7 @@ router.put("/restore", async (req: Request, res: Response) => {
       success: true,
       message: `${restoredCount} account history record(s) restored successfully.`,
       restoredCount,
-      restoredUserCount: 0,
+      restoredUserCount,
     });
   } catch (err) {
     console.error("Restore transaction history error:", err);

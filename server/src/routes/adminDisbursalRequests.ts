@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, handleMissingTableError } from "../utils/softDelete.js";
+import { restoreOwningUsersForRecordsInTx } from "../utils/userRestore.js";
 import { resolveFileUrl } from "../utils/uploadBase64Image.js";
 import ExcelJS from "exceljs";
 import dayjs from "dayjs";
@@ -475,13 +476,14 @@ router.put("/restore", async (req: Request, res: Response) => {
     }
 
     let restoredCount = 0;
+    let restoredUserCount = 0;
     try {
       await client.query("BEGIN");
 
       const result = await client.query(
         `UPDATE disbursal_requests SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
          WHERE id = ANY($1) AND is_deleted = true
-         RETURNING id`,
+         RETURNING id, user_id`,
         [ids]
       );
       restoredCount = result.rowCount ?? 0;
@@ -491,6 +493,10 @@ router.put("/restore", async (req: Request, res: Response) => {
         res.json({ success: false, message: "No deleted records found to restore." });
         return;
       }
+
+      const ownerIds = result.rows.map((r: any) => r.user_id);
+      const restoredUsers = await restoreOwningUsersForRecordsInTx(client, ownerIds, req.user?.id || null);
+      restoredUserCount = restoredUsers.length;
 
       await client.query("COMMIT");
     } catch (txErr) {
@@ -502,7 +508,7 @@ router.put("/restore", async (req: Request, res: Response) => {
       success: true,
       message: `${restoredCount} disbursal request(s) restored successfully.`,
       restoredCount,
-      restoredUserCount: 0,
+      restoredUserCount,
     });
   } catch (err: any) {
     console.error("Error restoring disbursal requests:", err);

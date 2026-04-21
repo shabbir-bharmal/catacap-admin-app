@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, handleMissingTableError } from "../utils/softDelete.js";
+import { restoreOwningUsersForRecordsInTx } from "../utils/userRestore.js";
 import ExcelJS from "exceljs";
 import { resolveFileUrl } from "../utils/uploadBase64Image.js";
 import dayjs from "dayjs";
@@ -775,13 +776,14 @@ router.put("/restore", async (req: Request, res: Response) => {
     }
 
     let restoredCount = 0;
+    let restoredUserCount = 0;
     try {
       await client.query("BEGIN");
 
       const result = await client.query(
         `UPDATE completed_investment_details SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
          WHERE id = ANY($1) AND is_deleted = true
-         RETURNING id`,
+         RETURNING id, created_by, campaign_id`,
         [ids]
       );
       restoredCount = result.rowCount ?? 0;
@@ -791,6 +793,20 @@ router.put("/restore", async (req: Request, res: Response) => {
         res.json({ success: false, message: "No deleted records found to restore." });
         return;
       }
+
+      const ownerIds: (string | null)[] = result.rows.map((r: any) => r.created_by);
+      const campaignIds = result.rows
+        .map((r: any) => r.campaign_id)
+        .filter((cid: any) => cid != null);
+      if (campaignIds.length > 0) {
+        const campaignOwners = await client.query(
+          `SELECT user_id FROM campaigns WHERE id = ANY($1)`,
+          [campaignIds]
+        );
+        for (const row of campaignOwners.rows) ownerIds.push(row.user_id);
+      }
+      const restoredUsers = await restoreOwningUsersForRecordsInTx(client, ownerIds, req.user?.id || null);
+      restoredUserCount = restoredUsers.length;
 
       await client.query("COMMIT");
     } catch (txErr) {
@@ -802,7 +818,7 @@ router.put("/restore", async (req: Request, res: Response) => {
       success: true,
       message: `${restoredCount} completed investment(s) restored successfully.`,
       restoredCount,
-      restoredUserCount: 0,
+      restoredUserCount,
     });
   } catch (err: any) {
     console.error("Error restoring completed investments:", err);

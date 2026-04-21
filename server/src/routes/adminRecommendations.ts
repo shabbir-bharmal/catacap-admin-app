@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter, buildSortClause } from "../utils/softDelete.js";
+import { restoreOwningUsersForRecordsInTx } from "../utils/userRestore.js";
 import ExcelJS from "exceljs";
 
 const router = Router();
@@ -187,13 +188,14 @@ router.put("/restore", async (req: Request, res: Response) => {
     }
 
     let restoredCount = 0;
+    let restoredUserCount = 0;
     try {
       await client.query("BEGIN");
 
       const result = await client.query(
         `UPDATE recommendations SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
          WHERE id = ANY($1) AND is_deleted = true
-         RETURNING id`,
+         RETURNING id, user_id, user_email`,
         [ids]
       );
       restoredCount = result.rowCount ?? 0;
@@ -203,6 +205,21 @@ router.put("/restore", async (req: Request, res: Response) => {
         res.json({ success: false, message: "No deleted recommendations found." });
         return;
       }
+
+      const ownerIds = result.rows.map((r: { user_id: string | null }) => r.user_id);
+      const lookupEmails = result.rows
+        .filter((r: { user_id: string | null; user_email: string | null }) => !r.user_id && r.user_email)
+        .map((r: { user_email: string }) => r.user_email.trim().toLowerCase())
+        .filter((e: string) => e.length > 0);
+      if (lookupEmails.length > 0) {
+        const lookup = await client.query(
+          `SELECT id FROM users WHERE LOWER(TRIM(email)) = ANY($1)`,
+          [Array.from(new Set(lookupEmails))]
+        );
+        for (const row of lookup.rows) ownerIds.push(row.id);
+      }
+      const restoredUsers = await restoreOwningUsersForRecordsInTx(client, ownerIds, req.user?.id || null);
+      restoredUserCount = restoredUsers.length;
 
       await client.query("COMMIT");
     } catch (txErr) {
@@ -214,7 +231,7 @@ router.put("/restore", async (req: Request, res: Response) => {
       success: true,
       message: `${restoredCount} recommendation(s) restored successfully.`,
       restoredCount,
-      restoredUserCount: 0,
+      restoredUserCount,
     });
   } catch (err: any) {
     console.error("Error restoring recommendations:", err);
