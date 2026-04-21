@@ -131,6 +131,44 @@ router.get("/", async (req: Request, res: Response) => {
   }
 });
 
+router.get("/by-user/:userId", async (req: Request, res: Response) => {
+  try {
+    const userId = String(req.params.userId);
+
+    const userResult = await pool.query(
+      `SELECT id, email FROM users WHERE id = $1 LIMIT 1`,
+      [userId]
+    );
+
+    if (userResult.rows.length === 0) {
+      res.status(404).json({ success: false, message: "User not found" });
+      return;
+    }
+
+    const userEmail = userResult.rows[0].email;
+
+    const dataResult = await pool.query(
+      `SELECT r.id,
+              CAST(r.amount AS float) AS amount,
+              r.status,
+              r.date_created AS "dateCreated",
+              c.id AS "campaignId",
+              c.name AS "campaignName"
+       FROM recommendations r
+       LEFT JOIN campaigns c ON r.campaign_id = c.id
+       WHERE LOWER(r.user_email) = LOWER($1)
+         AND (r.is_deleted IS NULL OR r.is_deleted = false)
+       ORDER BY r.date_created DESC, r.id DESC`,
+      [userEmail]
+    );
+
+    res.json({ success: true, items: dataResult.rows });
+  } catch (err: any) {
+    console.error("Error fetching user recommendations:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 router.put("/restore", async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
