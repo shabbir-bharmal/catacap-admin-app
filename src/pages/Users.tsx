@@ -204,17 +204,23 @@ export default function UsersPage() {
   };
 
   const handleAssignGroupAdmin = async (user: UserEntry) => {
+    const wasGroupAdmin = user.isGroupAdmin;
     try {
-      await assignGroupAdmin(user.id);
+      const result = await assignGroupAdmin(user.id);
+      const fallback = wasGroupAdmin
+        ? "Group admin role removed successfully."
+        : "Group admin role assigned successfully.";
       toast({
-        title: "User has been assigned as group admin.",
+        title: result?.message || fallback,
         duration: 4000
       });
-      queryClient.invalidateQueries({ queryKey: ["users"] });
+      await queryClient.invalidateQueries({ queryKey: ["users"] });
     } catch (err) {
       console.error("Error assigning group admin", err);
       toast({
-        title: "Failed to assign group admin.",
+        title: wasGroupAdmin
+          ? "Failed to remove group admin."
+          : "Failed to assign group admin.",
         variant: "destructive",
         duration: 4000
       });
@@ -541,7 +547,10 @@ export default function UsersPage() {
                                     size="icon"
                                     variant="outline"
                                     className={cn(
-                                      "h-8 w-8 text-[#0ab39c] hover:text-[#0ab39c] hover:bg-[#0ab39c]/5",
+                                      "h-8 w-8",
+                                      user.isGroupAdmin
+                                        ? "bg-[#0ab39c] text-white hover:bg-[#0ab39c]/90 hover:text-white border-[#0ab39c]"
+                                        : "text-[#0ab39c] hover:text-[#0ab39c] hover:bg-[#0ab39c]/5",
                                       authUser?.isSuperAdmin ? "rounded-none border-r-0" : "rounded-l-none"
                                     )}
                                     onClick={() => handleAssignGroupAdmin(user)}
@@ -550,7 +559,9 @@ export default function UsersPage() {
                                     <ShieldCheck className="h-4 w-4" />
                                   </Button>
                                 </TooltipTrigger>
-                                <TooltipContent>Make Group Admin</TooltipContent>
+                                <TooltipContent>
+                                  {user.isGroupAdmin ? "Remove Group Admin" : "Make Group Admin"}
+                                </TooltipContent>
                               </Tooltip>
                               {authUser?.isSuperAdmin && (
                                 <Tooltip>
