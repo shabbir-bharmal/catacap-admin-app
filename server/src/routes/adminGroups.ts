@@ -79,7 +79,7 @@ router.get("/", async (req: Request, res: Response) => {
       const uniqueIds = [...new Set(allLeaderIds)];
       const placeholders = uniqueIds.map((_, i) => `$${i + 1}`).join(", ");
       const leaderResult = await pool.query(
-        `SELECT id, COALESCE(first_name, '') || ' ' || COALESCE(last_name, '') as full_name FROM users WHERE id IN (${placeholders}) AND (is_deleted IS NULL OR is_deleted = false)`,
+        `SELECT id, COALESCE(first_name, '') || ' ' || COALESCE(last_name, '') as full_name FROM users WHERE id IN (${placeholders})`,
         uniqueIds
       );
       for (const row of leaderResult.rows) {
