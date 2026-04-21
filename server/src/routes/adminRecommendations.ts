@@ -48,6 +48,15 @@ router.get("/", async (req: Request, res: Response) => {
       paramIdx++;
     }
 
+    const searchValue = (params.searchValue || "").trim();
+    if (searchValue.length > 0) {
+      conditions.push(
+        `(r.user_full_name ILIKE $${paramIdx} OR r.user_email ILIKE $${paramIdx} OR c.name ILIKE $${paramIdx})`
+      );
+      values.push(`%${searchValue}%`);
+      paramIdx++;
+    }
+
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     const columnMap: Record<string, string> = {
