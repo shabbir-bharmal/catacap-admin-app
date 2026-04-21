@@ -564,6 +564,24 @@ namespace Invest.Controllers.Admin
 
             var grantIds = deletedGrants.Select(x => x.Id).ToList();
 
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+
+            var parentUserIds = deletedGrants
+                                    .Select(x => x.UserId)
+                                    .Where(id => !string.IsNullOrEmpty(id))
+                                    .Select(id => id!)
+                                    .Distinct()
+                                    .ToList();
+            var deletedParentUserIds = await _context.Users
+                                                     .IgnoreQueryFilters()
+                                                     .Where(u => parentUserIds.Contains(u.Id) && u.IsDeleted)
+                                                     .Select(u => u.Id)
+                                                     .ToListAsync();
+            if (deletedParentUserIds.Any())
+            {
+                await UserCascadeRestoreHelper.RestoreUsersWithCascadeAsync(_context, deletedParentUserIds);
+            }
+
             var logs = await _context.AccountBalanceChangeLogs
                                      .IgnoreQueryFilters()
                                      .Where(x => x.PendingGrantsId != null &&
@@ -590,6 +608,7 @@ namespace Invest.Controllers.Admin
             scheduledEmails.RestoreRange();
 
             await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
 
             return Ok(new { Success = true, Message = $"{deletedGrants.Count} pending grant(s) restored successfully." });
         }

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
+import { restoreUsersWithCascadeInTx, findDeletedParentUserIdsByEmail } from "../utils/userRestore.js";
 import { parsePagination, softDeleteFilter, buildSortClause } from "../utils/softDelete.js";
 import ExcelJS from "exceljs";
 
@@ -131,6 +132,7 @@ router.get("/", async (req: Request, res: Response) => {
 });
 
 router.put("/restore", async (req: Request, res: Response) => {
+  const client = await pool.connect();
   try {
     const ids: number[] = req.body;
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
@@ -138,23 +140,52 @@ router.put("/restore", async (req: Request, res: Response) => {
       return;
     }
 
-    const placeholders = ids.map((_, i) => `$${i + 1}`).join(", ");
-    const result = await pool.query(
-      `UPDATE recommendations SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
-       WHERE id IN (${placeholders}) AND is_deleted = true
-       RETURNING id`,
-      ids
-    );
+    let restoredCount = 0;
+    try {
+      await client.query("BEGIN");
 
-    if (result.rowCount === 0) {
-      res.json({ success: false, message: "No deleted recommendations found." });
-      return;
+      // Cascade-restore parent users that are currently soft-deleted, so the
+      // restored recommendation is owned by an active user.
+      const parentUserIds = await findDeletedParentUserIdsByEmail(
+        client,
+        "recommendations",
+        "id",
+        "user_email",
+        ids
+      );
+      if (parentUserIds.length > 0) {
+        await restoreUsersWithCascadeInTx(client, parentUserIds);
+      }
+
+      const result = await client.query(
+        `UPDATE recommendations SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE id = ANY($1) AND is_deleted = true
+         RETURNING id`,
+        [ids]
+      );
+      restoredCount = result.rowCount ?? 0;
+
+      if (restoredCount === 0 && parentUserIds.length === 0) {
+        await client.query("ROLLBACK");
+        res.json({ success: false, message: "No deleted recommendations found." });
+        return;
+      }
+
+      await client.query("COMMIT");
+    } catch (txErr) {
+      await client.query("ROLLBACK");
+      throw txErr;
     }
 
-    res.json({ success: true, message: `${result.rowCount} recommendation(s) restored successfully.` });
+    res.json({
+      success: true,
+      message: `${restoredCount} recommendation(s) restored successfully.`,
+    });
   } catch (err: any) {
     console.error("Error restoring recommendations:", err);
     res.status(500).json({ success: false, message: err.message });
+  } finally {
+    client.release();
   }
 });
 

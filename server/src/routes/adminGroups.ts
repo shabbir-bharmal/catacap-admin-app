@@ -6,6 +6,7 @@ import crypto from "crypto";
 import ExcelJS from "exceljs";
 import { uploadBase64Image, resolveFileUrl, extractStoragePath } from "../utils/uploadBase64Image.js";
 import { logAudit } from "../utils/auditLog.js";
+import { restoreUsersWithCascadeInTx, findDeletedParentUserIdsByFk } from "../utils/userRestore.js";
 import { sendTemplateEmail } from "../utils/emailService.js";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
@@ -1312,6 +1313,17 @@ router.put("/restore", async (req: Request, res: Response) => {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+
+      const parentUserIds = await findDeletedParentUserIdsByFk(
+        client,
+        "groups",
+        "id",
+        "owner_id",
+        groupIds
+      );
+      if (parentUserIds.length > 0) {
+        await restoreUsersWithCascadeInTx(client, parentUserIds);
+      }
 
       await client.query(
         `UPDATE requests SET is_deleted = false, deleted_at = NULL, deleted_by = NULL

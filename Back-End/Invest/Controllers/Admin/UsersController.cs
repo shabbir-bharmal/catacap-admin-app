@@ -899,133 +899,19 @@ namespace Invest.Controllers.Admin
             if (ids == null || !ids.Any())
                 return Ok(new { Success = false, Message = "No IDs provided." });
 
-            var users = await _context.Users
-                                      .IgnoreQueryFilters()
-                                      .Where(x => ids.Contains(x.Id))
-                                      .ToListAsync();
+            await using var transaction = await _context.Database.BeginTransactionAsync();
 
-            if (!users.Any())
-                return NotFound(new { Success = false, Message = "User not found." });
-
-            var deletedUsers = users.Where(x => x.IsDeleted).ToList();
-
-            if (!deletedUsers.Any())
+            var restored = await UserCascadeRestoreHelper.RestoreUsersWithCascadeAsync(_context, ids);
+            if (restored == 0)
+            {
+                await transaction.RollbackAsync();
                 return Ok(new { Success = false, Message = "No deleted users found." });
-
-            var userIds = deletedUsers.Select(x => x.Id).ToList();
-            var emails = deletedUsers.Select(x => x.Email!.Trim().ToLower()).ToList();
-
-            var campaigns = await _context.Campaigns
-                .IgnoreQueryFilters()
-                .Where(x => x.UserId != null && userIds.Contains(x.UserId) && x.IsDeleted)
-                .ToListAsync();
-
-            var campaignIds = campaigns.Select(x => x.Id).ToList();
-
-            var pendingGrants = await _context.PendingGrants
-                .IgnoreQueryFilters()
-                .Where(x => (
-                                campaignIds.Contains(x.CampaignId) ||
-                                userIds.Contains(x.UserId)
-                            ) && x.IsDeleted)
-                .ToListAsync();
-
-            var pendingGrantIds = pendingGrants.Select(x => x.Id).ToList();
-
-            var assets = await _context.AssetBasedPaymentRequest
-                .IgnoreQueryFilters()
-                .Where(x => (
-                                campaignIds.Contains(x.CampaignId) ||
-                                userIds.Contains(x.UserId)
-                            ) && x.IsDeleted)
-                .ToListAsync();
-
-            var assetIds = assets.Select(x => x.Id).ToList();
-
-            var disbursals = await _context.DisbursalRequest
-                .IgnoreQueryFilters()
-                .Where(x => (
-                                campaignIds.Contains(x.CampaignId) ||
-                                userIds.Contains(x.UserId)
-                            ) && x.IsDeleted)
-                .ToListAsync();
-
-            var completed = await _context.CompletedInvestmentsDetails
-                .IgnoreQueryFilters()
-                .Where(x => campaignIds.Contains(x.CampaignId) && x.IsDeleted)
-                .ToListAsync();
-
-            var returnMasters = await _context.ReturnMasters
-                .IgnoreQueryFilters()
-                .Where(x => campaignIds.Contains(x.CampaignId))
-                .ToListAsync();
-
-            var returnMasterIds = returnMasters.Select(x => x.Id).ToList();
-
-            var returnDetails = await _context.ReturnDetails
-                .IgnoreQueryFilters()
-                .Where(x => returnMasterIds.Contains(x.ReturnMasterId) && x.IsDeleted)
-                .ToListAsync();
-
-            var accountLogs = await _context.AccountBalanceChangeLogs
-                .IgnoreQueryFilters()
-                .Where(x =>
-                    userIds.Contains(x.UserId) ||
-                    (x.CampaignId != null && campaignIds.Contains(x.CampaignId.Value)) ||
-                    (x.AssetBasedPaymentRequestId != null && assetIds.Contains(x.AssetBasedPaymentRequestId.Value)) ||
-                    (x.PendingGrantsId != null && pendingGrantIds.Contains(x.PendingGrantsId.Value)))
-                .Where(x => x.IsDeleted)
-                .ToListAsync();
-
-            var groups = await _context.Groups
-                .IgnoreQueryFilters()
-                .Where(x => x.Owner != null && userIds.Contains(x.Owner.Id) && x.IsDeleted)
-                .ToListAsync();
-
-            var groupIds = groups.Select(x => x.Id).ToList();
-
-            var requests = await _context.Requests
-                .IgnoreQueryFilters()
-                .Where(x => x.GroupToFollow != null && groupIds.Contains(x.GroupToFollow.Id) && x.IsDeleted)
-                .ToListAsync();
-
-            var balances = await _context.GroupAccountBalance
-                .IgnoreQueryFilters()
-                .Where(x => x.Group != null && groupIds.Contains(x.Group.Id) && x.IsDeleted)
-                .ToListAsync();
-
-            var leaderGroups = await _context.LeaderGroup
-                .IgnoreQueryFilters()
-                .Where(x => groupIds.Contains(x.GroupId) && x.IsDeleted)
-                .ToListAsync();
-
-            var recommendations = await _context.Recommendations.IgnoreQueryFilters().Where(x => x.UserId != null && userIds.Contains(x.UserId) && x.IsDeleted).ToListAsync();
-            var userInvestments = await _context.UserInvestments.IgnoreQueryFilters().Where(x => x.UserId != null && userIds.Contains(x.UserId) && x.IsDeleted).ToListAsync();
-            var notifications = await _context.UsersNotifications.IgnoreQueryFilters().Where(x => x.TargetUser != null && userIds.Contains(x.TargetUser.Id) && x.IsDeleted).ToListAsync();
-            var forms = await _context.FormSubmission.IgnoreQueryFilters().Where(x => x.Email != null && emails.Contains(x.Email.ToLower().Trim()) && x.IsDeleted).ToListAsync();
-            var testimonials = await _context.Testimonial.IgnoreQueryFilters().Where(x => x.UserId != null && userIds.Contains(x.UserId) && x.IsDeleted).ToListAsync();
-
-            deletedUsers.RestoreRange();
-            campaigns.RestoreRange();
-            pendingGrants.RestoreRange();
-            assets.RestoreRange();
-            disbursals.RestoreRange();
-            completed.RestoreRange();
-            returnDetails.RestoreRange();
-            accountLogs.RestoreRange();
-            groups.RestoreRange();
-            requests.RestoreRange();
-            balances.RestoreRange();
-            leaderGroups.RestoreRange();
-            recommendations.RestoreRange();
-            userInvestments.RestoreRange();
-            notifications.RestoreRange();
-            forms.RestoreRange();
-            testimonials.RestoreRange();
+            }
 
             await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
 
-            return Ok(new { Success = true, Message = $"{deletedUsers.Count} user(s) restored successfully." });
+            return Ok(new { Success = true, Message = $"{restored} user(s) restored successfully." });
         }
 
         private async Task<(bool Success, string Message)> CheckDuplicatesAsync(string? email, string? userName, string userId)

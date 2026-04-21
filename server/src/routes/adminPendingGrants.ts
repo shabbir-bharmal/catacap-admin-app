@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter, handleMissingTableError } from "../utils/softDelete.js";
+import { restoreUsersWithCascadeInTx, findDeletedParentUserIdsByFk } from "../utils/userRestore.js";
 import ExcelJS from "exceljs";
 
 const router = Router();
@@ -294,6 +295,7 @@ router.get("/", async (req: Request, res: Response) => {
 });
 
 router.put("/restore", async (req: Request, res: Response) => {
+  const client = await pool.connect();
   try {
     const ids: number[] = req.body;
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
@@ -301,11 +303,9 @@ router.put("/restore", async (req: Request, res: Response) => {
       return;
     }
 
-    const placeholders = ids.map((_, i) => `$${i + 1}`).join(", ");
-
     const grantsResult = await pool.query(
-      `SELECT id FROM pending_grants WHERE id IN (${placeholders}) AND is_deleted = true`,
-      ids
+      `SELECT id FROM pending_grants WHERE id = ANY($1) AND is_deleted = true`,
+      [ids]
     );
 
     if (grantsResult.rows.length === 0) {
@@ -314,36 +314,57 @@ router.put("/restore", async (req: Request, res: Response) => {
     }
 
     const grantIds = grantsResult.rows.map((r: any) => r.id);
-    const grantPlaceholders = grantIds.map((_: any, i: number) => `$${i + 1}`).join(", ");
 
-    await pool.query(
-      `UPDATE pending_grants SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
-       WHERE id IN (${grantPlaceholders})`,
-      grantIds
-    );
+    try {
+      await client.query("BEGIN");
 
-    await pool.query(
-      `UPDATE account_balance_change_logs SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
-       WHERE pending_grants_id IN (${grantPlaceholders}) AND is_deleted = true`,
-      grantIds
-    );
+      const parentUserIds = await findDeletedParentUserIdsByFk(
+        client,
+        "pending_grants",
+        "id",
+        "user_id",
+        grantIds
+      );
+      if (parentUserIds.length > 0) {
+        await restoreUsersWithCascadeInTx(client, parentUserIds);
+      }
 
-    await pool.query(
-      `UPDATE recommendations SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
-       WHERE pending_grants_id IN (${grantPlaceholders}) AND is_deleted = true`,
-      grantIds
-    );
+      await client.query(
+        `UPDATE pending_grants SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE id = ANY($1)`,
+        [grantIds]
+      );
 
-    await pool.query(
-      `UPDATE scheduled_email_logs SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
-       WHERE pending_grant_id IN (${grantPlaceholders}) AND is_deleted = true`,
-      grantIds
-    );
+      await client.query(
+        `UPDATE account_balance_change_logs SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE pending_grants_id = ANY($1) AND is_deleted = true`,
+        [grantIds]
+      );
+
+      await client.query(
+        `UPDATE recommendations SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE pending_grants_id = ANY($1) AND is_deleted = true`,
+        [grantIds]
+      );
+
+      await client.query(
+        `UPDATE scheduled_email_logs SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE pending_grant_id = ANY($1) AND is_deleted = true`,
+        [grantIds]
+      );
+
+      await client.query("COMMIT");
+    } catch (txErr) {
+      await client.query("ROLLBACK");
+      throw txErr;
+    }
 
     res.json({ success: true, message: `${grantIds.length} pending grant(s) restored successfully.` });
   } catch (err: any) {
     console.error("Error restoring pending grants:", err);
     res.status(500).json({ success: false, message: err.message });
+  } finally {
+    client.release();
   }
 });
 

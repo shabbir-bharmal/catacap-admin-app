@@ -571,25 +571,25 @@ namespace Invest.Controllers.Admin
             //        var subject = "You Got Funded! Your CataCap Campaign Is Growing";
 
             //        var body = emailLogo + $@"
-						      //          <p><b>Hi {campaignContactInfoFullName?.Split(' ')[0]},</b></p>
-						      //          <p>Great news — <b>{investorName}</b> just contributed <b>{formattedOriginalInvestmentAmount}</b> to your investment on CataCap!</p>
-						      //          <p>Your total raised is now <b>{formattedtotalDonationAmount}</b> from <b>{totalInvestors} incredible supporters</b> who believe in your mission. Every dollar is a vote of confidence in the impact you’re creating — and momentum is building.</p>
-						      //          <p>🔗 <a href='{requestHeader}/invest/{campaignIdentifier}'>View your live investment page</a></p>
-						      //          <div style='margin-bottom: 20px; margin-top: 20px;'><hr></div>
-						      //          <p><div style='font-size: 20px;'><b>📣 Keep the Momentum Flowing</b></div></p>
-						      //          <p>This is the perfect time to <b>share your page</b> with your network and invite others to join you. The more visibility your campaign has, the more catalytic it becomes. <a href='https://www.notion.so/Launch-your-Investment-on-CataCap-1c3c1b9e894580949194e1a6eeaaed6c?pvs=4'>Check out your Investment Success Toolkit here</a>.</p>
-						      //          <p>We’re here to help — whether you need:</p>
-						      //          <ul style='list-style-type:disc;'>
-							     //           <li>Messaging support for an update</li>
-							     //           <li>Share graphics or templates</li>
-							     //           <li>Ideas to activate new networks</li>
-						      //          </ul>
-						      //          <p style='margin-top: 8px'><b>Let’s keep it going. Your impact deserves the spotlight.</b></p>
+                                                      //          <p><b>Hi {campaignContactInfoFullName?.Split(' ')[0]},</b></p>
+                                                      //          <p>Great news — <b>{investorName}</b> just contributed <b>{formattedOriginalInvestmentAmount}</b> to your investment on CataCap!</p>
+                                                      //          <p>Your total raised is now <b>{formattedtotalDonationAmount}</b> from <b>{totalInvestors} incredible supporters</b> who believe in your mission. Every dollar is a vote of confidence in the impact you’re creating — and momentum is building.</p>
+                                                      //          <p>🔗 <a href='{requestHeader}/invest/{campaignIdentifier}'>View your live investment page</a></p>
+                                                      //          <div style='margin-bottom: 20px; margin-top: 20px;'><hr></div>
+                                                      //          <p><div style='font-size: 20px;'><b>📣 Keep the Momentum Flowing</b></div></p>
+                                                      //          <p>This is the perfect time to <b>share your page</b> with your network and invite others to join you. The more visibility your campaign has, the more catalytic it becomes. <a href='https://www.notion.so/Launch-your-Investment-on-CataCap-1c3c1b9e894580949194e1a6eeaaed6c?pvs=4'>Check out your Investment Success Toolkit here</a>.</p>
+                                                      //          <p>We’re here to help — whether you need:</p>
+                                                      //          <ul style='list-style-type:disc;'>
+                                                             //           <li>Messaging support for an update</li>
+                                                             //           <li>Share graphics or templates</li>
+                                                             //           <li>Ideas to activate new networks</li>
+                                                      //          </ul>
+                                                      //          <p style='margin-top: 8px'><b>Let’s keep it going. Your impact deserves the spotlight.</b></p>
             //                            <p style='margin-bottom: 0px;'>With deep gratitude,</p>
-						      //          <p style='margin-top: 0px;'>— The CataCap Team</p>
-						      //          <p>🌍 <a href='https://catacap.org/'>catacap.org</a> | 💼 <a href='https://www.linkedin.com/company/catacap-us/'>Follow us on LinkedIn</a><br/>
-						      //          <p><a href='{requestHeader}/settings' target='_blank'>Unsubscribe</a> from CataCap notifications.</p>
-						      //      ";
+                                                      //          <p style='margin-top: 0px;'>— The CataCap Team</p>
+                                                      //          <p>🌍 <a href='https://catacap.org/'>catacap.org</a> | 💼 <a href='https://www.linkedin.com/company/catacap-us/'>Follow us on LinkedIn</a><br/>
+                                                      //          <p><a href='{requestHeader}/settings' target='_blank'>Unsubscribe</a> from CataCap notifications.</p>
+                                                      //      ";
 
             //        allEmailTasks.Add(_mailService.SendMailAsync(campaignContactInfoEmailAddress, subject, "", body));
             //    }
@@ -718,9 +718,43 @@ namespace Invest.Controllers.Admin
             if (!deletedEntities.Any())
                 return Ok(new { Success = false, Message = "No deleted recommendations found." });
 
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+
+            // Cascade-restore parent users that are currently soft-deleted, so
+            // the restored recommendation is owned by an active user. Look up
+            // both UserId and UserEmail (recommendations historically store
+            // either or both of these references).
+            var parentUserIdsByFk = deletedEntities
+                                        .Select(x => x.UserId)
+                                        .Where(id => !string.IsNullOrEmpty(id))
+                                        .Select(id => id!)
+                                        .Distinct()
+                                        .ToList();
+            var parentUserIdsToRestore = await _context.Users
+                                                       .IgnoreQueryFilters()
+                                                       .Where(u => parentUserIdsByFk.Contains(u.Id) && u.IsDeleted)
+                                                       .Select(u => u.Id)
+                                                       .ToListAsync();
+
+            var emails = deletedEntities
+                            .Select(x => x.UserEmail)
+                            .ToList();
+            var parentUserIdsByEmail = await UserCascadeRestoreHelper
+                                            .FindDeletedParentUserIdsByEmailAsync(_context, emails!);
+
+            var allParentUserIds = parentUserIdsToRestore
+                                        .Concat(parentUserIdsByEmail)
+                                        .Distinct()
+                                        .ToList();
+            if (allParentUserIds.Any())
+            {
+                await UserCascadeRestoreHelper.RestoreUsersWithCascadeAsync(_context, allParentUserIds);
+            }
+
             deletedEntities.RestoreRange();
 
             await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
 
             return Ok(new { Success = true, Message = $"{deletedEntities.Count} recommendation(s) restored successfully." });
         }

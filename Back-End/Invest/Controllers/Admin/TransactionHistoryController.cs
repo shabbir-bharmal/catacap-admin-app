@@ -116,9 +116,28 @@ namespace Invest.Controllers.Admin
             if (!deletedLogs.Any())
                 return Ok(new { Success = false, Message = "No deleted account history found." });
 
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+
+            var parentUserIds = deletedLogs
+                                    .Select(x => x.UserId)
+                                    .Where(id => !string.IsNullOrEmpty(id))
+                                    .Select(id => id!)
+                                    .Distinct()
+                                    .ToList();
+            var deletedParentUserIds = await _context.Users
+                                                     .IgnoreQueryFilters()
+                                                     .Where(u => parentUserIds.Contains(u.Id) && u.IsDeleted)
+                                                     .Select(u => u.Id)
+                                                     .ToListAsync();
+            if (deletedParentUserIds.Any())
+            {
+                await UserCascadeRestoreHelper.RestoreUsersWithCascadeAsync(_context, deletedParentUserIds);
+            }
+
             deletedLogs.RestoreRange();
 
             await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
 
             return Ok(new { Success = true, Message = $"{deletedLogs.Count} account history record(s) restored successfully." });
         }

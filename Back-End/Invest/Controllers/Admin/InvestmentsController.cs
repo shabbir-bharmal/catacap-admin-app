@@ -997,6 +997,26 @@ namespace Invest.Controllers.Admin
 
             var campaignIds = deletedCampaigns.Select(x => x.Id).ToList();
 
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+
+            // Cascade-restore parent users that are currently soft-deleted, so
+            // the restored campaign is owned by an active user.
+            var parentUserIds = deletedCampaigns
+                                    .Select(x => x.UserId)
+                                    .Where(id => !string.IsNullOrEmpty(id))
+                                    .Select(id => id!)
+                                    .Distinct()
+                                    .ToList();
+            var deletedParentUserIds = await _context.Users
+                                                     .IgnoreQueryFilters()
+                                                     .Where(u => parentUserIds.Contains(u.Id) && u.IsDeleted)
+                                                     .Select(u => u.Id)
+                                                     .ToListAsync();
+            if (deletedParentUserIds.Any())
+            {
+                await UserCascadeRestoreHelper.RestoreUsersWithCascadeAsync(_context, deletedParentUserIds);
+            }
+
             var pendingGrants = await _context.PendingGrants
                 .IgnoreQueryFilters()
                 .Where(x => campaignIds.Contains(x.CampaignId) && x.IsDeleted)
@@ -1077,6 +1097,7 @@ namespace Invest.Controllers.Admin
             userInvestments.RestoreRange();
 
             await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
 
             return Ok(new { Success = true, Message = $"{deletedCampaigns.Count} campaign(s) restored successfully." });
         }
@@ -1683,9 +1704,9 @@ namespace Invest.Controllers.Admin
                                             <p>In the meantime, our <a href='{preLaunchToolkitUrl}' target='_blank'>Pre-Launch Toolkit</a> is a great place to start. It’s full of tips and resources to help you prepare for your expanded fundraising outreach capabilities with CataCap (pending approval). <b>If you have a donor committed and ready to donate over $10K to invest in your venture please let us know and we can help expedite the review process</b>.</p>
                                             <p><b>Quick reminders:</b></p>
                                             <ul style='list-style-type:disc;'>
-							                    <li><b>Partnership model:</b> CataCap serves as a conduit for your network to donate philanthropic capital into your venture. While we provide exposure opportunities at key milestones [<a href='{seePartnerBenefits}' target='_blank'>see Partner Benefits</a>], the strongest traction comes from your own champions and relationships.</li>
-							                    <li><b>$50K minimum:</b> Investments must raise at least $50K via CataCap to qualify for disbursement.</li>
-						                    </ul>
+                                                                            <li><b>Partnership model:</b> CataCap serves as a conduit for your network to donate philanthropic capital into your venture. While we provide exposure opportunities at key milestones [<a href='{seePartnerBenefits}' target='_blank'>see Partner Benefits</a>], the strongest traction comes from your own champions and relationships.</li>
+                                                                            <li><b>$50K minimum:</b> Investments must raise at least $50K via CataCap to qualify for disbursement.</li>
+                                                                    </ul>
                                             <p>You can also explore our <a href='{faqPage}' target='_blank'>FAQ page</a> for additional guidance. If you have any questions as you review, please let us know.</p>
                                             <p>We’re grateful to be part of your journey and excited for what’s ahead.</p>
                                             <p style='margin-bottom: 0px;'>With gratitude,</p>
