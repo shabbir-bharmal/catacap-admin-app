@@ -2,7 +2,6 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter, handleMissingTableError } from "../utils/softDelete.js";
-import { findDeletedParentUserIdsByFk } from "../utils/userRestore.js";
 import ExcelJS from "exceljs";
 
 const router = Router();
@@ -314,27 +313,9 @@ router.put("/restore", async (req: Request, res: Response) => {
     }
 
     const grantIds = grantsResult.rows.map((r: any) => r.id);
-    let restoredUserCount = 0;
 
     try {
       await client.query("BEGIN");
-
-      const parentUserIds = await findDeletedParentUserIdsByFk(
-        client,
-        "pending_grants",
-        "id",
-        "user_id",
-        grantIds
-      );
-      if (parentUserIds.length > 0) {
-        const restoredUsersResult = await client.query(
-          `UPDATE users SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
-           WHERE id = ANY($1) AND is_deleted = true
-           RETURNING id`,
-          [parentUserIds]
-        );
-        restoredUserCount = restoredUsersResult.rows.length;
-      }
 
       await client.query(
         `UPDATE pending_grants SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
@@ -370,7 +351,7 @@ router.put("/restore", async (req: Request, res: Response) => {
       success: true,
       message: `${grantIds.length} pending grant(s) restored successfully.`,
       restoredCount: grantIds.length,
-      restoredUserCount,
+      restoredUserCount: 0,
     });
   } catch (err: any) {
     console.error("Error restoring pending grants:", err);

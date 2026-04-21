@@ -3,7 +3,6 @@ import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter, handleMissingTableError } from "../utils/softDelete.js";
 import { resolveFileUrl } from "../utils/uploadBase64Image.js";
-import { restoreUsersWithCascadeInTx, findDeletedParentUserIdsByFk } from "../utils/userRestore.js";
 
 const router = Router();
 
@@ -272,21 +271,8 @@ router.put("/restore", async (req: Request, res: Response) => {
     }
 
     let restoredCount = 0;
-    let restoredUserCount = 0;
     try {
       await client.query("BEGIN");
-
-      const parentUserIds = await findDeletedParentUserIdsByFk(
-        client,
-        "testimonials",
-        "id",
-        "user_id",
-        ids
-      );
-      if (parentUserIds.length > 0) {
-        const restoredUsers = await restoreUsersWithCascadeInTx(client, parentUserIds);
-        restoredUserCount = restoredUsers.length;
-      }
 
       const result = await client.query(
         `UPDATE testimonials SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
@@ -296,7 +282,7 @@ router.put("/restore", async (req: Request, res: Response) => {
       );
       restoredCount = result.rowCount ?? 0;
 
-      if (restoredCount === 0 && restoredUserCount === 0) {
+      if (restoredCount === 0) {
         await client.query("ROLLBACK");
         res.json({ success: false, message: "No deleted testimonials found." });
         return;
@@ -312,7 +298,7 @@ router.put("/restore", async (req: Request, res: Response) => {
       success: true,
       message: `${restoredCount} testimonial(s) restored successfully.`,
       restoredCount,
-      restoredUserCount,
+      restoredUserCount: 0,
     });
   } catch (err) {
     console.error("Testimonials Restore error:", err);

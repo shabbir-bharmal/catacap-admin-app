@@ -1,7 +1,6 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
-import { restoreUsersWithCascadeInTx, findDeletedParentUserIdsByFkOrEmail } from "../utils/userRestore.js";
 import { parsePagination, softDeleteFilter, buildSortClause } from "../utils/softDelete.js";
 import ExcelJS from "exceljs";
 
@@ -179,26 +178,8 @@ router.put("/restore", async (req: Request, res: Response) => {
     }
 
     let restoredCount = 0;
-    let restoredUserCount = 0;
     try {
       await client.query("BEGIN");
-
-      // Cascade-restore parent users that are currently soft-deleted, scoped
-      // to recommendations that are themselves still soft-deleted. Recommendations
-      // can carry the owning user via either a user_id FK or a user_email column,
-      // so we look at both.
-      const parentUserIds = await findDeletedParentUserIdsByFkOrEmail(
-        client,
-        "recommendations",
-        "id",
-        "user_id",
-        "user_email",
-        ids
-      );
-      if (parentUserIds.length > 0) {
-        const restoredUsers = await restoreUsersWithCascadeInTx(client, parentUserIds);
-        restoredUserCount = restoredUsers.length;
-      }
 
       const result = await client.query(
         `UPDATE recommendations SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
@@ -208,7 +189,7 @@ router.put("/restore", async (req: Request, res: Response) => {
       );
       restoredCount = result.rowCount ?? 0;
 
-      if (restoredCount === 0 && restoredUserCount === 0) {
+      if (restoredCount === 0) {
         await client.query("ROLLBACK");
         res.json({ success: false, message: "No deleted recommendations found." });
         return;
@@ -224,7 +205,7 @@ router.put("/restore", async (req: Request, res: Response) => {
       success: true,
       message: `${restoredCount} recommendation(s) restored successfully.`,
       restoredCount,
-      restoredUserCount,
+      restoredUserCount: 0,
     });
   } catch (err: any) {
     console.error("Error restoring recommendations:", err);

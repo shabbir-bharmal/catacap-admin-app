@@ -2,7 +2,6 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter, buildSortClause } from "../utils/softDelete.js";
-import { restoreUsersWithCascadeInTx, findDeletedParentUserIdsByFk } from "../utils/userRestore.js";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
 import ExcelJS from "exceljs";
@@ -155,7 +154,6 @@ router.put("/restore", async (req: Request, res: Response) => {
     }
 
     let restoredCount = 0;
-    let restoredUserCount = 0;
     try {
       await client.query("BEGIN");
 
@@ -173,18 +171,6 @@ router.put("/restore", async (req: Request, res: Response) => {
         await client.query("ROLLBACK");
         res.json({ success: false, message: "No deleted account history found." });
         return;
-      }
-
-      const parentUserIds = await findDeletedParentUserIdsByFk(
-        client,
-        "account_balance_change_logs",
-        "id",
-        "user_id",
-        deletedIds
-      );
-      if (parentUserIds.length > 0) {
-        const restoredUsers = await restoreUsersWithCascadeInTx(client, parentUserIds);
-        restoredUserCount = restoredUsers.length;
       }
 
       await client.query(
@@ -205,7 +191,7 @@ router.put("/restore", async (req: Request, res: Response) => {
       success: true,
       message: `${restoredCount} account history record(s) restored successfully.`,
       restoredCount,
-      restoredUserCount,
+      restoredUserCount: 0,
     });
   } catch (err) {
     console.error("Restore transaction history error:", err);

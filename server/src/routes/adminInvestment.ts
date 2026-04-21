@@ -6,7 +6,6 @@ import { sendTemplateEmail } from "../utils/emailService.js";
 import ExcelJS from "exceljs";
 import { uploadBase64Image, resolveFileUrl, extractStoragePath, getSupabaseConfig } from "../utils/uploadBase64Image.js";
 import { logAudit } from "../utils/auditLog.js";
-import { restoreUsersWithCascadeInTx, findDeletedParentUserIdsByFk } from "../utils/userRestore.js";
 import { findOrCreateAnonymousUser } from "../utils/anonymousUser.js";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
@@ -1266,23 +1265,10 @@ router.put("/restore", async (req: Request, res: Response) => {
     }
 
     const campaignIds = campaignResult.rows.map((r: any) => Number(r.id));
-    let restoredUserCount = 0;
 
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-
-      const parentUserIds = await findDeletedParentUserIdsByFk(
-        client,
-        "campaigns",
-        "id",
-        "user_id",
-        campaignIds
-      );
-      if (parentUserIds.length > 0) {
-        const restoredUsers = await restoreUsersWithCascadeInTx(client, parentUserIds);
-        restoredUserCount = restoredUsers.length;
-      }
 
       const pgResult = await client.query(
         `SELECT id FROM pending_grants WHERE campaign_id = ANY($1) AND is_deleted = true`,
@@ -1419,7 +1405,7 @@ router.put("/restore", async (req: Request, res: Response) => {
       success: true,
       message: `${count} campaign(s) restored successfully.`,
       restoredCount: count,
-      restoredUserCount,
+      restoredUserCount: 0,
     });
   } catch (err: any) {
     console.error("Error restoring campaigns:", err);

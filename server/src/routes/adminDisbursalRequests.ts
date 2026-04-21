@@ -2,7 +2,6 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, handleMissingTableError } from "../utils/softDelete.js";
-import { restoreUsersWithCascadeInTx, findDeletedParentUserIdsByFk } from "../utils/userRestore.js";
 import { resolveFileUrl } from "../utils/uploadBase64Image.js";
 import ExcelJS from "exceljs";
 import dayjs from "dayjs";
@@ -476,21 +475,8 @@ router.put("/restore", async (req: Request, res: Response) => {
     }
 
     let restoredCount = 0;
-    let restoredUserCount = 0;
     try {
       await client.query("BEGIN");
-
-      const parentUserIds = await findDeletedParentUserIdsByFk(
-        client,
-        "disbursal_requests",
-        "id",
-        "user_id",
-        ids
-      );
-      if (parentUserIds.length > 0) {
-        const restoredUsers = await restoreUsersWithCascadeInTx(client, parentUserIds);
-        restoredUserCount = restoredUsers.length;
-      }
 
       const result = await client.query(
         `UPDATE disbursal_requests SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
@@ -500,7 +486,7 @@ router.put("/restore", async (req: Request, res: Response) => {
       );
       restoredCount = result.rowCount ?? 0;
 
-      if (restoredCount === 0 && restoredUserCount === 0) {
+      if (restoredCount === 0) {
         await client.query("ROLLBACK");
         res.json({ success: false, message: "No deleted records found to restore." });
         return;
@@ -516,7 +502,7 @@ router.put("/restore", async (req: Request, res: Response) => {
       success: true,
       message: `${restoredCount} disbursal request(s) restored successfully.`,
       restoredCount,
-      restoredUserCount,
+      restoredUserCount: 0,
     });
   } catch (err: any) {
     console.error("Error restoring disbursal requests:", err);

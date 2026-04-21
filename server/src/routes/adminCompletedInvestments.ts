@@ -2,7 +2,6 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, handleMissingTableError } from "../utils/softDelete.js";
-import { restoreUsersWithCascadeInTx } from "../utils/userRestore.js";
 import ExcelJS from "exceljs";
 import { resolveFileUrl } from "../utils/uploadBase64Image.js";
 import dayjs from "dayjs";
@@ -776,28 +775,8 @@ router.put("/restore", async (req: Request, res: Response) => {
     }
 
     let restoredCount = 0;
-    let restoredUserCount = 0;
     try {
       await client.query("BEGIN");
-
-      // completed_investment_details has no direct user FK; the owning user
-      // is reached via the parent campaign (campaigns.user_id). Only consider
-      // rows that are themselves still soft-deleted.
-      const parentRes = await client.query(
-        `SELECT DISTINCT u.id
-         FROM completed_investment_details cid
-         JOIN campaigns c ON c.id = cid.campaign_id
-         JOIN users u ON u.id = c.user_id
-         WHERE cid.id = ANY($1)
-           AND cid.is_deleted = true
-           AND u.is_deleted = true`,
-        [ids]
-      );
-      const parentUserIds = parentRes.rows.map((r: { id: string }) => r.id);
-      if (parentUserIds.length > 0) {
-        const restoredUsers = await restoreUsersWithCascadeInTx(client, parentUserIds);
-        restoredUserCount = restoredUsers.length;
-      }
 
       const result = await client.query(
         `UPDATE completed_investment_details SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
@@ -807,7 +786,7 @@ router.put("/restore", async (req: Request, res: Response) => {
       );
       restoredCount = result.rowCount ?? 0;
 
-      if (restoredCount === 0 && restoredUserCount === 0) {
+      if (restoredCount === 0) {
         await client.query("ROLLBACK");
         res.json({ success: false, message: "No deleted records found to restore." });
         return;
@@ -823,7 +802,7 @@ router.put("/restore", async (req: Request, res: Response) => {
       success: true,
       message: `${restoredCount} completed investment(s) restored successfully.`,
       restoredCount,
-      restoredUserCount,
+      restoredUserCount: 0,
     });
   } catch (err: any) {
     console.error("Error restoring completed investments:", err);

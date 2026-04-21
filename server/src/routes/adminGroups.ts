@@ -6,7 +6,6 @@ import crypto from "crypto";
 import ExcelJS from "exceljs";
 import { uploadBase64Image, resolveFileUrl, extractStoragePath } from "../utils/uploadBase64Image.js";
 import { logAudit } from "../utils/auditLog.js";
-import { restoreUsersWithCascadeInTx, findDeletedParentUserIdsByFk } from "../utils/userRestore.js";
 import { sendTemplateEmail } from "../utils/emailService.js";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
@@ -1309,23 +1308,10 @@ router.put("/restore", async (req: Request, res: Response) => {
     }
 
     const groupIds = groupsResult.rows.map((r: any) => r.id);
-    let restoredUserCount = 0;
 
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-
-      const parentUserIds = await findDeletedParentUserIdsByFk(
-        client,
-        "groups",
-        "id",
-        "owner_id",
-        groupIds
-      );
-      if (parentUserIds.length > 0) {
-        const restoredUsers = await restoreUsersWithCascadeInTx(client, parentUserIds);
-        restoredUserCount = restoredUsers.length;
-      }
 
       await client.query(
         `UPDATE requests SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
@@ -1374,7 +1360,7 @@ router.put("/restore", async (req: Request, res: Response) => {
       success: true,
       message: `${groupIds.length} group(s) restored successfully.`,
       restoredCount: groupIds.length,
-      restoredUserCount,
+      restoredUserCount: 0,
     });
   } catch (err) {
     console.error("Restore groups error:", err);
