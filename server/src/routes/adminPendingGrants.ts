@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter, handleMissingTableError } from "../utils/softDelete.js";
-import { restoreUsersWithCascadeInTx, findDeletedParentUserIdsByFk } from "../utils/userRestore.js";
+import { findDeletedParentUserIdsByFk } from "../utils/userRestore.js";
 import ExcelJS from "exceljs";
 
 const router = Router();
@@ -327,8 +327,13 @@ router.put("/restore", async (req: Request, res: Response) => {
         grantIds
       );
       if (parentUserIds.length > 0) {
-        const restoredUsers = await restoreUsersWithCascadeInTx(client, parentUserIds);
-        restoredUserCount = restoredUsers.length;
+        const restoredUsersResult = await client.query(
+          `UPDATE users SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+           WHERE id = ANY($1) AND is_deleted = true
+           RETURNING id`,
+          [parentUserIds]
+        );
+        restoredUserCount = restoredUsersResult.rows.length;
       }
 
       await client.query(
