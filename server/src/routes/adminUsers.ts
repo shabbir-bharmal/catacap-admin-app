@@ -8,6 +8,7 @@ import ExcelJS from "exceljs";
 import { resolveFileUrl } from "../utils/uploadBase64Image.js";
 import { logAudit } from "../utils/auditLog.js";
 import { restoreUsersWithCascadeInTx } from "../utils/userRestore.js";
+import { cascadeSoftDeleteUserData } from "../utils/cascadeUserSoftDelete.js";
 
 const router = Router();
 
@@ -1304,11 +1305,24 @@ router.delete("/:id", async (req: Request, res: Response) => {
         );
       }
 
-      // Soft-delete only the user row itself. No cascading to related data.
+      // Cascade soft-delete to all related records owned by this user so
+      // they no longer appear in admin lists, dashboards, or exports.
+      const cascade = await cascadeSoftDeleteUserData(
+        client,
+        String(id),
+        user.email || null,
+        currentUserId || null
+      );
+
       await client.query(
         `UPDATE users SET is_deleted = true, deleted_at = $1, deleted_by = $2
          WHERE id = $3`,
         [now, currentUserId, id]
+      );
+
+      console.log(
+        `[DELETE_USER] user=${id} cascade soft-deleted ${cascade.totalSoftDeleted} related row(s):`,
+        cascade.perTable
       );
 
       await client.query("COMMIT");
