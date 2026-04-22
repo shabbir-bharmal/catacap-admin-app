@@ -262,6 +262,7 @@ router.delete("/:id", async (req: Request, res: Response) => {
 });
 
 router.put("/restore", async (req: Request, res: Response) => {
+  const client = await pool.connect();
   try {
     const ids: number[] = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
@@ -269,22 +270,41 @@ router.put("/restore", async (req: Request, res: Response) => {
       return;
     }
 
-    const result = await pool.query(
-      `UPDATE testimonials SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
-       WHERE id = ANY($1) AND is_deleted = true
-       RETURNING id`,
-      [ids]
-    );
+    let restoredCount = 0;
+    try {
+      await client.query("BEGIN");
 
-    if (result.rowCount === 0) {
-      res.json({ success: false, message: "No deleted testimonials found." });
-      return;
+      const result = await client.query(
+        `UPDATE testimonials SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE id = ANY($1) AND is_deleted = true
+         RETURNING id`,
+        [ids]
+      );
+      restoredCount = result.rowCount ?? 0;
+
+      if (restoredCount === 0) {
+        await client.query("ROLLBACK");
+        res.json({ success: false, message: "No deleted testimonials found." });
+        return;
+      }
+
+      await client.query("COMMIT");
+    } catch (txErr) {
+      await client.query("ROLLBACK");
+      throw txErr;
     }
 
-    res.json({ success: true, message: `${result.rowCount} testimonial(s) restored successfully.` });
+    res.json({
+      success: true,
+      message: `${restoredCount} testimonial(s) restored successfully.`,
+      restoredCount,
+      restoredUserCount: 0,
+    });
   } catch (err) {
     console.error("Testimonials Restore error:", err);
     res.status(500).json({ message: "Internal server error" });
+  } finally {
+    client.release();
   }
 });
 

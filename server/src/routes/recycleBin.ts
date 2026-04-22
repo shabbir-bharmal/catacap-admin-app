@@ -29,12 +29,13 @@ async function safeCount(tableName: string): Promise<number> {
 
 router.get("/summary", async (_req: Request, res: Response) => {
   try {
+    // Only categories that have a corresponding card on /archived-records and a
+    // drill-in route in MODULE_MAP are included here. Removed keys (approvedBy,
+    // assetRequests, teams, investmentTags, themes) had no UI surface so their
+    // counts were unreachable and inflated the totalDeleted hero number.
     const tables = [
       { key: "accountBalanceLogs", table: "account_balance_change_logs" },
-      { key: "approvedBy", table: "approvers" },
-      { key: "assetRequests", table: "asset_based_payment_requests" },
       { key: "campaigns", table: "campaigns" },
-      { key: "teams", table: "catacap_teams" },
       { key: "completedInvestments", table: "completed_investment_details" },
       { key: "disbursals", table: "disbursal_requests" },
       { key: "emailTemplates", table: "email_templates" },
@@ -42,13 +43,11 @@ router.get("/summary", async (_req: Request, res: Response) => {
       { key: "faqs", table: "faqs" },
       { key: "formSubmissions", table: "form_submissions" },
       { key: "groups", table: "groups" },
-      { key: "investmentTags", table: "investment_tags" },
       { key: "news", table: "news" },
       { key: "pendingGrants", table: "pending_grants" },
       { key: "recommendations", table: "recommendations" },
       { key: "returnDetails", table: "return_details" },
       { key: "testimonials", table: "testimonials" },
-      { key: "themes", table: "themes" },
       { key: "users", table: "users" },
     ];
 

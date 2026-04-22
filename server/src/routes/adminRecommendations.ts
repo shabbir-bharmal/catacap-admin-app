@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter, buildSortClause } from "../utils/softDelete.js";
+import { restoreOwningUsersForRecordsInTx } from "../utils/userRestore.js";
 import ExcelJS from "exceljs";
 
 const router = Router();
@@ -29,8 +30,12 @@ router.get("/", async (req: Request, res: Response) => {
 
     softDeleteFilter("r", params.isDeleted, conditions);
 
-    values.push(USER_ROLE);
-    paramIdx++;
+    const archivedView = params.isDeleted === true;
+
+    if (!archivedView) {
+      values.push(USER_ROLE);
+      paramIdx++;
+    }
 
     if (investmentIds && investmentIds.length > 0) {
       conditions.push(`r.campaign_id = ANY($${paramIdx}::int[])`);
@@ -41,6 +46,15 @@ router.get("/", async (req: Request, res: Response) => {
     if (statusList && statusList.length > 0) {
       conditions.push(`r.status IS NOT NULL AND LOWER(r.status) = ANY($${paramIdx})`);
       values.push(statusList);
+      paramIdx++;
+    }
+
+    const searchValue = (params.searchValue || "").trim();
+    if (searchValue.length > 0) {
+      conditions.push(
+        `(r.user_full_name ILIKE $${paramIdx} OR r.user_email ILIKE $${paramIdx} OR c.name ILIKE $${paramIdx})`
+      );
+      values.push(`%${searchValue}%`);
       paramIdx++;
     }
 
@@ -57,7 +71,12 @@ router.get("/", async (req: Request, res: Response) => {
     const sortClause = buildSortClause(params.sortField, isAsc, columnMap, "r.date_created");
     const orderBy = `${sortClause}, r.id ASC`;
 
-    const userRoleJoin = `
+    // For the archived view, we must surface every soft-deleted recommendation so
+    // the count matches the recycle-bin summary even when the recommending user
+    // was hard-deleted, has no "User" role, or had their email changed.
+    const userRoleJoin = archivedView
+      ? ``
+      : `
        INNER JOIN users u_role ON LOWER(r.user_email) = LOWER(u_role.email)
          AND (u_role.is_deleted IS NULL OR u_role.is_deleted = false)
        INNER JOIN user_roles ur_role ON u_role.id = ur_role.user_id
@@ -160,6 +179,7 @@ router.get("/by-user/:userId", async (req: Request, res: Response) => {
 });
 
 router.put("/restore", async (req: Request, res: Response) => {
+  const client = await pool.connect();
   try {
     const ids: number[] = req.body;
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
@@ -167,23 +187,57 @@ router.put("/restore", async (req: Request, res: Response) => {
       return;
     }
 
-    const placeholders = ids.map((_, i) => `$${i + 1}`).join(", ");
-    const result = await pool.query(
-      `UPDATE recommendations SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
-       WHERE id IN (${placeholders}) AND is_deleted = true
-       RETURNING id`,
-      ids
-    );
+    let restoredCount = 0;
+    let restoredUserCount = 0;
+    try {
+      await client.query("BEGIN");
 
-    if (result.rowCount === 0) {
-      res.json({ success: false, message: "No deleted recommendations found." });
-      return;
+      const result = await client.query(
+        `UPDATE recommendations SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE id = ANY($1) AND is_deleted = true
+         RETURNING id, user_id, user_email`,
+        [ids]
+      );
+      restoredCount = result.rowCount ?? 0;
+
+      if (restoredCount === 0) {
+        await client.query("ROLLBACK");
+        res.json({ success: false, message: "No deleted recommendations found." });
+        return;
+      }
+
+      const ownerIds = result.rows.map((r: { user_id: string | null }) => r.user_id);
+      const lookupEmails = result.rows
+        .filter((r: { user_id: string | null; user_email: string | null }) => !r.user_id && r.user_email)
+        .map((r: { user_email: string }) => r.user_email.trim().toLowerCase())
+        .filter((e: string) => e.length > 0);
+      if (lookupEmails.length > 0) {
+        const lookup = await client.query(
+          `SELECT id FROM users WHERE LOWER(TRIM(email)) = ANY($1)`,
+          [Array.from(new Set(lookupEmails))]
+        );
+        for (const row of lookup.rows) ownerIds.push(row.id);
+      }
+      const restoredUsers = await restoreOwningUsersForRecordsInTx(client, ownerIds, req.user?.id || null);
+      restoredUserCount = restoredUsers.length;
+
+      await client.query("COMMIT");
+    } catch (txErr) {
+      await client.query("ROLLBACK");
+      throw txErr;
     }
 
-    res.json({ success: true, message: `${result.rowCount} recommendation(s) restored successfully.` });
+    res.json({
+      success: true,
+      message: `${restoredCount} recommendation(s) restored successfully.`,
+      restoredCount,
+      restoredUserCount,
+    });
   } catch (err: any) {
     console.error("Error restoring recommendations:", err);
     res.status(500).json({ success: false, message: err.message });
+  } finally {
+    client.release();
   }
 });
 

@@ -6,6 +6,7 @@ import { sendTemplateEmail } from "../utils/emailService.js";
 import ExcelJS from "exceljs";
 import { uploadBase64Image, resolveFileUrl, extractStoragePath, getSupabaseConfig } from "../utils/uploadBase64Image.js";
 import { logAudit } from "../utils/auditLog.js";
+import { restoreOwningUsersForRecordsInTx } from "../utils/userRestore.js";
 import { findOrCreateAnonymousUser } from "../utils/anonymousUser.js";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
@@ -1255,7 +1256,7 @@ router.put("/restore", async (req: Request, res: Response) => {
     }
 
     const campaignResult = await pool.query(
-      `SELECT id FROM campaigns WHERE id = ANY($1) AND is_deleted = true`,
+      `SELECT id, user_id FROM campaigns WHERE id = ANY($1) AND is_deleted = true`,
       [ids]
     );
 
@@ -1265,6 +1266,8 @@ router.put("/restore", async (req: Request, res: Response) => {
     }
 
     const campaignIds = campaignResult.rows.map((r: any) => Number(r.id));
+    const campaignOwnerIds = campaignResult.rows.map((r: any) => r.user_id);
+    let restoredUserCount = 0;
 
     const client = await pool.connect();
     try {
@@ -1381,6 +1384,9 @@ router.put("/restore", async (req: Request, res: Response) => {
         [campaignIds]
       );
 
+      const restoredUsers = await restoreOwningUsersForRecordsInTx(client, campaignOwnerIds, req.user?.id || null);
+      restoredUserCount = restoredUsers.length;
+
       await client.query("COMMIT");
     } catch (txErr) {
       await client.query("ROLLBACK");
@@ -1401,7 +1407,12 @@ router.put("/restore", async (req: Request, res: Response) => {
     }
 
     const count = campaignIds.length;
-    res.json({ success: true, message: `${count} campaign(s) restored successfully.` });
+    res.json({
+      success: true,
+      message: `${count} campaign(s) restored successfully.`,
+      restoredCount: count,
+      restoredUserCount,
+    });
   } catch (err: any) {
     console.error("Error restoring campaigns:", err);
     res.status(500).json({ success: false, message: err.message });

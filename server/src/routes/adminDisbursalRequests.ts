@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, handleMissingTableError } from "../utils/softDelete.js";
+import { restoreOwningUsersForRecordsInTx } from "../utils/userRestore.js";
 import { resolveFileUrl } from "../utils/uploadBase64Image.js";
 import ExcelJS from "exceljs";
 import dayjs from "dayjs";
@@ -119,7 +120,7 @@ router.get("/", async (req: Request, res: Response) => {
              c.investment_types, d.deleted_at,
              du.first_name AS deleted_by_first_name, du.last_name AS deleted_by_last_name
       FROM disbursal_requests d
-      JOIN campaigns c ON d.campaign_id = c.id
+      LEFT JOIN campaigns c ON d.campaign_id = c.id
       LEFT JOIN users u ON d.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
       LEFT JOIN users du ON d.deleted_by = du.id
       ${whereClause}
@@ -466,6 +467,7 @@ router.delete("/:id", async (req: Request, res: Response) => {
 });
 
 router.put("/restore", async (req: Request, res: Response) => {
+  const client = await pool.connect();
   try {
     const ids: number[] = req.body;
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
@@ -473,23 +475,46 @@ router.put("/restore", async (req: Request, res: Response) => {
       return;
     }
 
-    const placeholders = ids.map((_, i) => `$${i + 1}`).join(", ");
-    const result = await pool.query(
-      `UPDATE disbursal_requests SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
-       WHERE id IN (${placeholders}) AND is_deleted = true
-       RETURNING id`,
-      ids
-    );
+    let restoredCount = 0;
+    let restoredUserCount = 0;
+    try {
+      await client.query("BEGIN");
 
-    if (result.rowCount === 0) {
-      res.json({ success: false, message: "No deleted records found to restore." });
-      return;
+      const result = await client.query(
+        `UPDATE disbursal_requests SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE id = ANY($1) AND is_deleted = true
+         RETURNING id, user_id`,
+        [ids]
+      );
+      restoredCount = result.rowCount ?? 0;
+
+      if (restoredCount === 0) {
+        await client.query("ROLLBACK");
+        res.json({ success: false, message: "No deleted records found to restore." });
+        return;
+      }
+
+      const ownerIds = result.rows.map((r: any) => r.user_id);
+      const restoredUsers = await restoreOwningUsersForRecordsInTx(client, ownerIds, req.user?.id || null);
+      restoredUserCount = restoredUsers.length;
+
+      await client.query("COMMIT");
+    } catch (txErr) {
+      await client.query("ROLLBACK");
+      throw txErr;
     }
 
-    res.json({ success: true, message: `${result.rowCount} disbursal request(s) restored successfully.` });
+    res.json({
+      success: true,
+      message: `${restoredCount} disbursal request(s) restored successfully.`,
+      restoredCount,
+      restoredUserCount,
+    });
   } catch (err: any) {
     console.error("Error restoring disbursal requests:", err);
     res.status(500).json({ success: false, message: err.message });
+  } finally {
+    client.release();
   }
 });
 

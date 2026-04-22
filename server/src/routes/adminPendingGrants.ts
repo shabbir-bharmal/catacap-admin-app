@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter, handleMissingTableError } from "../utils/softDelete.js";
+import { restoreOwningUsersForRecordsInTx } from "../utils/userRestore.js";
 import ExcelJS from "exceljs";
 
 const router = Router();
@@ -150,7 +151,10 @@ router.get("/", async (req: Request, res: Response) => {
 
     softDeleteFilter("pg", params.isDeleted, conditions);
     if (params.isDeleted !== true) {
-      conditions.push("(u.is_deleted IS NULL OR u.is_deleted = false)");
+      // Active view: require the user to exist and not be soft-deleted. The
+      // LEFT JOIN below is used so the archived view can still surface grants
+      // whose user was hard-deleted, matching the recycle-bin summary count.
+      conditions.push("u.id IS NOT NULL AND (u.is_deleted IS NULL OR u.is_deleted = false)");
     }
 
     if (statusList && statusList.length > 0) {
@@ -219,7 +223,7 @@ router.get("/", async (req: Request, res: Response) => {
     const countResult = await pool.query(
       `SELECT COUNT(*)
        FROM pending_grants pg
-       JOIN users u ON pg.user_id = u.id
+       LEFT JOIN users u ON pg.user_id = u.id
        LEFT JOIN campaigns c ON pg.campaign_id = c.id
        ${whereClause}`,
       values
@@ -256,7 +260,7 @@ router.get("/", async (req: Request, res: Response) => {
               pg.deleted_at AS "deletedAt",
               CASE WHEN del.id IS NOT NULL THEN CONCAT(del.first_name, ' ', del.last_name) ELSE NULL END AS "deletedBy"
        FROM pending_grants pg
-       JOIN users u ON pg.user_id = u.id
+       LEFT JOIN users u ON pg.user_id = u.id
        LEFT JOIN campaigns c ON pg.campaign_id = c.id
        LEFT JOIN users del ON pg.deleted_by = del.id
        ${whereClause}
@@ -291,6 +295,7 @@ router.get("/", async (req: Request, res: Response) => {
 });
 
 router.put("/restore", async (req: Request, res: Response) => {
+  const client = await pool.connect();
   try {
     const ids: number[] = req.body;
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
@@ -298,11 +303,9 @@ router.put("/restore", async (req: Request, res: Response) => {
       return;
     }
 
-    const placeholders = ids.map((_, i) => `$${i + 1}`).join(", ");
-
     const grantsResult = await pool.query(
-      `SELECT id FROM pending_grants WHERE id IN (${placeholders}) AND is_deleted = true`,
-      ids
+      `SELECT id, user_id FROM pending_grants WHERE id = ANY($1) AND is_deleted = true`,
+      [ids]
     );
 
     if (grantsResult.rows.length === 0) {
@@ -311,36 +314,56 @@ router.put("/restore", async (req: Request, res: Response) => {
     }
 
     const grantIds = grantsResult.rows.map((r: any) => r.id);
-    const grantPlaceholders = grantIds.map((_: any, i: number) => `$${i + 1}`).join(", ");
+    const ownerIds = grantsResult.rows.map((r: any) => r.user_id);
+    let restoredUserCount = 0;
 
-    await pool.query(
-      `UPDATE pending_grants SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
-       WHERE id IN (${grantPlaceholders})`,
-      grantIds
-    );
+    try {
+      await client.query("BEGIN");
 
-    await pool.query(
-      `UPDATE account_balance_change_logs SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
-       WHERE pending_grants_id IN (${grantPlaceholders}) AND is_deleted = true`,
-      grantIds
-    );
+      await client.query(
+        `UPDATE pending_grants SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE id = ANY($1)`,
+        [grantIds]
+      );
 
-    await pool.query(
-      `UPDATE recommendations SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
-       WHERE pending_grants_id IN (${grantPlaceholders}) AND is_deleted = true`,
-      grantIds
-    );
+      const restoredUsers = await restoreOwningUsersForRecordsInTx(client, ownerIds, req.user?.id || null);
+      restoredUserCount = restoredUsers.length;
 
-    await pool.query(
-      `UPDATE scheduled_email_logs SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
-       WHERE pending_grant_id IN (${grantPlaceholders}) AND is_deleted = true`,
-      grantIds
-    );
+      await client.query(
+        `UPDATE account_balance_change_logs SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE pending_grants_id = ANY($1) AND is_deleted = true`,
+        [grantIds]
+      );
 
-    res.json({ success: true, message: `${grantIds.length} pending grant(s) restored successfully.` });
+      await client.query(
+        `UPDATE recommendations SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE pending_grants_id = ANY($1) AND is_deleted = true`,
+        [grantIds]
+      );
+
+      await client.query(
+        `UPDATE scheduled_email_logs SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE pending_grant_id = ANY($1) AND is_deleted = true`,
+        [grantIds]
+      );
+
+      await client.query("COMMIT");
+    } catch (txErr) {
+      await client.query("ROLLBACK");
+      throw txErr;
+    }
+
+    res.json({
+      success: true,
+      message: `${grantIds.length} pending grant(s) restored successfully.`,
+      restoredCount: grantIds.length,
+      restoredUserCount,
+    });
   } catch (err: any) {
     console.error("Error restoring pending grants:", err);
     res.status(500).json({ success: false, message: err.message });
+  } finally {
+    client.release();
   }
 });
 

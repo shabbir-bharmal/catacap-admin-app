@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter, handleMissingTableError } from "../utils/softDelete.js";
+import { restoreOwningUsersForRecordsInTx } from "../utils/userRestore.js";
 import ExcelJS from "exceljs";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
@@ -115,6 +116,7 @@ router.get("/", async (req: Request, res: Response) => {
 });
 
 router.put("/restore", async (req: Request, res: Response) => {
+  const client = await pool.connect();
   try {
     const ids: number[] = req.body;
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
@@ -122,11 +124,9 @@ router.put("/restore", async (req: Request, res: Response) => {
       return;
     }
 
-    const placeholders = ids.map((_, i) => `$${i + 1}`).join(", ");
-
     const assetsResult = await pool.query(
-      `SELECT id FROM asset_based_payment_requests WHERE id IN (${placeholders}) AND is_deleted = true`,
-      ids
+      `SELECT id, user_id FROM asset_based_payment_requests WHERE id = ANY($1) AND is_deleted = true`,
+      [ids]
     );
 
     if (assetsResult.rows.length === 0) {
@@ -135,24 +135,44 @@ router.put("/restore", async (req: Request, res: Response) => {
     }
 
     const assetIds = assetsResult.rows.map((r: any) => r.id);
-    const assetPlaceholders = assetIds.map((_: any, i: number) => `$${i + 1}`).join(", ");
+    const ownerIds = assetsResult.rows.map((r: any) => r.user_id);
+    let restoredUserCount = 0;
 
-    await pool.query(
-      `UPDATE asset_based_payment_requests SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
-       WHERE id IN (${assetPlaceholders})`,
-      assetIds
-    );
+    try {
+      await client.query("BEGIN");
 
-    await pool.query(
-      `UPDATE account_balance_change_logs SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
-       WHERE asset_based_payment_request_id IN (${assetPlaceholders}) AND is_deleted = true`,
-      assetIds
-    );
+      await client.query(
+        `UPDATE asset_based_payment_requests SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE id = ANY($1)`,
+        [assetIds]
+      );
 
-    res.json({ success: true, message: `${assetIds.length} other asset(s) restored successfully.` });
+      await client.query(
+        `UPDATE account_balance_change_logs SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE asset_based_payment_request_id = ANY($1) AND is_deleted = true`,
+        [assetIds]
+      );
+
+      const restoredUsers = await restoreOwningUsersForRecordsInTx(client, ownerIds, req.user?.id || null);
+      restoredUserCount = restoredUsers.length;
+
+      await client.query("COMMIT");
+    } catch (txErr) {
+      await client.query("ROLLBACK");
+      throw txErr;
+    }
+
+    res.json({
+      success: true,
+      message: `${assetIds.length} other asset(s) restored successfully.`,
+      restoredCount: assetIds.length,
+      restoredUserCount,
+    });
   } catch (err: any) {
     console.error("Error restoring other assets:", err);
     res.status(500).json({ success: false, message: err.message });
+  } finally {
+    client.release();
   }
 });
 

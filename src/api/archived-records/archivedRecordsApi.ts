@@ -3,10 +3,7 @@ import axiosInstance from "../axios";
 export interface ArchivedRecordsSummary {
   totalDeleted: number;
   accountBalanceLogs: number;
-  approvedBy: number;
-  assetRequests: number;
   campaigns: number;
-  teams: number;
   completedInvestments: number;
   disbursals: number;
   emailTemplates: number;
@@ -14,13 +11,11 @@ export interface ArchivedRecordsSummary {
   faqs: number;
   formSubmissions: number;
   groups: number;
-  investmentTags: number;
   news: number;
   pendingGrants: number;
   recommendations: number;
   returnDetails: number;
   testimonials: number;
-  themes: number;
   users: number;
 }
 

@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, handleMissingTableError } from "../utils/softDelete.js";
+import { restoreOwningUsersForRecordsInTx } from "../utils/userRestore.js";
 import { sendTemplateEmail } from "../utils/emailService.js";
 import ExcelJS from "exceljs";
 import dayjs from "dayjs";
@@ -26,11 +27,20 @@ router.get("/", async (req: Request, res: Response) => {
     const conditions: string[] = [];
     const values: any[] = [];
 
+    if (params.isDeleted === true) {
+      conditions.push(`rd.is_deleted = true`);
+    } else {
+      conditions.push(`(rd.is_deleted IS NULL OR rd.is_deleted = false)`);
+    }
+
     if (investmentId > 0) {
       values.push(investmentId);
       conditions.push(`rm.campaign_id = $${values.length}`);
     }
 
+    // Drive the query from return_details so every soft-deleted detail is counted,
+    // even if its parent return_master row was hard-deleted. The joins are LEFT
+    // joins for the same reason (orphaned details are still surfaced).
     const queryText = `
       SELECT rm.id AS master_id, rm.campaign_id, rm.created_on, rm.memo_note, rm.status,
              rm.private_debt_start_date, rm.private_debt_end_date, rm.post_date,
@@ -39,12 +49,12 @@ router.get("/", async (req: Request, res: Response) => {
              rd.return_amount AS detail_return_amount, rd.is_deleted, rd.deleted_at,
              u.first_name, u.last_name, u.email,
              du.first_name AS deleted_by_first_name, du.last_name AS deleted_by_last_name
-      FROM return_masters rm
+      FROM return_details rd
+      LEFT JOIN return_masters rm ON rd.return_master_id = rm.id
       LEFT JOIN campaigns c ON rm.campaign_id = c.id
-      LEFT JOIN return_details rd ON rd.return_master_id = rm.id
       LEFT JOIN users u ON rd.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
       LEFT JOIN users du ON du.id = rd.deleted_by
-      ${conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : ""}
+      WHERE ${conditions.join(" AND ")}
     `;
 
     const result = await pool.query(queryText, values);
@@ -54,13 +64,7 @@ router.get("/", async (req: Request, res: Response) => {
       return;
     }
 
-    let rows = result.rows.filter((r: any) => r.detail_id !== null);
-
-    if (params.isDeleted === true) {
-      rows = rows.filter((r: any) => r.is_deleted === true);
-    } else {
-      rows = rows.filter((r: any) => r.is_deleted !== true);
-    }
+    let rows = result.rows;
 
     rows.sort((a: any, b: any) => {
       const dateA = new Date(a.created_on || 0).getTime();
@@ -495,6 +499,7 @@ router.delete("/:id", async (req: Request, res: Response) => {
 });
 
 router.put("/restore", async (req: Request, res: Response) => {
+  const client = await pool.connect();
   try {
     const ids: number[] = req.body;
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
@@ -502,23 +507,46 @@ router.put("/restore", async (req: Request, res: Response) => {
       return;
     }
 
-    const placeholders = ids.map((_, i) => `$${i + 1}`).join(", ");
-    const result = await pool.query(
-      `UPDATE return_details SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
-       WHERE id IN (${placeholders}) AND is_deleted = true
-       RETURNING id`,
-      ids
-    );
+    let restoredCount = 0;
+    let restoredUserCount = 0;
+    try {
+      await client.query("BEGIN");
 
-    if (result.rowCount === 0) {
-      res.json({ success: false, message: "No deleted returns found to restore." });
-      return;
+      const result = await client.query(
+        `UPDATE return_details SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE id = ANY($1) AND is_deleted = true
+         RETURNING id, user_id`,
+        [ids]
+      );
+      restoredCount = result.rowCount ?? 0;
+
+      if (restoredCount === 0) {
+        await client.query("ROLLBACK");
+        res.json({ success: false, message: "No deleted returns found to restore." });
+        return;
+      }
+
+      const ownerIds = result.rows.map((r: any) => r.user_id);
+      const restoredUsers = await restoreOwningUsersForRecordsInTx(client, ownerIds, req.user?.id || null);
+      restoredUserCount = restoredUsers.length;
+
+      await client.query("COMMIT");
+    } catch (txErr) {
+      await client.query("ROLLBACK");
+      throw txErr;
     }
 
-    res.json({ success: true, message: `${result.rowCount} return(s) restored successfully.` });
+    res.json({
+      success: true,
+      message: `${restoredCount} return(s) restored successfully.`,
+      restoredCount,
+      restoredUserCount,
+    });
   } catch (err: any) {
     console.error("Error restoring investment returns:", err);
     res.status(500).json({ success: false, message: err.message });
+  } finally {
+    client.release();
   }
 });
 

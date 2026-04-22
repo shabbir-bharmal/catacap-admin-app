@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter, buildSortClause } from "../utils/softDelete.js";
+import { restoreOwningUsersForRecordsInTx } from "../utils/userRestore.js";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
 import ExcelJS from "exceljs";
@@ -144,6 +145,7 @@ router.delete("/:id", async (req: Request, res: Response) => {
 });
 
 router.put("/restore", async (req: Request, res: Response) => {
+  const client = await pool.connect();
   try {
     const ids: number[] = req.body;
 
@@ -152,41 +154,57 @@ router.put("/restore", async (req: Request, res: Response) => {
       return;
     }
 
-    const placeholders = ids.map((_, i) => `$${i + 1}`).join(", ");
-    const logs = await pool.query(
-      `SELECT id, is_deleted FROM account_balance_change_logs WHERE id IN (${placeholders})`,
-      ids
-    );
+    let restoredCount = 0;
+    let restoredUserCount = 0;
+    try {
+      await client.query("BEGIN");
 
-    if (logs.rows.length === 0) {
-      res.json({ success: false, message: "Account history not found." });
-      return;
+      const logs = await client.query(
+        `SELECT id, user_id, is_deleted FROM account_balance_change_logs WHERE id = ANY($1)`,
+        [ids]
+      );
+      if (logs.rows.length === 0) {
+        await client.query("ROLLBACK");
+        res.json({ success: false, message: "Account history not found." });
+        return;
+      }
+      const deletedRows = logs.rows.filter((r) => r.is_deleted === true);
+      const deletedIds = deletedRows.map((r) => r.id);
+      if (deletedIds.length === 0) {
+        await client.query("ROLLBACK");
+        res.json({ success: false, message: "No deleted account history found." });
+        return;
+      }
+
+      await client.query(
+        `UPDATE account_balance_change_logs
+         SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+         WHERE id = ANY($1)`,
+        [deletedIds]
+      );
+
+      const ownerIds = deletedRows.map((r) => r.user_id);
+      const restoredUsers = await restoreOwningUsersForRecordsInTx(client, ownerIds, req.user?.id || null);
+      restoredUserCount = restoredUsers.length;
+
+      await client.query("COMMIT");
+      restoredCount = deletedIds.length;
+    } catch (txErr) {
+      await client.query("ROLLBACK");
+      throw txErr;
     }
-
-    const deletedIds = logs.rows
-      .filter((r) => r.is_deleted === true)
-      .map((r) => r.id);
-
-    if (deletedIds.length === 0) {
-      res.json({ success: false, message: "No deleted account history found." });
-      return;
-    }
-
-    const restorePlaceholders = deletedIds.map((_, i) => `$${i + 1}`).join(", ");
-    await pool.query(
-      `UPDATE account_balance_change_logs
-       SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
-       WHERE id IN (${restorePlaceholders})`,
-      deletedIds
-    );
 
     res.json({
       success: true,
-      message: `${deletedIds.length} account history record(s) restored successfully.`,
+      message: `${restoredCount} account history record(s) restored successfully.`,
+      restoredCount,
+      restoredUserCount,
     });
   } catch (err) {
     console.error("Restore transaction history error:", err);
     res.status(500).json({ message: "Internal server error" });
+  } finally {
+    client.release();
   }
 });
 

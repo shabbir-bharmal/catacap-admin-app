@@ -194,10 +194,17 @@ export async function updateUserSettings(
   });
 }
 
-export async function assignGroupAdmin(userId: string): Promise<void> {
-  await axiosInstance.put("/api/userauthentication/assign-group-admin", null, {
-    params: { userId },
-  });
+export async function assignGroupAdmin(
+  userId: string
+): Promise<{ success: boolean; message: string }> {
+  const response = await axiosInstance.put<{ success: boolean; message: string }>(
+    "/api/userauthentication/assign-group-admin",
+    null,
+    {
+      params: { userId },
+    }
+  );
+  return response.data;
 }
 
 function getCurrentToken(): string {
