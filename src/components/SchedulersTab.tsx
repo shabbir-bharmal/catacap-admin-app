@@ -538,7 +538,14 @@ export default function SchedulersTab() {
                                       {log.errorMessage}
                                     </span>
                                   ) : config.jobName === "SendReminderEmail" ? (
-                                    <span>Day3: {log.day3EmailCount}, Week2: {log.week2EmailCount}</span>
+                                    (() => {
+                                      const md = (log.metadata as Record<string, unknown> | null) || {};
+                                      const day3 = Number(md.day3 ?? 0);
+                                      const week2 = Number(md.week2 ?? 0);
+                                      return (
+                                        <span>Day3: {day3}, Week2: {week2}</span>
+                                      );
+                                    })()
                                   ) : config.jobName === "WelcomeSeries" ? (
                                     (() => {
                                       const md = (log.metadata as Record<string, unknown> | null) || {};

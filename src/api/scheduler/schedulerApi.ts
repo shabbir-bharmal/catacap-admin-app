@@ -17,8 +17,6 @@ export interface SchedulerLog {
   jobName: string;
   startTime: string;
   endTime: string;
-  day3EmailCount: number;
-  week2EmailCount: number;
   errorMessage: string | null;
   status: string | null;
   timezone: string | null;

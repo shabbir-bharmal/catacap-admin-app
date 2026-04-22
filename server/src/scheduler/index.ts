@@ -89,15 +89,15 @@ async function logJobRun(
     if (hasStatusCol.rows.length > 0) {
       await pool.query(
         `INSERT INTO scheduler_logs
-          (start_time, end_time, day3_email_count, week2_email_count, error_message, job_name, status)
-         VALUES ($1, $2, 0, 0, $3, $4, $5)`,
+          (start_time, end_time, error_message, job_name, status)
+         VALUES ($1, $2, $3, $4, $5)`,
         [startTime, new Date(), errorMessage, jobName, status]
       );
     } else {
       await pool.query(
         `INSERT INTO scheduler_logs
-          (start_time, end_time, day3_email_count, week2_email_count, error_message, job_name)
-         VALUES ($1, $2, 0, 0, $3, $4)`,
+          (start_time, end_time, error_message, job_name)
+         VALUES ($1, $2, $3, $4)`,
         [startTime, new Date(), errorMessage, jobName]
       );
     }

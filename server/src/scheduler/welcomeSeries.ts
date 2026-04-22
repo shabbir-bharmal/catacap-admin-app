@@ -115,35 +115,24 @@ export async function runWelcomeSeries(): Promise<void> {
   } finally {
     const status = errorMessage ? "Failed" : "Success";
     try {
-      const hasMetadataCol = await pool.query(
-        `SELECT 1 FROM information_schema.columns
-         WHERE table_schema = 'public' AND table_name = 'scheduler_logs' AND column_name = 'metadata'`,
-      );
       const hasStatusCol = await pool.query(
         `SELECT 1 FROM information_schema.columns
          WHERE table_schema = 'public' AND table_name = 'scheduler_logs' AND column_name = 'status'`,
       );
 
-      if (hasMetadataCol.rows.length > 0 && hasStatusCol.rows.length > 0) {
+      if (hasStatusCol.rows.length > 0) {
         await pool.query(
           `INSERT INTO scheduler_logs
-            (start_time, end_time, day3_email_count, week2_email_count, error_message, job_name, status, metadata)
-           VALUES ($1, $2, 0, 0, $3, $4, $5, $6)`,
+            (start_time, end_time, error_message, job_name, status, metadata)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
           [startTime, new Date(), errorMessage, jobName, status, counts],
-        );
-      } else if (hasStatusCol.rows.length > 0) {
-        await pool.query(
-          `INSERT INTO scheduler_logs
-            (start_time, end_time, day3_email_count, week2_email_count, error_message, job_name, status)
-           VALUES ($1, $2, 0, 0, $3, $4, $5)`,
-          [startTime, new Date(), errorMessage, jobName, status],
         );
       } else {
         await pool.query(
           `INSERT INTO scheduler_logs
-            (start_time, end_time, day3_email_count, week2_email_count, error_message, job_name)
-           VALUES ($1, $2, 0, 0, $3, $4)`,
-          [startTime, new Date(), errorMessage, jobName],
+            (start_time, end_time, error_message, job_name, metadata)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [startTime, new Date(), errorMessage, jobName, counts],
         );
       }
     } catch (logErr) {

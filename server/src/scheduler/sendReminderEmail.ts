@@ -308,19 +308,20 @@ export async function runSendReminderEmail(): Promise<void> {
         `SELECT 1 FROM information_schema.columns
          WHERE table_schema = 'public' AND table_name = 'scheduler_logs' AND column_name = 'status'`
       );
+      const metadata = { day3: day3Count, week2: week2Count };
       if (hasStatusCol.rows.length > 0) {
         await pool.query(
           `INSERT INTO scheduler_logs
-            (start_time, end_time, day3_email_count, week2_email_count, error_message, job_name, status)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [startTime, new Date(), day3Count, week2Count, errorMessage, jobName, status],
+            (start_time, end_time, error_message, job_name, status, metadata)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [startTime, new Date(), errorMessage, jobName, status, metadata],
         );
       } else {
         await pool.query(
           `INSERT INTO scheduler_logs
-            (start_time, end_time, day3_email_count, week2_email_count, error_message, job_name)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [startTime, new Date(), day3Count, week2Count, errorMessage, jobName],
+            (start_time, end_time, error_message, job_name, metadata)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [startTime, new Date(), errorMessage, jobName, metadata],
         );
       }
     } catch (logErr) {

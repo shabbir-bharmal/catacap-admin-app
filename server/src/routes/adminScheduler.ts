@@ -272,12 +272,13 @@ router.get("/logs", async (req: Request, res: Response) => {
       `SELECT 1 FROM information_schema.columns
        WHERE table_schema = 'public' AND table_name = 'scheduler_logs' AND column_name = 'metadata'`
     );
-    const metadataSelect = metadataColCheck.rows.length > 0 ? `, sl.metadata` : `, NULL AS metadata`;
+    const metadataSelect = metadataColCheck.rows.length > 0
+      ? `, sl.metadata`
+      : `, NULL::jsonb AS metadata`;
 
     if (jobName) {
       query = `SELECT sl.id, sl.job_name AS "jobName", sl.start_time AS "startTime",
-                      sl.end_time AS "endTime", sl.day3_email_count AS "day3EmailCount",
-                      sl.week2_email_count AS "week2EmailCount", sl.error_message AS "errorMessage",
+                      sl.end_time AS "endTime", sl.error_message AS "errorMessage",
                       COALESCE(sc.timezone, 'UTC') AS "timezone"
                       ${statusSelect}
                       ${metadataSelect}
@@ -289,8 +290,7 @@ router.get("/logs", async (req: Request, res: Response) => {
       params.push(jobName, limit, offset);
     } else {
       query = `SELECT sl.id, sl.job_name AS "jobName", sl.start_time AS "startTime",
-                      sl.end_time AS "endTime", sl.day3_email_count AS "day3EmailCount",
-                      sl.week2_email_count AS "week2EmailCount", sl.error_message AS "errorMessage",
+                      sl.end_time AS "endTime", sl.error_message AS "errorMessage",
                       COALESCE(sc.timezone, 'UTC') AS "timezone"
                       ${statusSelect}
                       ${metadataSelect}

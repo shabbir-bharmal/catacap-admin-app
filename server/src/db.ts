@@ -60,10 +60,9 @@ async function ensureSchedulerTables(client: pg.PoolClient): Promise<void> {
       job_name VARCHAR(100),
       start_time TIMESTAMP,
       end_time TIMESTAMP,
-      day3_email_count INTEGER DEFAULT 0,
-      week2_email_count INTEGER DEFAULT 0,
       error_message TEXT,
-      status VARCHAR(20) DEFAULT 'Success'
+      status VARCHAR(20) DEFAULT 'Success',
+      metadata JSONB
     )
   `);
 
@@ -77,6 +76,11 @@ async function ensureSchedulerTables(client: pg.PoolClient): Promise<void> {
         ALTER TABLE scheduler_logs ADD COLUMN status VARCHAR(20) DEFAULT 'Success';
       END IF;
     END $$;
+  `);
+
+  await client.query(`
+    ALTER TABLE scheduler_logs
+      ADD COLUMN IF NOT EXISTS metadata JSONB
   `);
 
   await client.query(`
