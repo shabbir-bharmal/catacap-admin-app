@@ -34,9 +34,11 @@ import {
   toggleSchedulerJob,
   fetchSchedulerLogs,
   fetchSentReminderEmails,
+  fetchSentWelcomeEmails,
   SchedulerConfig,
   SchedulerLog,
   SentEmailEntry,
+  SentWelcomeEmailEntry,
 } from "@/api/scheduler/schedulerApi";
 import {
   Dialog,
@@ -51,10 +53,12 @@ const JOB_DISPLAY_NAMES: Record<string, string> = {
   SendReminderEmail: "Send Reminder Email",
   DeleteArchivedUsers: "Delete Archived Users",
   DeleteTestUsers: "Delete Test Users",
+  WelcomeSeries: "Welcome Series",
 };
 
 const JOB_DESCRIPTIONS: Record<string, string> = {
   DeleteTestUsers: "Soft-deletes test user accounts and all associated data (restorable from Archived Records)",
+  WelcomeSeries: "Sends Day 1, Day 6, and Day 10 welcome emails to people who submitted the Learn More form",
 };
 
 const TIMEZONES = [
@@ -94,11 +98,13 @@ export default function SchedulersTab() {
   const [logsLoading, setLogsLoading] = useState<Record<string, boolean>>({});
   const [sentEmailsOpen, setSentEmailsOpen] = useState(false);
   const [sentEmails, setSentEmails] = useState<SentEmailEntry[]>([]);
+  const [sentWelcomeEmails, setSentWelcomeEmails] = useState<SentWelcomeEmailEntry[]>([]);
   const [sentEmailsLoading, setSentEmailsLoading] = useState(false);
   const [sentEmailsContext, setSentEmailsContext] = useState<{
     startTime: string;
     endTime: string;
     timezone: string;
+    jobName: string;
   } | null>(null);
 
   const loadConfigs = useCallback(async () => {
@@ -263,18 +269,25 @@ export default function SchedulersTab() {
     }
   };
 
-  const openSentEmails = async (log: SchedulerLog, jobTimezone: string) => {
+  const openSentEmails = async (log: SchedulerLog, jobTimezone: string, jobName: string) => {
     setSentEmailsContext({
       startTime: log.startTime,
       endTime: log.endTime,
       timezone: log.timezone || jobTimezone,
+      jobName,
     });
     setSentEmailsOpen(true);
     setSentEmails([]);
+    setSentWelcomeEmails([]);
     setSentEmailsLoading(true);
     try {
-      const data = await fetchSentReminderEmails(log.startTime, log.endTime);
-      setSentEmails(data.emails);
+      if (jobName === "WelcomeSeries") {
+        const data = await fetchSentWelcomeEmails(log.startTime, log.endTime);
+        setSentWelcomeEmails(data.emails);
+      } else {
+        const data = await fetchSentReminderEmails(log.startTime, log.endTime);
+        setSentEmails(data.emails);
+      }
     } catch {
       toast({
         title: "Error",
@@ -501,7 +514,8 @@ export default function SchedulersTab() {
                               <TableHead>Start Time</TableHead>
                               <TableHead>Duration</TableHead>
                               <TableHead>Details</TableHead>
-                              {config.jobName === "SendReminderEmail" && (
+                              {(config.jobName === "SendReminderEmail" ||
+                                config.jobName === "WelcomeSeries") && (
                                 <TableHead>Action</TableHead>
                               )}
                             </TableRow>
@@ -525,16 +539,29 @@ export default function SchedulersTab() {
                                     </span>
                                   ) : config.jobName === "SendReminderEmail" ? (
                                     <span>Day3: {log.day3EmailCount}, Week2: {log.week2EmailCount}</span>
+                                  ) : config.jobName === "WelcomeSeries" ? (
+                                    (() => {
+                                      const md = (log.metadata as Record<string, unknown> | null) || {};
+                                      const day1 = Number(md.day1 ?? 0);
+                                      const day6 = Number(md.day6 ?? 0);
+                                      const day10 = Number(md.day10 ?? 0);
+                                      return (
+                                        <span>
+                                          Day1: {day1}, Day6: {day6}, Day10: {day10}
+                                        </span>
+                                      );
+                                    })()
                                   ) : (
                                     <span className="text-muted-foreground">Completed</span>
                                   )}
                                 </TableCell>
-                                {config.jobName === "SendReminderEmail" && (
+                                {(config.jobName === "SendReminderEmail" ||
+                                  config.jobName === "WelcomeSeries") && (
                                   <TableCell>
                                     <Button
                                       variant="outline"
                                       size="sm"
-                                      onClick={() => openSentEmails(log, config.timezone)}
+                                      onClick={() => openSentEmails(log, config.timezone, config.jobName)}
                                     >
                                       <Eye className="h-4 w-4 mr-1" />
                                       View
@@ -559,7 +586,9 @@ export default function SchedulersTab() {
         <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle>
-              Reminder Emails Sent
+              {sentEmailsContext?.jobName === "WelcomeSeries"
+                ? "Welcome Series Emails Sent"
+                : "Reminder Emails Sent"}
               {sentEmailsContext && (
                 <span className="ml-2 text-sm font-normal text-muted-foreground">
                   · Run started {formatDateTimeInZone(sentEmailsContext.startTime, sentEmailsContext.timezone)}
@@ -572,6 +601,86 @@ export default function SchedulersTab() {
               <Loader2 className="h-4 w-4 animate-spin" />
               Loading sent emails...
             </div>
+          ) : sentEmailsContext?.jobName === "WelcomeSeries" ? (
+            <Tabs defaultValue="1" className="flex-1 flex flex-col overflow-hidden">
+              <TabsList className="self-start">
+                {([1, 6, 10] as const).map((dayOffset) => {
+                  const count = sentWelcomeEmails.filter((e) => e.dayOffset === dayOffset).length;
+                  return (
+                    <TabsTrigger key={dayOffset} value={String(dayOffset)}>
+                      Day {dayOffset} ({count})
+                    </TabsTrigger>
+                  );
+                })}
+              </TabsList>
+              {([1, 6, 10] as const).map((dayOffset) => {
+                const filtered = sentWelcomeEmails.filter((e) => e.dayOffset === dayOffset);
+                return (
+                  <TabsContent key={dayOffset} value={String(dayOffset)} className="flex-1 overflow-auto mt-4">
+                    {filtered.length === 0 ? (
+                      <p className="text-sm text-muted-foreground py-2">
+                        No Day {dayOffset} welcome emails were sent during this run.
+                      </p>
+                    ) : (
+                      <div className="rounded-md border overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Status</TableHead>
+                              <TableHead>Sent At</TableHead>
+                              <TableHead>Recipient</TableHead>
+                              <TableHead>Error</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {filtered.map((email) => {
+                              const fullName = [email.userFirstName, email.userLastName]
+                                .filter(Boolean)
+                                .join(" ");
+                              const failed = !email.success || !!email.errorMessage;
+                              return (
+                                <TableRow key={email.id}>
+                                  <TableCell>
+                                    {failed ? (
+                                      <Badge variant="destructive">Failed</Badge>
+                                    ) : (
+                                      <Badge variant="secondary" className="bg-green-100 text-green-800">
+                                        Sent
+                                      </Badge>
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="text-sm whitespace-nowrap">
+                                    {formatDateTimeInZone(
+                                      email.sentDate,
+                                      sentEmailsContext?.timezone || "UTC"
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="text-sm">
+                                    <div>{email.userEmail || "—"}</div>
+                                    {fullName && (
+                                      <div className="text-xs text-muted-foreground">{fullName}</div>
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="text-sm max-w-xs truncate">
+                                    {email.errorMessage ? (
+                                      <span className="text-red-600" title={email.errorMessage}>
+                                        {email.errorMessage}
+                                      </span>
+                                    ) : (
+                                      <span className="text-muted-foreground">—</span>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+                  </TabsContent>
+                );
+              })}
+            </Tabs>
           ) : (
             <Tabs defaultValue="Day3" className="flex-1 flex flex-col overflow-hidden">
               <TabsList className="self-start">

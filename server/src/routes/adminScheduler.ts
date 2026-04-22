@@ -268,12 +268,19 @@ router.get("/logs", async (req: Request, res: Response) => {
     let query: string;
     const params: unknown[] = [];
 
+    const metadataColCheck = await pool.query(
+      `SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'scheduler_logs' AND column_name = 'metadata'`
+    );
+    const metadataSelect = metadataColCheck.rows.length > 0 ? `, sl.metadata` : `, NULL AS metadata`;
+
     if (jobName) {
       query = `SELECT sl.id, sl.job_name AS "jobName", sl.start_time AS "startTime",
                       sl.end_time AS "endTime", sl.day3_email_count AS "day3EmailCount",
                       sl.week2_email_count AS "week2EmailCount", sl.error_message AS "errorMessage",
                       COALESCE(sc.timezone, 'UTC') AS "timezone"
                       ${statusSelect}
+                      ${metadataSelect}
                FROM scheduler_logs sl
                LEFT JOIN scheduler_configurations sc ON sc.job_name = sl.job_name
                WHERE sl.job_name = $1
@@ -286,6 +293,7 @@ router.get("/logs", async (req: Request, res: Response) => {
                       sl.week2_email_count AS "week2EmailCount", sl.error_message AS "errorMessage",
                       COALESCE(sc.timezone, 'UTC') AS "timezone"
                       ${statusSelect}
+                      ${metadataSelect}
                FROM scheduler_logs sl
                LEFT JOIN scheduler_configurations sc ON sc.job_name = sl.job_name
                ORDER BY sl.start_time DESC
@@ -372,6 +380,59 @@ router.get("/sent-emails", async (req: Request, res: Response) => {
     res.json({ emails: result.rows });
   } catch (err) {
     console.error("Scheduler sent-emails error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+router.get("/sent-welcome-emails", async (req: Request, res: Response) => {
+  try {
+    const startTime = req.query.startTime as string | undefined;
+    const endTime = req.query.endTime as string | undefined;
+    const rawLimit = parseInt(String(req.query.limit || "200"), 10);
+    const limit = isNaN(rawLimit) || rawLimit < 1 ? 200 : Math.min(rawLimit, 1000);
+
+    const tableCheck = await pool.query(
+      `SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'welcome_series_email_logs'`
+    );
+    if (tableCheck.rows.length === 0) {
+      res.json({ emails: [] });
+      return;
+    }
+
+    const params: unknown[] = [];
+    let where = `WHERE 1=1`;
+    if (startTime) {
+      params.push(startTime);
+      where += ` AND wsel.sent_at >= $${params.length}`;
+    }
+    if (endTime) {
+      params.push(endTime);
+      where += ` AND wsel.sent_at <= $${params.length}`;
+    }
+    params.push(limit);
+
+    const query = `
+      SELECT wsel.id,
+             wsel.form_submission_id AS "formSubmissionId",
+             wsel.day_offset AS "dayOffset",
+             wsel.success AS "success",
+             wsel.error_message AS "errorMessage",
+             wsel.sent_at AS "sentDate",
+             fs.email AS "userEmail",
+             fs.first_name AS "userFirstName",
+             fs.last_name AS "userLastName"
+      FROM welcome_series_email_logs wsel
+      LEFT JOIN form_submissions fs ON fs.id = wsel.form_submission_id
+      ${where}
+      ORDER BY wsel.sent_at DESC
+      LIMIT $${params.length}
+    `;
+
+    const result = await pool.query(query, params);
+    res.json({ emails: result.rows });
+  } catch (err) {
+    console.error("Scheduler sent-welcome-emails error:", err);
     res.status(500).json({ message: "Internal server error" });
   }
 });

@@ -1,0 +1,58 @@
+Releases / Migrations
+=====================
+
+This folder holds release-time database migrations that must be applied
+manually against the target database BEFORE deploying the corresponding
+application code. Each file in `migrations/` is a standalone SQL script
+named with the date and a short description of the change.
+
+
+-------------------------------------------------------------------------------
+Migration: 2026_04_22_welcome_series_email_logs.sql
+-------------------------------------------------------------------------------
+
+Feature: Welcome Series email scheduler
+
+A new daily scheduler job, "Welcome Series", sends a sequence of three
+emails to people who submit the "Learn More" (About) form on the public
+site:
+
+  - Day  1 after submission -> email_templates category 36
+  - Day  6 after submission -> email_templates category 37
+  - Day 10 after submission -> email_templates category 38
+
+The job is registered in the existing scheduler framework alongside the
+other scheduled jobs (Send Reminder Email, Delete Archived Users,
+Delete Test Users) and is configurable from the Schedulers admin page
+(time, timezone, enable/disable, manual trigger, recent logs).
+
+What this migration does
+------------------------
+
+1. Adds a `metadata JSONB` column to `scheduler_logs`. The Welcome
+   Series job stores the per-day send counts for each run in this
+   column ({"day1": N, "day6": N, "day10": N}) so the admin "Recent
+   Logs" table can display them, mirroring how Send Reminder Email
+   shows its Day3 / Week2 counts.
+
+2. Creates the `welcome_series_email_logs` table:
+
+       form_submission_id  - the form_submissions row the email was
+                             sent for
+       day_offset          - 1, 6, or 10
+       sent_at             - timestamp of the attempt
+       success             - whether the email actually went out
+       error_message       - failure detail when success = false
+
+   A unique constraint on (form_submission_id, day_offset) makes the
+   scheduler idempotent: re-running the job (or manually triggering it)
+   on the same day will never send the same Day 1 / Day 6 / Day 10
+   email twice to the same submission.
+
+When to run
+-----------
+
+Apply this migration manually against the target environment's
+PostgreSQL database BEFORE deploying the build that contains the
+Welcome Series scheduler code. The script is wrapped in a transaction
+and uses IF NOT EXISTS checks, so it is safe to re-run.

@@ -22,6 +22,37 @@ export interface SchedulerLog {
   errorMessage: string | null;
   status: string | null;
   timezone: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
+export interface SentWelcomeEmailEntry {
+  id: number;
+  formSubmissionId: number;
+  dayOffset: number;
+  success: boolean;
+  errorMessage: string | null;
+  sentDate: string;
+  userEmail: string | null;
+  userFirstName: string | null;
+  userLastName: string | null;
+}
+
+export interface SentWelcomeEmailsResponse {
+  emails: SentWelcomeEmailEntry[];
+}
+
+export async function fetchSentWelcomeEmails(
+  startTime?: string,
+  endTime?: string
+): Promise<SentWelcomeEmailsResponse> {
+  const params: Record<string, string> = {};
+  if (startTime) params.startTime = startTime;
+  if (endTime) params.endTime = endTime;
+  const response = await axiosInstance.get<SentWelcomeEmailsResponse>(
+    "/api/admin/scheduler/sent-welcome-emails",
+    { params }
+  );
+  return response.data;
 }
 
 export interface SchedulerLogsResponse {

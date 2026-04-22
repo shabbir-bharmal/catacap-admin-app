@@ -3,17 +3,20 @@ import pool from "../db.js";
 import { runSendReminderEmail } from "./sendReminderEmail.js";
 import { runDailyCleanup } from "./dailyCleanup.js";
 import { runDeleteTestUsers } from "./deleteTestUsers.js";
+import { runWelcomeSeries } from "./welcomeSeries.js";
 
 const LOCK_KEYS: Record<string, number> = {
   SendReminderEmail: 900001,
   DeleteArchivedUsers: 900002,
   DeleteTestUsers: 900003,
+  WelcomeSeries: 900004,
 };
 
 const JOB_RUNNERS: Record<string, () => Promise<void>> = {
   SendReminderEmail: runSendReminderEmail,
   DeleteArchivedUsers: runDailyCleanup,
   DeleteTestUsers: runDeleteTestUsers,
+  WelcomeSeries: runWelcomeSeries,
 };
 
 const activeTasks: ScheduledTask[] = [];
@@ -127,6 +130,7 @@ function getDefaultConfigs(): SchedulerConfigRow[] {
     { job_name: "SendReminderEmail", hour: 8, minute: 0, timezone: "America/New_York", is_enabled: true },
     { job_name: "DeleteArchivedUsers", hour: 2, minute: 0, timezone: "America/New_York", is_enabled: true },
     { job_name: "DeleteTestUsers", hour: 18, minute: 0, timezone: "Asia/Kolkata", is_enabled: true },
+    { job_name: "WelcomeSeries", hour: 9, minute: 0, timezone: "America/New_York", is_enabled: true },
   ];
 }
 
@@ -158,13 +162,13 @@ function scheduleJob(config: SchedulerConfigRow): void {
         try {
           await runner();
           console.log(`[SCHEDULER] ${job_name} completed successfully.`);
-          if (job_name !== "SendReminderEmail") {
+          if (job_name !== "SendReminderEmail" && job_name !== "WelcomeSeries") {
             await logJobRun(job_name, startTime, "Success", null);
           }
         } catch (err: unknown) {
           const message = extractSchedulerErrorMessage(err);
           console.error(`[SCHEDULER] ${job_name} failed:`, err);
-          if (job_name !== "SendReminderEmail") {
+          if (job_name !== "SendReminderEmail" && job_name !== "WelcomeSeries") {
             await logJobRun(job_name, startTime, "Failed", message);
           }
         }
@@ -207,13 +211,13 @@ export async function executeJobWithLock(jobName: string): Promise<{ executed: b
     try {
       await runner();
       console.log(`[SCHEDULER] ${jobName} completed successfully.`);
-      if (jobName !== "SendReminderEmail") {
+      if (jobName !== "SendReminderEmail" && jobName !== "WelcomeSeries") {
         await logJobRun(jobName, startTime, "Success", null);
       }
     } catch (err: unknown) {
       const message = extractSchedulerErrorMessage(err);
       console.error(`[SCHEDULER] ${jobName} failed:`, err);
-      if (jobName !== "SendReminderEmail") {
+      if (jobName !== "SendReminderEmail" && jobName !== "WelcomeSeries") {
         await logJobRun(jobName, startTime, "Failed", message);
       }
       throw err;
