@@ -499,9 +499,6 @@ export default function SchedulersTab() {
                             <TableRow>
                               <TableHead>Status</TableHead>
                               <TableHead>Start Time</TableHead>
-                              {config.jobName !== "SendReminderEmail" && (
-                                <TableHead>End Time</TableHead>
-                              )}
                               <TableHead>Duration</TableHead>
                               <TableHead>Details</TableHead>
                               {config.jobName === "SendReminderEmail" && (
@@ -520,9 +517,6 @@ export default function SchedulersTab() {
                                   )}
                                 </TableCell>
                                 <TableCell className="text-sm">{formatDateTimeInZone(log.startTime, log.timezone || config.timezone)}</TableCell>
-                                {config.jobName !== "SendReminderEmail" && (
-                                  <TableCell className="text-sm">{formatDateTimeInZone(log.endTime, log.timezone || config.timezone)}</TableCell>
-                                )}
                                 <TableCell className="text-sm">{formatDuration(log.startTime, log.endTime)}</TableCell>
                                 <TableCell className="text-sm max-w-md truncate">
                                   {log.errorMessage ? (

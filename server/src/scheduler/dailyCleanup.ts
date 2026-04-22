@@ -444,7 +444,8 @@ export async function runDailyCleanup(): Promise<void> {
       "scheduled_email_logs", "account_balance_change_logs", "return_details",
       "recommendations", "user_investments", "investment_requests", "investment_feedbacks",
       "requests", "leader_groups", "group_account_balances", "user_notifications",
-      "user_roles", "return_masters", "testimonials", "events", "catacap_teams",
+      "user_roles", "return_masters", "catacap_teams",
+      "email_templates",
     ];
 
     console.log("[CLEANUP] -- Backfilling missing deleted_at timestamps --");
@@ -507,6 +508,7 @@ export async function runDailyCleanup(): Promise<void> {
       "user_investments", "investment_requests", "investment_feedbacks",
       "requests", "leader_groups", "group_account_balances", "user_notifications",
       "completed_investment_details", "user_roles",
+      "email_templates",
     ];
 
     let totalQualifying = 0;
@@ -591,6 +593,9 @@ export async function runDailyCleanup(): Promise<void> {
         archiveAndDeleteOrphan(client, "ReturnMasters", "CampaignId", "Campaigns", "Id", cutoffDate));
       await runStep("Level5: ScheduledEmailLogs", () =>
         archiveAndDelete(client, "ScheduledEmailLogs", "Id", "UserId", cutoffDate));
+
+      await runStep("Level5: EmailTemplate", () =>
+        archiveAndDelete(client, "EmailTemplate", "Id", null, cutoffDate));
 
       console.log("-- LEVEL 4: AccountBalanceChangeLogs (all 3 parent FKs) --");
       await runStep("Level4: AccountBalanceChangeLogs orphan by ABPR", () =>
