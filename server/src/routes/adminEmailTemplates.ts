@@ -49,6 +49,9 @@ const EmailTemplateCategoryMap: Record<number, { name: string; label: string }> 
   33: { name: "DAFReminderWeek2", label: "DAF Reminder (Week 2)" },
   34: { name: "FoundationReminderDay3", label: "Foundation Reminder (Day 3)" },
   35: { name: "TwoFactorAuthentication", label: "Login Verification Code" },
+  36: { name: "WelcomeSeriesEmail1", label: "Welcome Series – Email 1 (Welcome to CataCap)" },
+  37: { name: "WelcomeSeriesEmail2", label: "Welcome Series – Email 2 (Capital With Purpose)" },
+  38: { name: "WelcomeSeriesEmail3", label: "Welcome Series – Email 3 (Your Capital, Your Cause, Your Community)" },
 };
 
 function getCategoryName(category: number): string {
@@ -350,8 +353,8 @@ router.post("/", async (req: Request, res: Response) => {
       res.json({ success: true, message: "Template updated successfully.", data: templateId });
     } else {
       const result = await pool.query(
-        `INSERT INTO email_templates (name, subject, body_html, category, status, receiver, trigger_action, created_at, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8)
+        `INSERT INTO email_templates (name, subject, body_html, category, status, receiver, trigger_action, created_at, created_by, is_deleted)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, false)
          RETURNING id`,
         [dto.name, dto.subject, dto.bodyHtml, dto.category, dto.status,
          dto.receiver, dto.triggerAction, userId]
