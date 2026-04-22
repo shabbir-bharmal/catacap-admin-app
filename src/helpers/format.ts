@@ -1,4 +1,9 @@
 import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+import timezone from "dayjs/plugin/timezone";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 export function formatDate(val: string | Date | null | undefined, fallback: string = "—"): string {
   if (!val) return fallback;
@@ -11,6 +16,29 @@ export function formatDateTime(val: string | Date | null | undefined, fallback: 
   if (!val) return fallback;
   const d = dayjs(val);
   return d.isValid() ? d.format("MM/DD/YYYY h:mm A") : fallback;
+}
+
+function hasExplicitTimezone(val: string): boolean {
+  return /Z$|[+-]\d{2}:?\d{0,2}$/.test(val.trim());
+}
+
+export function formatDateTimeInZone(
+  val: string | Date | null | undefined,
+  tz: string | null | undefined,
+  fallback: string = "—"
+): string {
+  if (!val) return fallback;
+  const base =
+    typeof val === "string" && !hasExplicitTimezone(val)
+      ? dayjs.utc(val)
+      : dayjs(val);
+  if (!base.isValid()) return fallback;
+  if (!tz) return base.local().format("MM/DD/YYYY h:mm A");
+  try {
+    return base.tz(tz).format("MM/DD/YYYY h:mm A");
+  } catch {
+    return base.local().format("MM/DD/YYYY h:mm A");
+  }
 }
 
 export function formatLongDate(val: string | Date | null | undefined, fallback: string = "—"): string {

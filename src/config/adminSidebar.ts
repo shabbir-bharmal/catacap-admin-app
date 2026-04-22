@@ -163,6 +163,12 @@ export const sidebarConfig = [
             permission: { module: "site-configuration", action: "manage" }
           },
           {
+            title: "Schedulers",
+            url: "/schedulers",
+            icon: Clock,
+            permission: { module: "site-configuration", action: "view" }
+          },
+          {
             title: "Archived Records",
             url: "/archived-records",
             icon: Archive,

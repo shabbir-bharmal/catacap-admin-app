@@ -120,6 +120,12 @@ interface FormData {
   investmentInfoEmail: string;
   contactInfoPhoneNumber: string;
   impactAssetsFundingStatus: string;
+  hasCorporateBankAccount: string;
+  hasPersonalFinancialBenefit: string;
+  personalFinancialBenefitDescription: string;
+  hasRegulatoryIssues: string;
+  regulatoryIssuesDescription: string;
+  isInGoodLegalStanding: string;
   country: string;
   address1: string;
   address2: string;
@@ -173,6 +179,12 @@ const defaultFormData: FormData = {
   investmentInfoEmail: "",
   contactInfoPhoneNumber: "",
   impactAssetsFundingStatus: "No",
+  hasCorporateBankAccount: "",
+  hasPersonalFinancialBenefit: "",
+  personalFinancialBenefitDescription: "",
+  hasRegulatoryIssues: "",
+  regulatoryIssuesDescription: "",
+  isInGoodLegalStanding: "",
   country: "",
   address1: "",
   address2: "",
@@ -697,6 +709,12 @@ export default function AdminInvestmentEdit() {
       investmentInfoEmail: data.investmentInformationalEmail ?? data.investmentInfoEmail ?? "",
       contactInfoPhoneNumber: data.contactInfoPhoneNumber ?? "",
       impactAssetsFundingStatus: (data.impactAssetsFundingStatus && data.impactAssetsFundingStatus.toLowerCase() === "yes") ? "Yes" : (data.impactAssetsFundingStatus && data.impactAssetsFundingStatus.toLowerCase() === "not sure") ? "Not sure" : "No",
+      hasCorporateBankAccount: data.hasCorporateBankAccount === true ? "Yes" : data.hasCorporateBankAccount === false ? "No" : "",
+      hasPersonalFinancialBenefit: data.hasPersonalFinancialBenefit === true ? "Yes" : data.hasPersonalFinancialBenefit === false ? "No" : "",
+      personalFinancialBenefitDescription: data.personalFinancialBenefitDescription ?? "",
+      hasRegulatoryIssues: data.hasRegulatoryIssues === true ? "Yes" : data.hasRegulatoryIssues === false ? "No" : "",
+      regulatoryIssuesDescription: data.regulatoryIssuesDescription ?? "",
+      isInGoodLegalStanding: data.isInGoodLegalStanding === true ? "Yes" : data.isInGoodLegalStanding === false ? "No" : "",
       country: data.country ?? "",
       address1: data.contactInfoAddress ?? "",
       address2: data.contactInfoAddress2 ?? "",
@@ -933,6 +951,12 @@ export default function AdminInvestmentEdit() {
         investmentInformationalEmail: formData.investmentInfoEmail?.trim(),
         contactInfoPhoneNumber: formData.contactInfoPhoneNumber?.trim(),
         impactAssetsFundingStatus: formData.impactAssetsFundingStatus?.trim(),
+        hasCorporateBankAccount: formData.hasCorporateBankAccount === "Yes" ? true : formData.hasCorporateBankAccount === "No" ? false : null,
+        hasPersonalFinancialBenefit: formData.hasPersonalFinancialBenefit === "Yes" ? true : formData.hasPersonalFinancialBenefit === "No" ? false : null,
+        personalFinancialBenefitDescription: formData.hasPersonalFinancialBenefit === "Yes" ? (formData.personalFinancialBenefitDescription?.trim() || null) : null,
+        hasRegulatoryIssues: formData.hasRegulatoryIssues === "Yes" ? true : formData.hasRegulatoryIssues === "No" ? false : null,
+        regulatoryIssuesDescription: formData.hasRegulatoryIssues === "Yes" ? (formData.regulatoryIssuesDescription?.trim() || null) : null,
+        isInGoodLegalStanding: formData.isInGoodLegalStanding === "Yes" ? true : formData.isInGoodLegalStanding === "No" ? false : null,
         country: formData.country?.trim(),
         networkDescription: formData.networkDescription?.trim(),
         referredToCataCap: formData.referredToCataCap?.trim(),
@@ -1418,6 +1442,64 @@ export default function AdminInvestmentEdit() {
                         <SelectItem value="No">No</SelectItem>
                         <SelectItem value="Yes">Yes</SelectItem>
                         <SelectItem value="Not sure">Not sure</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">Does your company have a corporate bank account set up?</Label>
+                    <Select value={formData.hasCorporateBankAccount} onValueChange={(val) => upd("hasCorporateBankAccount", val)}>
+                      <SelectTrigger data-testid="select-corporate-bank-account"><SelectValue placeholder="Select…" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Yes">Yes</SelectItem>
+                        <SelectItem value="No">No</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label className="text-sm">Does any board member, officer, or related party stand to receive personal financial benefit from this investment?</Label>
+                    <Select value={formData.hasPersonalFinancialBenefit} onValueChange={(val) => upd("hasPersonalFinancialBenefit", val)}>
+                      <SelectTrigger data-testid="select-personal-financial-benefit"><SelectValue placeholder="Select…" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Yes">Yes</SelectItem>
+                        <SelectItem value="No">No</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {formData.hasPersonalFinancialBenefit === "Yes" && (
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label htmlFor="personalFinancialBenefitDescription" className="text-sm">Please describe</Label>
+                      <Textarea id="personalFinancialBenefitDescription" value={formData.personalFinancialBenefitDescription} onChange={(e) => upd("personalFinancialBenefitDescription", e.target.value)} rows={3} data-testid="input-personal-financial-benefit-description" />
+                    </div>
+                  )}
+
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label className="text-sm">Has the organization or any of its officers ever been subject to regulatory action, criminal investigation, or sanctions?</Label>
+                    <Select value={formData.hasRegulatoryIssues} onValueChange={(val) => upd("hasRegulatoryIssues", val)}>
+                      <SelectTrigger data-testid="select-regulatory-issues"><SelectValue placeholder="Select…" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Yes">Yes</SelectItem>
+                        <SelectItem value="No">No</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {formData.hasRegulatoryIssues === "Yes" && (
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label htmlFor="regulatoryIssuesDescription" className="text-sm">Please describe</Label>
+                      <Textarea id="regulatoryIssuesDescription" value={formData.regulatoryIssuesDescription} onChange={(e) => upd("regulatoryIssuesDescription", e.target.value)} rows={3} data-testid="input-regulatory-issues-description" />
+                    </div>
+                  )}
+
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">Is the organization currently in good legal standing with all relevant regulatory bodies?</Label>
+                    <Select value={formData.isInGoodLegalStanding} onValueChange={(val) => upd("isInGoodLegalStanding", val)}>
+                      <SelectTrigger data-testid="select-good-legal-standing"><SelectValue placeholder="Select…" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Yes">Yes</SelectItem>
+                        <SelectItem value="No">No</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

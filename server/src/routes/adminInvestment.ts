@@ -927,6 +927,12 @@ router.get("/:id", async (req: Request, res: Response) => {
       missionAndVision: c.mission_and_vision,
       personalizedThankYou: c.personalized_thank_you,
       hasExistingInvestors: c.has_existing_investors,
+      hasCorporateBankAccount: c.has_corporate_bank_account,
+      hasPersonalFinancialBenefit: c.has_personal_financial_benefit,
+      personalFinancialBenefitDescription: c.personal_financial_benefit_description,
+      hasRegulatoryIssues: c.has_regulatory_issues,
+      regulatoryIssuesDescription: c.regulatory_issues_description,
+      isInGoodLegalStanding: c.is_in_good_legal_standing,
       expectedTotal: c.expected_total ? parseFloat(c.expected_total) : null,
       investmentTypeCategory: c.investment_type_category,
       equityValuation: c.equity_valuation ? parseFloat(c.equity_valuation) : null,
@@ -1155,11 +1161,16 @@ router.post("/", async (req: Request, res: Response) => {
         investment_type_category, equity_valuation, equity_security_type,
         fund_term, equity_target_return, debt_payment_frequency,
         debt_maturity_date, debt_interest_rate, user_id,
-        meta_title, meta_description, created_date, modified_date
+        meta_title, meta_description,
+        has_corporate_bank_account, has_personal_financial_benefit,
+        personal_financial_benefit_description, has_regulatory_issues,
+        regulatory_issues_description, is_in_good_legal_standing,
+        created_date, modified_date
       ) VALUES (
         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
         $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,
-        $39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,NOW(),NOW()
+        $39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,
+        $57,$58,$59,$60,$61,$62,NOW(),NOW()
       ) RETURNING id`,
       [
         campaign.name || null,
@@ -1218,6 +1229,12 @@ router.post("/", async (req: Request, res: Response) => {
         userId,
         campaign.metaTitle || null,
         campaign.metaDescription || null,
+        campaign.hasCorporateBankAccount ?? null,
+        campaign.hasPersonalFinancialBenefit ?? null,
+        campaign.personalFinancialBenefitDescription || null,
+        campaign.hasRegulatoryIssues ?? null,
+        campaign.regulatoryIssuesDescription || null,
+        campaign.isInGoodLegalStanding ?? null,
       ]
     );
 
@@ -1592,8 +1609,12 @@ router.put("/:id", async (req: Request, res: Response) => {
         fund_term = $48, equity_target_return = $49, debt_payment_frequency = $50,
         debt_maturity_date = $51, debt_interest_rate = $52,
         user_id = $53,
-        meta_title = $54, meta_description = $55, modified_date = NOW()
-      WHERE id = $56`,
+        meta_title = $54, meta_description = $55,
+        has_corporate_bank_account = $56, has_personal_financial_benefit = $57,
+        personal_financial_benefit_description = $58, has_regulatory_issues = $59,
+        regulatory_issues_description = $60, is_in_good_legal_standing = $61,
+        modified_date = NOW()
+      WHERE id = $62`,
       [
         campaign.name || existing.name,
         campaign.description ?? existing.description,
@@ -1650,6 +1671,12 @@ router.put("/:id", async (req: Request, res: Response) => {
         finalUserId,
         campaign.metaTitle ?? existing.meta_title,
         campaign.metaDescription ?? existing.meta_description,
+        Object.prototype.hasOwnProperty.call(campaign, "hasCorporateBankAccount") ? campaign.hasCorporateBankAccount : existing.has_corporate_bank_account,
+        Object.prototype.hasOwnProperty.call(campaign, "hasPersonalFinancialBenefit") ? campaign.hasPersonalFinancialBenefit : existing.has_personal_financial_benefit,
+        Object.prototype.hasOwnProperty.call(campaign, "personalFinancialBenefitDescription") ? campaign.personalFinancialBenefitDescription : existing.personal_financial_benefit_description,
+        Object.prototype.hasOwnProperty.call(campaign, "hasRegulatoryIssues") ? campaign.hasRegulatoryIssues : existing.has_regulatory_issues,
+        Object.prototype.hasOwnProperty.call(campaign, "regulatoryIssuesDescription") ? campaign.regulatoryIssuesDescription : existing.regulatory_issues_description,
+        Object.prototype.hasOwnProperty.call(campaign, "isInGoodLegalStanding") ? campaign.isInGoodLegalStanding : existing.is_in_good_legal_standing,
         id,
       ]
     );
@@ -2086,6 +2113,12 @@ function mapCampaignRow(c: any): any {
     fundraisingCloseDate: c.fundraising_close_date,
     missionAndVision: c.mission_and_vision,
     personalizedThankYou: c.personalized_thank_you,
+    hasCorporateBankAccount: c.has_corporate_bank_account,
+    hasPersonalFinancialBenefit: c.has_personal_financial_benefit,
+    personalFinancialBenefitDescription: c.personal_financial_benefit_description,
+    hasRegulatoryIssues: c.has_regulatory_issues,
+    regulatoryIssuesDescription: c.regulatory_issues_description,
+    isInGoodLegalStanding: c.is_in_good_legal_standing,
     expectedTotal: c.expected_total ? parseFloat(c.expected_total) : null,
     featuredInvestment: c.featured_investment || false,
     createdDate: c.created_date,

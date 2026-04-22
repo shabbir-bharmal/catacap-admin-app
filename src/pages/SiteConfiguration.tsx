@@ -11,7 +11,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { Plus, Pencil, Trash2, ListPlus, Upload, X, Bold, Italic, Underline, Link as LinkIcon, List, ListOrdered, Strikethrough } from "lucide-react";
-import SchedulersTab from "@/components/SchedulersTab";
 import { getUrlBlobContainerImage, defaultImage, catacapDefaultImageLogo } from "@/lib/image-utils";
 import {
   fetchAllSiteConfigurations,
@@ -45,7 +44,7 @@ import {
   ConfigItemInvestment
 } from "../api/site-configuration/siteConfigurationApi";
 
-const TABS = ["Sourced By", "Themes", "Special Filters", "Configuration", "Contact Info", "Transaction Type", "News Type", "News Audience", "Statistics", "Meta Information", "Schedulers"] as const;
+const TABS = ["Sourced By", "Themes", "Special Filters", "Configuration", "Contact Info", "Transaction Type", "News Type", "News Audience", "Statistics", "Meta Information"] as const;
 
 const CONTACT_INFO_SECTIONS = [
   { key: "emails", label: "Emails" },
@@ -452,8 +451,6 @@ export default function SiteConfiguration() {
         return "meta-information";
       case "Contact Info":
         return "contact-info";
-      case "Schedulers":
-        throw new Error("Schedulers tab does not use site configuration CRUD operations");
     }
   }
 
@@ -611,9 +608,7 @@ export default function SiteConfiguration() {
               ))}
             </div>
 
-            {activeTab === "Schedulers" ? (
-              <SchedulersTab />
-            ) : activeTab === "Contact Info" ? (
+            {activeTab === "Contact Info" ? (
               <div className="space-y-4" data-testid="contact-info-sections">
                 <div className="flex justify-end">
                   <Button className="bg-[#405189] text-white" onClick={openAdd} data-testid="button-add-contact-info">
