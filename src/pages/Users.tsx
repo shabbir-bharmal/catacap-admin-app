@@ -186,17 +186,28 @@ export default function UsersPage() {
   };
 
   const handleUserSettings = async (user: UserEntry, settings: { isActive?: boolean; isExcludeUserBalance?: boolean }) => {
+    const isBalanceToggle = settings.isExcludeUserBalance !== undefined;
+    const isActiveToggle = settings.isActive !== undefined;
     try {
       await updateUserSettings(user.id, settings);
       toast({
-        title: "User settings updated successfully.",
+        title: isBalanceToggle
+          ? (settings.isExcludeUserBalance ? "User balance excluded." : "User balance included.")
+          : isActiveToggle
+            ? (settings.isActive ? "User activated." : "User deactivated.")
+            : "User settings updated successfully.",
         duration: 4000
       });
-      queryClient.invalidateQueries({ queryKey: ["users"] });
+      await queryClient.invalidateQueries({ queryKey: ["users"] });
+      await queryClient.refetchQueries({ queryKey: ["users"] });
     } catch (err) {
       console.error("Error updating user settings", err);
       toast({
-        title: "Failed to update user settings.",
+        title: isBalanceToggle
+          ? (settings.isExcludeUserBalance ? "Failed to exclude user balance." : "Failed to include user balance.")
+          : isActiveToggle
+            ? (settings.isActive ? "Failed to activate user." : "Failed to deactivate user.")
+            : "Failed to update user settings.",
         variant: "destructive",
         duration: 4000
       });
@@ -509,10 +520,10 @@ export default function UsersPage() {
                                     size="icon"
                                     variant="outline"
                                     className={cn(
-                                      "h-8 w-8 rounded-none border-r-0 hover:bg-opacity-10",
+                                      "h-8 w-8 rounded-none border-r-0",
                                       user.isActive
                                         ? "text-[#f06548] hover:text-[#f06548] hover:bg-[#f06548]/5"
-                                        : "text-[#45CB85] hover:text-[#45CB85] hover:bg-[#45CB85]/5"
+                                        : "bg-[#45CB85] text-white hover:bg-[#45CB85]/90 hover:text-white border-[#45CB85]"
                                     )}
                                     onClick={() => handleUserSettings(user, { isActive: !user.isActive })}
                                     data-testid={`action-inactive-${user.id}`}
@@ -529,7 +540,10 @@ export default function UsersPage() {
                                     size="icon"
                                     variant="outline"
                                     className={cn(
-                                      "h-8 w-8 hover:bg-opacity-10 text-[#64748b] hover:text-[#64748b] hover:bg-[#64748b]/5",
+                                      "h-8 w-8",
+                                      user.isExcludeUserBalance
+                                        ? "bg-[#64748b] text-white hover:bg-[#64748b]/90 hover:text-white border-[#64748b]"
+                                        : "text-[#64748b] hover:text-[#64748b] hover:bg-[#64748b]/5",
                                       authUser?.isSuperAdmin ? "rounded-none border-r-0" : "rounded-l-none"
                                     )}
                                     onClick={() => handleUserSettings(user, { isExcludeUserBalance: !user.isExcludeUserBalance })}
