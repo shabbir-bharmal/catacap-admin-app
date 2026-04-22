@@ -62,4 +62,6 @@ CREATE TABLE IF NOT EXISTS welcome_series_email_logs (
     UNIQUE (form_submission_id, day_offset)
 );
 
+INSERT INTO "public"."scheduler_configurations" ("id", "job_name", "description", "hour", "minute", "timezone", "is_enabled", "created_at", "updated_at") VALUES (751, 'WelcomeSeries', 'Sends Day 1, Day 6, and Day 10 welcome emails to Learn More form submitters', 9, 0, 'America/New_York', true, '2026-04-22 10:35:49.797639', '2026-04-22 11:01:16.788083');
+
 COMMIT;
