@@ -41,11 +41,15 @@ export interface SentWelcomeEmailsResponse {
 
 export async function fetchSentWelcomeEmails(
   startTime?: string,
-  endTime?: string
+  endTime?: string,
+  schedulerLogId?: number
 ): Promise<SentWelcomeEmailsResponse> {
-  const params: Record<string, string> = {};
+  const params: Record<string, string | number> = {};
   if (startTime) params.startTime = startTime;
   if (endTime) params.endTime = endTime;
+  if (schedulerLogId !== undefined && schedulerLogId !== null) {
+    params.schedulerLogId = schedulerLogId;
+  }
   const response = await axiosInstance.get<SentWelcomeEmailsResponse>(
     "/api/admin/scheduler/sent-welcome-emails",
     { params }
@@ -79,11 +83,15 @@ export interface SentEmailsResponse {
 
 export async function fetchSentReminderEmails(
   startTime?: string,
-  endTime?: string
+  endTime?: string,
+  schedulerLogId?: number
 ): Promise<SentEmailsResponse> {
-  const params: Record<string, string> = {};
+  const params: Record<string, string | number> = {};
   if (startTime) params.startTime = startTime;
   if (endTime) params.endTime = endTime;
+  if (schedulerLogId !== undefined && schedulerLogId !== null) {
+    params.schedulerLogId = schedulerLogId;
+  }
   const response = await axiosInstance.get<SentEmailsResponse>(
     "/api/admin/scheduler/sent-emails",
     { params }

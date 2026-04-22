@@ -26,8 +26,32 @@ export async function runWelcomeSeries(): Promise<void> {
   const counts: Record<string, number> = { day1: 0, day6: 0, day10: 0 };
   const errors: string[] = [];
   let errorMessage: string | null = null;
+  let schedulerLogId: number | null = null;
+  let hasStatusCol = false;
 
   try {
+    try {
+      const statusCheck = await pool.query(
+        `SELECT 1 FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'scheduler_logs' AND column_name = 'status'`,
+      );
+      hasStatusCol = statusCheck.rows.length > 0;
+      const insertResult = hasStatusCol
+        ? await pool.query<{ id: number }>(
+            `INSERT INTO scheduler_logs (start_time, job_name, status, metadata)
+             VALUES ($1, $2, $3, $4) RETURNING id`,
+            [startTime, jobName, "Running", counts],
+          )
+        : await pool.query<{ id: number }>(
+            `INSERT INTO scheduler_logs (start_time, job_name, metadata)
+             VALUES ($1, $2, $3) RETURNING id`,
+            [startTime, jobName, counts],
+          );
+      schedulerLogId = insertResult.rows[0]?.id ?? null;
+    } catch (logErr) {
+      console.error("[SCHEDULER] Failed to insert WelcomeSeries start log:", logErr);
+    }
+
     for (const step of SCHEDULE) {
       const result = await pool.query<{
         id: number;
@@ -76,14 +100,17 @@ export async function runWelcomeSeries(): Promise<void> {
           );
         }
 
+        let inserted = false;
         try {
-          await pool.query(
+          const insertResult = await pool.query<{ id: number }>(
             `INSERT INTO welcome_series_email_logs
-               (form_submission_id, day_offset, success, error_message)
-             VALUES ($1, $2, $3, $4)
-             ON CONFLICT (form_submission_id, day_offset) DO NOTHING`,
-            [row.id, step.dayOffset, success, errMsg],
+               (form_submission_id, day_offset, success, error_message, scheduler_log_id)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (form_submission_id, day_offset) DO NOTHING
+             RETURNING id`,
+            [row.id, step.dayOffset, success, errMsg, schedulerLogId],
           );
+          inserted = (insertResult.rowCount ?? 0) > 0;
         } catch (logErr) {
           console.error(
             `[SCHEDULER] WelcomeSeries failed to log result for submission ${row.id}:`,
@@ -91,9 +118,9 @@ export async function runWelcomeSeries(): Promise<void> {
           );
         }
 
-        if (success) {
+        if (success && inserted) {
           counts[countKey] = (counts[countKey] || 0) + 1;
-        } else {
+        } else if (!success) {
           errors.push(`Submission ${row.id} ${step.label}: ${errMsg}`);
         }
       }
@@ -114,25 +141,37 @@ export async function runWelcomeSeries(): Promise<void> {
     throw err;
   } finally {
     const status = errorMessage ? "Failed" : "Success";
+    const endTime = new Date();
     try {
-      const hasStatusCol = await pool.query(
-        `SELECT 1 FROM information_schema.columns
-         WHERE table_schema = 'public' AND table_name = 'scheduler_logs' AND column_name = 'status'`,
-      );
-
-      if (hasStatusCol.rows.length > 0) {
+      if (schedulerLogId !== null) {
+        if (hasStatusCol) {
+          await pool.query(
+            `UPDATE scheduler_logs
+               SET end_time = $1, error_message = $2, status = $3, metadata = $4
+             WHERE id = $5`,
+            [endTime, errorMessage, status, counts, schedulerLogId],
+          );
+        } else {
+          await pool.query(
+            `UPDATE scheduler_logs
+               SET end_time = $1, error_message = $2, metadata = $3
+             WHERE id = $4`,
+            [endTime, errorMessage, counts, schedulerLogId],
+          );
+        }
+      } else if (hasStatusCol) {
         await pool.query(
           `INSERT INTO scheduler_logs
             (start_time, end_time, error_message, job_name, status, metadata)
            VALUES ($1, $2, $3, $4, $5, $6)`,
-          [startTime, new Date(), errorMessage, jobName, status, counts],
+          [startTime, endTime, errorMessage, jobName, status, counts],
         );
       } else {
         await pool.query(
           `INSERT INTO scheduler_logs
             (start_time, end_time, error_message, job_name, metadata)
            VALUES ($1, $2, $3, $4, $5)`,
-          [startTime, new Date(), errorMessage, jobName, counts],
+          [startTime, endTime, errorMessage, jobName, counts],
         );
       }
     } catch (logErr) {

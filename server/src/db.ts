@@ -84,6 +84,41 @@ async function ensureSchedulerTables(client: pg.PoolClient): Promise<void> {
   `);
 
   await client.query(`
+    ALTER TABLE scheduler_logs
+      ALTER COLUMN end_time DROP NOT NULL
+  `);
+
+  const sel = await client.query(
+    `SELECT 1 FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_name = 'scheduled_email_logs'`,
+  );
+  if (sel.rows.length > 0) {
+    await client.query(
+      `ALTER TABLE scheduled_email_logs
+         ADD COLUMN IF NOT EXISTS scheduler_log_id INTEGER REFERENCES scheduler_logs(id)`,
+    );
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_scheduled_email_logs_scheduler_log_id
+         ON scheduled_email_logs(scheduler_log_id)`,
+    );
+  }
+
+  const wsel = await client.query(
+    `SELECT 1 FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_name = 'welcome_series_email_logs'`,
+  );
+  if (wsel.rows.length > 0) {
+    await client.query(
+      `ALTER TABLE welcome_series_email_logs
+         ADD COLUMN IF NOT EXISTS scheduler_log_id INTEGER REFERENCES scheduler_logs(id)`,
+    );
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_welcome_series_email_logs_scheduler_log_id
+         ON welcome_series_email_logs(scheduler_log_id)`,
+    );
+  }
+
+  await client.query(`
     CREATE TABLE IF NOT EXISTS scheduler_configurations (
       id SERIAL PRIMARY KEY,
       job_name VARCHAR(100) NOT NULL UNIQUE,
@@ -128,6 +163,96 @@ async function ensureSchedulerTables(client: pg.PoolClient): Promise<void> {
         AND key = 'Auto Delete Archived Records After (Days)'
     )
   `);
+}
+
+async function backfillSchedulerLogIds(client: pg.PoolClient): Promise<void> {
+  const migrationKey = "BackfillSchedulerLogIdsApplied_v2";
+  try {
+    const check = await client.query(
+      `SELECT 1 FROM site_configurations WHERE key = $1 LIMIT 1`,
+      [migrationKey],
+    );
+    if (check.rows.length > 0) return;
+  } catch {
+    return;
+  }
+
+  const selTable = await client.query(
+    `SELECT 1 FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_name = 'scheduled_email_logs'`,
+  );
+  const selCol = await client.query(
+    `SELECT 1 FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'scheduled_email_logs' AND column_name = 'scheduler_log_id'`,
+  );
+  if (selTable.rows.length > 0 && selCol.rows.length > 0) {
+    try {
+      const result = await client.query(`
+        WITH ranked AS (
+          SELECT id, job_name, start_time,
+                 LEAD(start_time) OVER (PARTITION BY job_name ORDER BY start_time) AS next_start
+          FROM scheduler_logs
+          WHERE job_name = 'SendReminderEmail'
+        )
+        UPDATE scheduled_email_logs sel
+           SET scheduler_log_id = r.id
+          FROM ranked r
+         WHERE sel.scheduler_log_id IS NULL
+           AND sel.sent_date >= r.start_time
+           AND (r.next_start IS NULL OR sel.sent_date < r.next_start)
+      `);
+      if (result.rowCount && result.rowCount > 0) {
+        console.log(
+          `[BackfillSchedulerLogIds] Linked ${result.rowCount} scheduled_email_logs row(s) to scheduler_logs.`,
+        );
+      }
+    } catch (err) {
+      console.error("[BackfillSchedulerLogIds] scheduled_email_logs backfill failed:", err);
+    }
+  }
+
+  const wselTable = await client.query(
+    `SELECT 1 FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_name = 'welcome_series_email_logs'`,
+  );
+  const wselCol = await client.query(
+    `SELECT 1 FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'welcome_series_email_logs' AND column_name = 'scheduler_log_id'`,
+  );
+  if (wselTable.rows.length > 0 && wselCol.rows.length > 0) {
+    try {
+      const result = await client.query(`
+        WITH ranked AS (
+          SELECT id, job_name, start_time,
+                 LEAD(start_time) OVER (PARTITION BY job_name ORDER BY start_time) AS next_start
+          FROM scheduler_logs
+          WHERE job_name = 'WelcomeSeries'
+        )
+        UPDATE welcome_series_email_logs wsel
+           SET scheduler_log_id = r.id
+          FROM ranked r
+         WHERE wsel.scheduler_log_id IS NULL
+           AND wsel.sent_at >= r.start_time
+           AND (r.next_start IS NULL OR wsel.sent_at < r.next_start)
+      `);
+      if (result.rowCount && result.rowCount > 0) {
+        console.log(
+          `[BackfillSchedulerLogIds] Linked ${result.rowCount} welcome_series_email_logs row(s) to scheduler_logs.`,
+        );
+      }
+    } catch (err) {
+      console.error("[BackfillSchedulerLogIds] welcome_series_email_logs backfill failed:", err);
+    }
+  }
+
+  try {
+    await client.query(
+      `INSERT INTO site_configurations (type, key, value)
+       VALUES ('Migration', $1, 'true')
+       ON CONFLICT DO NOTHING`,
+      [migrationKey],
+    );
+  } catch {}
 }
 
 async function backfillSoftDeleteTimestamps(
@@ -274,6 +399,7 @@ export async function testConnection(): Promise<void> {
 
     await runSoftDeleteMigration(client);
     await ensureSchedulerTables(client);
+    await backfillSchedulerLogIds(client);
     await backfillSoftDeleteTimestamps(client);
     await fixIncorrectBackfillDates(client);
     await backfillOrphanedUserRoles(client);

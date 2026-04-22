@@ -117,8 +117,32 @@ export async function runSendReminderEmail(): Promise<void> {
   let errorMessage: string | null = null;
   const processingErrors: string[] = [];
   const startTime = new Date();
+  let schedulerLogId: number | null = null;
+  let hasStatusCol = false;
 
   try {
+    try {
+      const statusCheck = await pool.query(
+        `SELECT 1 FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'scheduler_logs' AND column_name = 'status'`,
+      );
+      hasStatusCol = statusCheck.rows.length > 0;
+      const insertResult = hasStatusCol
+        ? await pool.query<{ id: number }>(
+            `INSERT INTO scheduler_logs (start_time, job_name, status, metadata)
+             VALUES ($1, $2, $3, $4) RETURNING id`,
+            [startTime, jobName, "Running", { day3: 0, week2: 0 }],
+          )
+        : await pool.query<{ id: number }>(
+            `INSERT INTO scheduler_logs (start_time, job_name, metadata)
+             VALUES ($1, $2, $3) RETURNING id`,
+            [startTime, jobName, { day3: 0, week2: 0 }],
+          );
+      schedulerLogId = insertResult.rows[0]?.id ?? null;
+    } catch (logErr) {
+      console.error("[SCHEDULER] Failed to insert SendReminderEmail start log:", logErr);
+    }
+
     const queryParams: unknown[] = [];
     let paramIndex = 0;
 
@@ -235,6 +259,7 @@ export async function runSendReminderEmail(): Promise<void> {
               pendingGrantId: grant.pending_grant_id,
               userId: grant.user_id,
               reminderType,
+              schedulerLogId,
             });
           } else if (dafProvider === "foundation grant") {
             const amount = parseFloat(grant.amount) || 0;
@@ -267,6 +292,7 @@ export async function runSendReminderEmail(): Promise<void> {
               pendingGrantId: grant.pending_grant_id,
               userId: grant.user_id,
               reminderType,
+              schedulerLogId,
             });
           } else {
             console.log(
@@ -303,25 +329,38 @@ export async function runSendReminderEmail(): Promise<void> {
     throw err;
   } finally {
     const status = errorMessage ? "Failed" : "Success";
+    const endTime = new Date();
+    const metadata = { day3: day3Count, week2: week2Count };
     try {
-      const hasStatusCol = await pool.query(
-        `SELECT 1 FROM information_schema.columns
-         WHERE table_schema = 'public' AND table_name = 'scheduler_logs' AND column_name = 'status'`
-      );
-      const metadata = { day3: day3Count, week2: week2Count };
-      if (hasStatusCol.rows.length > 0) {
+      if (schedulerLogId !== null) {
+        if (hasStatusCol) {
+          await pool.query(
+            `UPDATE scheduler_logs
+               SET end_time = $1, error_message = $2, status = $3, metadata = $4
+             WHERE id = $5`,
+            [endTime, errorMessage, status, metadata, schedulerLogId],
+          );
+        } else {
+          await pool.query(
+            `UPDATE scheduler_logs
+               SET end_time = $1, error_message = $2, metadata = $3
+             WHERE id = $4`,
+            [endTime, errorMessage, metadata, schedulerLogId],
+          );
+        }
+      } else if (hasStatusCol) {
         await pool.query(
           `INSERT INTO scheduler_logs
             (start_time, end_time, error_message, job_name, status, metadata)
            VALUES ($1, $2, $3, $4, $5, $6)`,
-          [startTime, new Date(), errorMessage, jobName, status, metadata],
+          [startTime, endTime, errorMessage, jobName, status, metadata],
         );
       } else {
         await pool.query(
           `INSERT INTO scheduler_logs
             (start_time, end_time, error_message, job_name, metadata)
            VALUES ($1, $2, $3, $4, $5)`,
-          [startTime, new Date(), errorMessage, jobName, metadata],
+          [startTime, endTime, errorMessage, jobName, metadata],
         );
       }
     } catch (logErr) {

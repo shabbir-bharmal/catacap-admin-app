@@ -328,6 +328,10 @@ router.get("/sent-emails", async (req: Request, res: Response) => {
   try {
     const startTime = req.query.startTime as string | undefined;
     const endTime = req.query.endTime as string | undefined;
+    const schedulerLogIdRaw = req.query.schedulerLogId as string | undefined;
+    const schedulerLogId = schedulerLogIdRaw
+      ? parseInt(schedulerLogIdRaw, 10)
+      : NaN;
     const rawLimit = parseInt(String(req.query.limit || "200"), 10);
     const limit =
       isNaN(rawLimit) || rawLimit < 1 ? 200 : Math.min(rawLimit, 1000);
@@ -344,13 +348,31 @@ router.get("/sent-emails", async (req: Request, res: Response) => {
     const params: unknown[] = [];
     let where = `WHERE (sel.is_deleted = false OR sel.is_deleted IS NULL)
                    AND sel.reminder_type IN ('Day3', 'Week2')`;
-    if (startTime) {
-      params.push(startTime);
-      where += ` AND sel.sent_date >= $${params.length}`;
-    }
-    if (endTime) {
-      params.push(endTime);
-      where += ` AND sel.sent_date <= $${params.length}`;
+    if (!isNaN(schedulerLogId)) {
+      params.push(schedulerLogId);
+      const idx = params.length;
+      where += ` AND (
+        sel.scheduler_log_id = $${idx}
+        OR (
+          sel.scheduler_log_id IS NULL
+          AND sel.sent_date >= (SELECT start_time FROM scheduler_logs WHERE id = $${idx})
+          AND sel.sent_date < COALESCE(
+            (SELECT MIN(start_time) FROM scheduler_logs sl2
+              WHERE sl2.job_name = (SELECT job_name FROM scheduler_logs WHERE id = $${idx})
+                AND sl2.start_time > (SELECT start_time FROM scheduler_logs WHERE id = $${idx})),
+            NOW() + INTERVAL '100 years'
+          )
+        )
+      )`;
+    } else {
+      if (startTime) {
+        params.push(startTime);
+        where += ` AND sel.sent_date >= $${params.length}`;
+      }
+      if (endTime) {
+        params.push(endTime);
+        where += ` AND sel.sent_date <= $${params.length}`;
+      }
     }
     params.push(limit);
 
@@ -388,6 +410,10 @@ router.get("/sent-welcome-emails", async (req: Request, res: Response) => {
   try {
     const startTime = req.query.startTime as string | undefined;
     const endTime = req.query.endTime as string | undefined;
+    const schedulerLogIdRaw = req.query.schedulerLogId as string | undefined;
+    const schedulerLogId = schedulerLogIdRaw
+      ? parseInt(schedulerLogIdRaw, 10)
+      : NaN;
     const rawLimit = parseInt(String(req.query.limit || "200"), 10);
     const limit = isNaN(rawLimit) || rawLimit < 1 ? 200 : Math.min(rawLimit, 1000);
 
@@ -402,13 +428,31 @@ router.get("/sent-welcome-emails", async (req: Request, res: Response) => {
 
     const params: unknown[] = [];
     let where = `WHERE 1=1`;
-    if (startTime) {
-      params.push(startTime);
-      where += ` AND wsel.sent_at >= $${params.length}`;
-    }
-    if (endTime) {
-      params.push(endTime);
-      where += ` AND wsel.sent_at <= $${params.length}`;
+    if (!isNaN(schedulerLogId)) {
+      params.push(schedulerLogId);
+      const idx = params.length;
+      where += ` AND (
+        wsel.scheduler_log_id = $${idx}
+        OR (
+          wsel.scheduler_log_id IS NULL
+          AND wsel.sent_at >= (SELECT start_time FROM scheduler_logs WHERE id = $${idx})
+          AND wsel.sent_at < COALESCE(
+            (SELECT MIN(start_time) FROM scheduler_logs sl2
+              WHERE sl2.job_name = (SELECT job_name FROM scheduler_logs WHERE id = $${idx})
+                AND sl2.start_time > (SELECT start_time FROM scheduler_logs WHERE id = $${idx})),
+            NOW() + INTERVAL '100 years'
+          )
+        )
+      )`;
+    } else {
+      if (startTime) {
+        params.push(startTime);
+        where += ` AND wsel.sent_at >= $${params.length}`;
+      }
+      if (endTime) {
+        params.push(endTime);
+        where += ` AND wsel.sent_at <= $${params.length}`;
+      }
     }
     params.push(limit);
 

@@ -282,10 +282,10 @@ export default function SchedulersTab() {
     setSentEmailsLoading(true);
     try {
       if (jobName === "WelcomeSeries") {
-        const data = await fetchSentWelcomeEmails(log.startTime, log.endTime);
+        const data = await fetchSentWelcomeEmails(log.startTime, log.endTime, log.id);
         setSentWelcomeEmails(data.emails);
       } else {
-        const data = await fetchSentReminderEmails(log.startTime, log.endTime);
+        const data = await fetchSentReminderEmails(log.startTime, log.endTime, log.id);
         setSentEmails(data.emails);
       }
     } catch {
