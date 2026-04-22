@@ -58,6 +58,12 @@ interface FormData {
   howMuchMoney: string;
   aboutNetwork: string;
   receivedFundingBefore: string;
+  hasCorporateBankAccount: string;
+  hasPersonalFinancialBenefit: string;
+  personalFinancialBenefitDescription: string;
+  hasRegulatoryIssues: string;
+  regulatoryIssuesDescription: string;
+  isInGoodLegalStanding: string;
   role: string;
   referralSource: string;
   investmentName: string;
@@ -159,6 +165,12 @@ const defaultFormData: FormData = {
   howMuchMoney: "",
   aboutNetwork: "",
   receivedFundingBefore: "no",
+  hasCorporateBankAccount: "",
+  hasPersonalFinancialBenefit: "",
+  personalFinancialBenefitDescription: "",
+  hasRegulatoryIssues: "",
+  regulatoryIssuesDescription: "",
+  isInGoodLegalStanding: "",
   role: "",
   referralSource: "",
   investmentName: "",
@@ -335,6 +347,12 @@ export default function AdminRaiseMoney() {
             howMuchMoney: inv.target ? String(inv.target) : "",
             aboutNetwork: inv.networkDescription || "",
             receivedFundingBefore: inv.impactAssetsFundingStatus === "yes" ? "yes" : inv.impactAssetsFundingStatus === "notsure" ? "notsure" : "no",
+            hasCorporateBankAccount: inv.hasCorporateBankAccount === true ? "yes" : inv.hasCorporateBankAccount === false ? "no" : "",
+            hasPersonalFinancialBenefit: inv.hasPersonalFinancialBenefit === true ? "yes" : inv.hasPersonalFinancialBenefit === false ? "no" : "",
+            personalFinancialBenefitDescription: inv.personalFinancialBenefitDescription || "",
+            hasRegulatoryIssues: inv.hasRegulatoryIssues === true ? "yes" : inv.hasRegulatoryIssues === false ? "no" : "",
+            regulatoryIssuesDescription: inv.regulatoryIssuesDescription || "",
+            isInGoodLegalStanding: inv.isInGoodLegalStanding === true ? "yes" : inv.isInGoodLegalStanding === false ? "no" : "",
             role: inv.investmentRole || "",
             referralSource: inv.referredToCataCap || "",
             investmentName: inv.name || "",
@@ -673,6 +691,12 @@ export default function AdminRaiseMoney() {
         featuredInvestment: formData.featuredInvestment,
         fundraisingCloseDate: formData.evergreen ? "Evergreen" : formData.expectedCloseDate,
         impactAssetsFundingStatus: formData.receivedFundingBefore,
+        hasCorporateBankAccount: formData.hasCorporateBankAccount === "yes" ? true : formData.hasCorporateBankAccount === "no" ? false : null,
+        hasPersonalFinancialBenefit: formData.hasPersonalFinancialBenefit === "yes" ? true : formData.hasPersonalFinancialBenefit === "no" ? false : null,
+        personalFinancialBenefitDescription: formData.hasPersonalFinancialBenefit === "yes" ? (formData.personalFinancialBenefitDescription?.trim() || null) : null,
+        hasRegulatoryIssues: formData.hasRegulatoryIssues === "yes" ? true : formData.hasRegulatoryIssues === "no" ? false : null,
+        regulatoryIssuesDescription: formData.hasRegulatoryIssues === "yes" ? (formData.regulatoryIssuesDescription?.trim() || null) : null,
+        isInGoodLegalStanding: formData.isInGoodLegalStanding === "yes" ? true : formData.isInGoodLegalStanding === "no" ? false : null,
         captchaToken: "",
         metaTitle: formData.metaTitle,
         metaDescription: formData.metaDescription,
@@ -1149,6 +1173,94 @@ export default function AdminRaiseMoney() {
                       <Label htmlFor="funding-not-sure" className="font-normal cursor-pointer text-sm">
                         Not sure
                       </Label>
+                    </div>
+                  </RadioGroup>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm">
+                    Does your company have a corporate bank account set up?
+                  </Label>
+                  <RadioGroup value={formData.hasCorporateBankAccount} onValueChange={(val) => updateField("hasCorporateBankAccount", val)} data-testid="radio-corporate-bank-account">
+                    <div className="flex items-center gap-2">
+                      <RadioGroupItem value="yes" id="corp-bank-yes" />
+                      <Label htmlFor="corp-bank-yes" className="font-normal cursor-pointer text-sm">Yes</Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <RadioGroupItem value="no" id="corp-bank-no" />
+                      <Label htmlFor="corp-bank-no" className="font-normal cursor-pointer text-sm">No</Label>
+                    </div>
+                  </RadioGroup>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm">
+                    Does any board member, officer, or related party stand to receive personal financial benefit from this investment?
+                  </Label>
+                  <RadioGroup value={formData.hasPersonalFinancialBenefit} onValueChange={(val) => updateField("hasPersonalFinancialBenefit", val)} data-testid="radio-personal-financial-benefit">
+                    <div className="flex items-center gap-2">
+                      <RadioGroupItem value="yes" id="pfb-yes" />
+                      <Label htmlFor="pfb-yes" className="font-normal cursor-pointer text-sm">Yes</Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <RadioGroupItem value="no" id="pfb-no" />
+                      <Label htmlFor="pfb-no" className="font-normal cursor-pointer text-sm">No</Label>
+                    </div>
+                  </RadioGroup>
+                  {formData.hasPersonalFinancialBenefit === "yes" && (
+                    <div className="space-y-1.5 pt-2">
+                      <Label htmlFor="personalFinancialBenefitDescription" className="text-sm">Please describe</Label>
+                      <Textarea
+                        id="personalFinancialBenefitDescription"
+                        value={formData.personalFinancialBenefitDescription}
+                        onChange={(e) => updateField("personalFinancialBenefitDescription", e.target.value)}
+                        rows={3}
+                        data-testid="input-personal-financial-benefit-description"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm">
+                    Has the organization or any of its officers ever been subject to regulatory action, criminal investigation, or sanctions?
+                  </Label>
+                  <RadioGroup value={formData.hasRegulatoryIssues} onValueChange={(val) => updateField("hasRegulatoryIssues", val)} data-testid="radio-regulatory-issues">
+                    <div className="flex items-center gap-2">
+                      <RadioGroupItem value="yes" id="reg-yes" />
+                      <Label htmlFor="reg-yes" className="font-normal cursor-pointer text-sm">Yes</Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <RadioGroupItem value="no" id="reg-no" />
+                      <Label htmlFor="reg-no" className="font-normal cursor-pointer text-sm">No</Label>
+                    </div>
+                  </RadioGroup>
+                  {formData.hasRegulatoryIssues === "yes" && (
+                    <div className="space-y-1.5 pt-2">
+                      <Label htmlFor="regulatoryIssuesDescription" className="text-sm">Please describe</Label>
+                      <Textarea
+                        id="regulatoryIssuesDescription"
+                        value={formData.regulatoryIssuesDescription}
+                        onChange={(e) => updateField("regulatoryIssuesDescription", e.target.value)}
+                        rows={3}
+                        data-testid="input-regulatory-issues-description"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm">
+                    Is the organization currently in good legal standing with all relevant regulatory bodies?
+                  </Label>
+                  <RadioGroup value={formData.isInGoodLegalStanding} onValueChange={(val) => updateField("isInGoodLegalStanding", val)} data-testid="radio-good-legal-standing">
+                    <div className="flex items-center gap-2">
+                      <RadioGroupItem value="yes" id="legal-yes" />
+                      <Label htmlFor="legal-yes" className="font-normal cursor-pointer text-sm">Yes</Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <RadioGroupItem value="no" id="legal-no" />
+                      <Label htmlFor="legal-no" className="font-normal cursor-pointer text-sm">No</Label>
                     </div>
                   </RadioGroup>
                 </div>
