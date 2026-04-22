@@ -244,29 +244,33 @@ router.get("/logs", async (req: Request, res: Response) => {
     );
     const hasStatusCol = statusColCheck.rows.length > 0;
     const statusSelect = hasStatusCol
-      ? `, status`
-      : `, CASE WHEN error_message IS NOT NULL THEN 'Failed' ELSE 'Success' END AS status`;
+      ? `, sl.status`
+      : `, CASE WHEN sl.error_message IS NOT NULL THEN 'Failed' ELSE 'Success' END AS status`;
 
     let query: string;
     const params: unknown[] = [];
 
     if (jobName) {
-      query = `SELECT id, job_name AS "jobName", start_time AS "startTime",
-                      end_time AS "endTime", day3_email_count AS "day3EmailCount",
-                      week2_email_count AS "week2EmailCount", error_message AS "errorMessage"
+      query = `SELECT sl.id, sl.job_name AS "jobName", sl.start_time AS "startTime",
+                      sl.end_time AS "endTime", sl.day3_email_count AS "day3EmailCount",
+                      sl.week2_email_count AS "week2EmailCount", sl.error_message AS "errorMessage",
+                      COALESCE(sc.timezone, 'UTC') AS "timezone"
                       ${statusSelect}
-               FROM scheduler_logs
-               WHERE job_name = $1
-               ORDER BY start_time DESC
+               FROM scheduler_logs sl
+               LEFT JOIN scheduler_configurations sc ON sc.job_name = sl.job_name
+               WHERE sl.job_name = $1
+               ORDER BY sl.start_time DESC
                LIMIT $2 OFFSET $3`;
       params.push(jobName, limit, offset);
     } else {
-      query = `SELECT id, job_name AS "jobName", start_time AS "startTime",
-                      end_time AS "endTime", day3_email_count AS "day3EmailCount",
-                      week2_email_count AS "week2EmailCount", error_message AS "errorMessage"
+      query = `SELECT sl.id, sl.job_name AS "jobName", sl.start_time AS "startTime",
+                      sl.end_time AS "endTime", sl.day3_email_count AS "day3EmailCount",
+                      sl.week2_email_count AS "week2EmailCount", sl.error_message AS "errorMessage",
+                      COALESCE(sc.timezone, 'UTC') AS "timezone"
                       ${statusSelect}
-               FROM scheduler_logs
-               ORDER BY start_time DESC
+               FROM scheduler_logs sl
+               LEFT JOIN scheduler_configurations sc ON sc.job_name = sl.job_name
+               ORDER BY sl.start_time DESC
                LIMIT $1 OFFSET $2`;
       params.push(limit, offset);
     }
@@ -290,6 +294,65 @@ router.get("/logs", async (req: Request, res: Response) => {
     res.json({ logs: result.rows, total: totalCount });
   } catch (err) {
     console.error("Scheduler logs error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+router.get("/sent-emails", async (req: Request, res: Response) => {
+  try {
+    const startTime = req.query.startTime as string | undefined;
+    const endTime = req.query.endTime as string | undefined;
+    const rawLimit = parseInt(String(req.query.limit || "200"), 10);
+    const limit = isNaN(rawLimit) || rawLimit < 1 ? 200 : Math.min(rawLimit, 1000);
+
+    const tableCheck = await pool.query(
+      `SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'scheduled_email_logs'`
+    );
+    if (tableCheck.rows.length === 0) {
+      res.json({ emails: [] });
+      return;
+    }
+
+    const params: unknown[] = [];
+    let where = `WHERE (sel.is_deleted = false OR sel.is_deleted IS NULL)
+                   AND sel.reminder_type IN ('Day3', 'Week2')`;
+    if (startTime) {
+      params.push(startTime);
+      where += ` AND sel.sent_date >= $${params.length}`;
+    }
+    if (endTime) {
+      params.push(endTime);
+      where += ` AND sel.sent_date <= $${params.length}`;
+    }
+    params.push(limit);
+
+    const query = `
+      SELECT sel.id,
+             sel.pending_grant_id AS "pendingGrantId",
+             sel.user_id AS "userId",
+             sel.reminder_type AS "reminderType",
+             sel.error_message AS "errorMessage",
+             sel.sent_date AS "sentDate",
+             u.email AS "userEmail",
+             u.first_name AS "userFirstName",
+             u.last_name AS "userLastName",
+             pg.amount AS "amount",
+             pg.daf_provider AS "dafProvider",
+             c.name AS "campaignName"
+      FROM scheduled_email_logs sel
+      LEFT JOIN users u ON u.id = sel.user_id
+      LEFT JOIN pending_grants pg ON pg.id = sel.pending_grant_id
+      LEFT JOIN campaigns c ON c.id = pg.campaign_id
+      ${where}
+      ORDER BY sel.sent_date DESC
+      LIMIT $${params.length}
+    `;
+
+    const result = await pool.query(query, params);
+    res.json({ emails: result.rows });
+  } catch (err) {
+    console.error("Scheduler sent-emails error:", err);
     res.status(500).json({ message: "Internal server error" });
   }
 });

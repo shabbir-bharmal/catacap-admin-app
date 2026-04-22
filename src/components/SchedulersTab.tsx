@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { formatDateTime } from "@/helpers/format";
+import { formatDateTimeInZone } from "@/helpers/format";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -33,9 +33,19 @@ import {
   triggerSchedulerJob,
   toggleSchedulerJob,
   fetchSchedulerLogs,
+  fetchSentReminderEmails,
   SchedulerConfig,
   SchedulerLog,
+  SentEmailEntry,
 } from "@/api/scheduler/schedulerApi";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Eye } from "lucide-react";
 
 const JOB_DISPLAY_NAMES: Record<string, string> = {
   SendReminderEmail: "Send Reminder Email",
@@ -82,6 +92,14 @@ export default function SchedulersTab() {
   const [expandedLogs, setExpandedLogs] = useState<Record<string, boolean>>({});
   const [jobLogs, setJobLogs] = useState<Record<string, SchedulerLog[]>>({});
   const [logsLoading, setLogsLoading] = useState<Record<string, boolean>>({});
+  const [sentEmailsOpen, setSentEmailsOpen] = useState(false);
+  const [sentEmails, setSentEmails] = useState<SentEmailEntry[]>([]);
+  const [sentEmailsLoading, setSentEmailsLoading] = useState(false);
+  const [sentEmailsContext, setSentEmailsContext] = useState<{
+    startTime: string;
+    endTime: string;
+    timezone: string;
+  } | null>(null);
 
   const loadConfigs = useCallback(async () => {
     try {
@@ -242,6 +260,29 @@ export default function SchedulersTab() {
       toast({ title: "Error", description: `Failed to load logs for ${JOB_DISPLAY_NAMES[jobName] || jobName}.`, variant: "destructive" });
     } finally {
       setLogsLoading((prev) => ({ ...prev, [jobName]: false }));
+    }
+  };
+
+  const openSentEmails = async (log: SchedulerLog, jobTimezone: string) => {
+    setSentEmailsContext({
+      startTime: log.startTime,
+      endTime: log.endTime,
+      timezone: log.timezone || jobTimezone,
+    });
+    setSentEmailsOpen(true);
+    setSentEmails([]);
+    setSentEmailsLoading(true);
+    try {
+      const data = await fetchSentReminderEmails(log.startTime, log.endTime);
+      setSentEmails(data.emails);
+    } catch {
+      toast({
+        title: "Error",
+        description: "Failed to load sent emails for this run.",
+        variant: "destructive",
+      });
+    } finally {
+      setSentEmailsLoading(false);
     }
   };
 
@@ -458,9 +499,14 @@ export default function SchedulersTab() {
                             <TableRow>
                               <TableHead>Status</TableHead>
                               <TableHead>Start Time</TableHead>
-                              <TableHead>End Time</TableHead>
+                              {config.jobName !== "SendReminderEmail" && (
+                                <TableHead>End Time</TableHead>
+                              )}
                               <TableHead>Duration</TableHead>
                               <TableHead>Details</TableHead>
+                              {config.jobName === "SendReminderEmail" && (
+                                <TableHead>Action</TableHead>
+                              )}
                             </TableRow>
                           </TableHeader>
                           <TableBody>
@@ -473,8 +519,10 @@ export default function SchedulersTab() {
                                     <Badge variant="secondary" className="bg-green-100 text-green-800">Success</Badge>
                                   )}
                                 </TableCell>
-                                <TableCell className="text-sm">{formatDateTime(log.startTime)}</TableCell>
-                                <TableCell className="text-sm">{formatDateTime(log.endTime)}</TableCell>
+                                <TableCell className="text-sm">{formatDateTimeInZone(log.startTime, log.timezone || config.timezone)}</TableCell>
+                                {config.jobName !== "SendReminderEmail" && (
+                                  <TableCell className="text-sm">{formatDateTimeInZone(log.endTime, log.timezone || config.timezone)}</TableCell>
+                                )}
                                 <TableCell className="text-sm">{formatDuration(log.startTime, log.endTime)}</TableCell>
                                 <TableCell className="text-sm max-w-md truncate">
                                   {log.errorMessage ? (
@@ -487,6 +535,18 @@ export default function SchedulersTab() {
                                     <span className="text-muted-foreground">Completed</span>
                                   )}
                                 </TableCell>
+                                {config.jobName === "SendReminderEmail" && (
+                                  <TableCell>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => openSentEmails(log, config.timezone)}
+                                    >
+                                      <Eye className="h-4 w-4 mr-1" />
+                                      View
+                                    </Button>
+                                  </TableCell>
+                                )}
                               </TableRow>
                             ))}
                           </TableBody>
@@ -500,6 +560,112 @@ export default function SchedulersTab() {
           </Card>
         );
       })}
+
+      <Dialog open={sentEmailsOpen} onOpenChange={setSentEmailsOpen}>
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle>
+              Reminder Emails Sent
+              {sentEmailsContext && (
+                <span className="ml-2 text-sm font-normal text-muted-foreground">
+                  · Run started {formatDateTimeInZone(sentEmailsContext.startTime, sentEmailsContext.timezone)}
+                </span>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          {sentEmailsLoading ? (
+            <div className="flex items-center gap-2 py-6 text-muted-foreground text-sm">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading sent emails...
+            </div>
+          ) : (
+            <Tabs defaultValue="Day3" className="flex-1 flex flex-col overflow-hidden">
+              <TabsList className="self-start">
+                {(["Day3", "Week2"] as const).map((type) => {
+                  const count = sentEmails.filter((e) => e.reminderType === type).length;
+                  const label = type === "Day3" ? "Day 3" : "Day 14";
+                  return (
+                    <TabsTrigger key={type} value={type}>
+                      {label} ({count})
+                    </TabsTrigger>
+                  );
+                })}
+              </TabsList>
+              {(["Day3", "Week2"] as const).map((type) => {
+                const filtered = sentEmails.filter((e) => e.reminderType === type);
+                const label = type === "Day3" ? "Day 3" : "Day 14";
+                return (
+                  <TabsContent key={type} value={type} className="flex-1 overflow-auto mt-4">
+                    {filtered.length === 0 ? (
+                      <p className="text-sm text-muted-foreground py-2">
+                        No {label} reminder emails were sent during this run.
+                      </p>
+                    ) : (
+                      <div className="rounded-md border overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Status</TableHead>
+                              <TableHead>Sent At</TableHead>
+                              <TableHead>Recipient</TableHead>
+                              <TableHead>Investment</TableHead>
+                              <TableHead>DAF Provider</TableHead>
+                              <TableHead>Error</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {filtered.map((email) => {
+                              const fullName = [email.userFirstName, email.userLastName]
+                                .filter(Boolean)
+                                .join(" ");
+                              return (
+                                <TableRow key={email.id}>
+                                  <TableCell>
+                                    {email.errorMessage ? (
+                                      <Badge variant="destructive">Failed</Badge>
+                                    ) : (
+                                      <Badge variant="secondary" className="bg-green-100 text-green-800">
+                                        Sent
+                                      </Badge>
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="text-sm whitespace-nowrap">
+                                    {formatDateTimeInZone(
+                                      email.sentDate,
+                                      sentEmailsContext?.timezone || "UTC"
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="text-sm">
+                                    <div>{email.userEmail || "—"}</div>
+                                    {fullName && (
+                                      <div className="text-xs text-muted-foreground">{fullName}</div>
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="text-sm">{email.campaignName || "—"}</TableCell>
+                                  <TableCell className="text-sm">{email.dafProvider || "—"}</TableCell>
+                                  <TableCell className="text-sm max-w-xs truncate">
+                                    {email.errorMessage ? (
+                                      <span className="text-red-600" title={email.errorMessage}>
+                                        {email.errorMessage}
+                                      </span>
+                                    ) : (
+                                      <span className="text-muted-foreground">—</span>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+                  </TabsContent>
+                );
+              })}
+            </Tabs>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

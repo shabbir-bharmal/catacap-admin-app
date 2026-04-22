@@ -21,11 +21,45 @@ export interface SchedulerLog {
   week2EmailCount: number;
   errorMessage: string | null;
   status: string | null;
+  timezone: string | null;
 }
 
 export interface SchedulerLogsResponse {
   logs: SchedulerLog[];
   total: number;
+}
+
+export interface SentEmailEntry {
+  id: number;
+  pendingGrantId: number | null;
+  userId: string | null;
+  reminderType: string;
+  errorMessage: string | null;
+  sentDate: string;
+  userEmail: string | null;
+  userFirstName: string | null;
+  userLastName: string | null;
+  amount: string | number | null;
+  dafProvider: string | null;
+  campaignName: string | null;
+}
+
+export interface SentEmailsResponse {
+  emails: SentEmailEntry[];
+}
+
+export async function fetchSentReminderEmails(
+  startTime?: string,
+  endTime?: string
+): Promise<SentEmailsResponse> {
+  const params: Record<string, string> = {};
+  if (startTime) params.startTime = startTime;
+  if (endTime) params.endTime = endTime;
+  const response = await axiosInstance.get<SentEmailsResponse>(
+    "/api/admin/scheduler/sent-emails",
+    { params }
+  );
+  return response.data;
 }
 
 export interface TriggerResult {
