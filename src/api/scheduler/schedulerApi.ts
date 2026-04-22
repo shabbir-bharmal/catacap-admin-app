@@ -17,11 +17,44 @@ export interface SchedulerLog {
   jobName: string;
   startTime: string;
   endTime: string;
-  day3EmailCount: number;
-  week2EmailCount: number;
   errorMessage: string | null;
   status: string | null;
   timezone: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
+export interface SentWelcomeEmailEntry {
+  id: number;
+  formSubmissionId: number;
+  dayOffset: number;
+  success: boolean;
+  errorMessage: string | null;
+  sentDate: string;
+  userEmail: string | null;
+  userFirstName: string | null;
+  userLastName: string | null;
+}
+
+export interface SentWelcomeEmailsResponse {
+  emails: SentWelcomeEmailEntry[];
+}
+
+export async function fetchSentWelcomeEmails(
+  startTime?: string,
+  endTime?: string,
+  schedulerLogId?: number
+): Promise<SentWelcomeEmailsResponse> {
+  const params: Record<string, string | number> = {};
+  if (startTime) params.startTime = startTime;
+  if (endTime) params.endTime = endTime;
+  if (schedulerLogId !== undefined && schedulerLogId !== null) {
+    params.schedulerLogId = schedulerLogId;
+  }
+  const response = await axiosInstance.get<SentWelcomeEmailsResponse>(
+    "/api/admin/scheduler/sent-welcome-emails",
+    { params }
+  );
+  return response.data;
 }
 
 export interface SchedulerLogsResponse {
@@ -50,11 +83,15 @@ export interface SentEmailsResponse {
 
 export async function fetchSentReminderEmails(
   startTime?: string,
-  endTime?: string
+  endTime?: string,
+  schedulerLogId?: number
 ): Promise<SentEmailsResponse> {
-  const params: Record<string, string> = {};
+  const params: Record<string, string | number> = {};
   if (startTime) params.startTime = startTime;
   if (endTime) params.endTime = endTime;
+  if (schedulerLogId !== undefined && schedulerLogId !== null) {
+    params.schedulerLogId = schedulerLogId;
+  }
   const response = await axiosInstance.get<SentEmailsResponse>(
     "/api/admin/scheduler/sent-emails",
     { params }

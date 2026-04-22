@@ -36,7 +36,7 @@ router.get("/", async (_req: Request, res: Response) => {
   try {
     const tableCheck = await pool.query(
       `SELECT 1 FROM information_schema.tables
-       WHERE table_schema = 'public' AND table_name = 'scheduler_configurations'`
+       WHERE table_schema = 'public' AND table_name = 'scheduler_configurations'`,
     );
     if (tableCheck.rows.length === 0) {
       res.json([]);
@@ -47,7 +47,7 @@ router.get("/", async (_req: Request, res: Response) => {
               COALESCE(is_enabled, true) AS "isEnabled",
               created_at AS "createdAt", updated_at AS "updatedAt"
        FROM scheduler_configurations
-       ORDER BY id`
+       ORDER BY id`,
     );
 
     let retentionDays: number | null = null;
@@ -57,7 +57,7 @@ router.get("/", async (_req: Request, res: Response) => {
          WHERE type = 'Configuration'
            AND key = 'Auto Delete Archived Records After (Days)'
            AND (is_deleted = false OR is_deleted IS NULL)
-         LIMIT 1`
+         LIMIT 1`,
       );
       if (retentionResult.rows.length > 0) {
         const parsed = parseInt(retentionResult.rows[0].value, 10);
@@ -78,7 +78,9 @@ router.get("/", async (_req: Request, res: Response) => {
     res.json(rows);
   } catch (err) {
     console.error("Scheduler config list error:", err);
-    res.status(500).json({ message: "Failed to load scheduler configurations." });
+    res
+      .status(500)
+      .json({ message: "Failed to load scheduler configurations." });
   }
 });
 
@@ -88,7 +90,9 @@ router.put("/:jobName", async (req: Request, res: Response) => {
     const { hour, minute, timezone } = req.body;
 
     if (hour == null || minute == null || !timezone) {
-      res.status(400).json({ message: "hour, minute, and timezone are required." });
+      res
+        .status(400)
+        .json({ message: "hour, minute, and timezone are required." });
       return;
     }
 
@@ -101,15 +105,26 @@ router.put("/:jobName", async (req: Request, res: Response) => {
     const m = Math.trunc(minute);
 
     if (!Number.isInteger(hour) || h < 0 || h > 23) {
-      res.status(400).json({ message: "hour must be an integer between 0 and 23." });
+      res
+        .status(400)
+        .json({ message: "hour must be an integer between 0 and 23." });
       return;
     }
     if (!Number.isInteger(minute) || m < 0 || m > 59) {
-      res.status(400).json({ message: "minute must be an integer between 0 and 59 (displayed as two-digit format 00-59)." });
+      res
+        .status(400)
+        .json({
+          message:
+            "minute must be an integer between 0 and 59 (displayed as two-digit format 00-59).",
+        });
       return;
     }
     if (!isValidTimezone(timezone)) {
-      res.status(400).json({ message: "Invalid timezone. Please select a valid IANA timezone." });
+      res
+        .status(400)
+        .json({
+          message: "Invalid timezone. Please select a valid IANA timezone.",
+        });
       return;
     }
 
@@ -120,7 +135,7 @@ router.put("/:jobName", async (req: Request, res: Response) => {
        RETURNING id, job_name AS "jobName", description, hour, minute, timezone,
                  COALESCE(is_enabled, true) AS "isEnabled",
                  created_at AS "createdAt", updated_at AS "updatedAt"`,
-      [h, m, timezone, jobName]
+      [h, m, timezone, jobName],
     );
 
     if (result.rows.length === 0) {
@@ -133,7 +148,8 @@ router.put("/:jobName", async (req: Request, res: Response) => {
       await reloadScheduler();
     } catch (reloadErr) {
       console.error("Scheduler reload failed after config update:", reloadErr);
-      reloadWarning = "Schedule saved but the running scheduler failed to reload. Changes will take effect on next server restart.";
+      reloadWarning =
+        "Schedule saved but the running scheduler failed to reload. Changes will take effect on next server restart.";
     }
 
     res.json({ success: true, data: result.rows[0], warning: reloadWarning });
@@ -160,7 +176,7 @@ router.patch("/:jobName/toggle", async (req: Request, res: Response) => {
        RETURNING id, job_name AS "jobName", description, hour, minute, timezone,
                  COALESCE(is_enabled, true) AS "isEnabled",
                  created_at AS "createdAt", updated_at AS "updatedAt"`,
-      [isEnabled, jobName]
+      [isEnabled, jobName],
     );
 
     if (result.rows.length === 0) {
@@ -173,7 +189,8 @@ router.patch("/:jobName/toggle", async (req: Request, res: Response) => {
       await reloadScheduler();
     } catch (reloadErr) {
       console.error("Scheduler reload failed after toggle:", reloadErr);
-      reloadWarning = "Toggle saved but the running scheduler failed to reload. Changes will take effect on next server restart.";
+      reloadWarning =
+        "Toggle saved but the running scheduler failed to reload. Changes will take effect on next server restart.";
     }
 
     res.json({ success: true, data: result.rows[0], warning: reloadWarning });
@@ -189,7 +206,7 @@ router.post("/:jobName/trigger", async (req: Request, res: Response) => {
 
     const configCheck = await pool.query(
       `SELECT id FROM scheduler_configurations WHERE job_name = $1`,
-      [jobName]
+      [jobName],
     );
     if (configCheck.rows.length === 0) {
       res.status(404).json({ message: "Job not found in configurations." });
@@ -235,12 +252,13 @@ router.get("/logs", async (req: Request, res: Response) => {
     const jobName = req.query.jobName as string | undefined;
     const rawLimit = parseInt(String(req.query.limit || "20"), 10);
     const rawOffset = parseInt(String(req.query.offset || "0"), 10);
-    const limit = isNaN(rawLimit) || rawLimit < 1 ? 20 : Math.min(rawLimit, 100);
+    const limit =
+      isNaN(rawLimit) || rawLimit < 1 ? 20 : Math.min(rawLimit, 100);
     const offset = isNaN(rawOffset) || rawOffset < 0 ? 0 : rawOffset;
 
     const statusColCheck = await pool.query(
       `SELECT 1 FROM information_schema.columns
-       WHERE table_schema = 'public' AND table_name = 'scheduler_logs' AND column_name = 'status'`
+       WHERE table_schema = 'public' AND table_name = 'scheduler_logs' AND column_name = 'status'`,
     );
     const hasStatusCol = statusColCheck.rows.length > 0;
     const statusSelect = hasStatusCol
@@ -250,12 +268,20 @@ router.get("/logs", async (req: Request, res: Response) => {
     let query: string;
     const params: unknown[] = [];
 
+    const metadataColCheck = await pool.query(
+      `SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'scheduler_logs' AND column_name = 'metadata'`
+    );
+    const metadataSelect = metadataColCheck.rows.length > 0
+      ? `, sl.metadata`
+      : `, NULL::jsonb AS metadata`;
+
     if (jobName) {
       query = `SELECT sl.id, sl.job_name AS "jobName", sl.start_time AS "startTime",
-                      sl.end_time AS "endTime", sl.day3_email_count AS "day3EmailCount",
-                      sl.week2_email_count AS "week2EmailCount", sl.error_message AS "errorMessage",
+                      sl.end_time AS "endTime", sl.error_message AS "errorMessage",
                       COALESCE(sc.timezone, 'UTC') AS "timezone"
                       ${statusSelect}
+                      ${metadataSelect}
                FROM scheduler_logs sl
                LEFT JOIN scheduler_configurations sc ON sc.job_name = sl.job_name
                WHERE sl.job_name = $1
@@ -264,10 +290,10 @@ router.get("/logs", async (req: Request, res: Response) => {
       params.push(jobName, limit, offset);
     } else {
       query = `SELECT sl.id, sl.job_name AS "jobName", sl.start_time AS "startTime",
-                      sl.end_time AS "endTime", sl.day3_email_count AS "day3EmailCount",
-                      sl.week2_email_count AS "week2EmailCount", sl.error_message AS "errorMessage",
+                      sl.end_time AS "endTime", sl.error_message AS "errorMessage",
                       COALESCE(sc.timezone, 'UTC') AS "timezone"
                       ${statusSelect}
+                      ${metadataSelect}
                FROM scheduler_logs sl
                LEFT JOIN scheduler_configurations sc ON sc.job_name = sl.job_name
                ORDER BY sl.start_time DESC
@@ -281,12 +307,12 @@ router.get("/logs", async (req: Request, res: Response) => {
     if (jobName) {
       const countResult = await pool.query(
         `SELECT COUNT(*)::int AS count FROM scheduler_logs WHERE job_name = $1`,
-        [jobName]
+        [jobName],
       );
       totalCount = countResult.rows[0].count;
     } else {
       const countResult = await pool.query(
-        `SELECT COUNT(*)::int AS count FROM scheduler_logs`
+        `SELECT COUNT(*)::int AS count FROM scheduler_logs`,
       );
       totalCount = countResult.rows[0].count;
     }
@@ -302,12 +328,17 @@ router.get("/sent-emails", async (req: Request, res: Response) => {
   try {
     const startTime = req.query.startTime as string | undefined;
     const endTime = req.query.endTime as string | undefined;
+    const schedulerLogIdRaw = req.query.schedulerLogId as string | undefined;
+    const schedulerLogId = schedulerLogIdRaw
+      ? parseInt(schedulerLogIdRaw, 10)
+      : NaN;
     const rawLimit = parseInt(String(req.query.limit || "200"), 10);
-    const limit = isNaN(rawLimit) || rawLimit < 1 ? 200 : Math.min(rawLimit, 1000);
+    const limit =
+      isNaN(rawLimit) || rawLimit < 1 ? 200 : Math.min(rawLimit, 1000);
 
     const tableCheck = await pool.query(
       `SELECT 1 FROM information_schema.tables
-       WHERE table_schema = 'public' AND table_name = 'scheduled_email_logs'`
+       WHERE table_schema = 'public' AND table_name = 'scheduled_email_logs'`,
     );
     if (tableCheck.rows.length === 0) {
       res.json({ emails: [] });
@@ -317,13 +348,31 @@ router.get("/sent-emails", async (req: Request, res: Response) => {
     const params: unknown[] = [];
     let where = `WHERE (sel.is_deleted = false OR sel.is_deleted IS NULL)
                    AND sel.reminder_type IN ('Day3', 'Week2')`;
-    if (startTime) {
-      params.push(startTime);
-      where += ` AND sel.sent_date >= $${params.length}`;
-    }
-    if (endTime) {
-      params.push(endTime);
-      where += ` AND sel.sent_date <= $${params.length}`;
+    if (!isNaN(schedulerLogId)) {
+      params.push(schedulerLogId);
+      const idx = params.length;
+      where += ` AND (
+        sel.scheduler_log_id = $${idx}
+        OR (
+          sel.scheduler_log_id IS NULL
+          AND sel.sent_date >= (SELECT start_time FROM scheduler_logs WHERE id = $${idx})
+          AND sel.sent_date < COALESCE(
+            (SELECT MIN(start_time) FROM scheduler_logs sl2
+              WHERE sl2.job_name = (SELECT job_name FROM scheduler_logs WHERE id = $${idx})
+                AND sl2.start_time > (SELECT start_time FROM scheduler_logs WHERE id = $${idx})),
+            NOW() + INTERVAL '100 years'
+          )
+        )
+      )`;
+    } else {
+      if (startTime) {
+        params.push(startTime);
+        where += ` AND sel.sent_date >= $${params.length}`;
+      }
+      if (endTime) {
+        params.push(endTime);
+        where += ` AND sel.sent_date <= $${params.length}`;
+      }
     }
     params.push(limit);
 
@@ -353,6 +402,81 @@ router.get("/sent-emails", async (req: Request, res: Response) => {
     res.json({ emails: result.rows });
   } catch (err) {
     console.error("Scheduler sent-emails error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+router.get("/sent-welcome-emails", async (req: Request, res: Response) => {
+  try {
+    const startTime = req.query.startTime as string | undefined;
+    const endTime = req.query.endTime as string | undefined;
+    const schedulerLogIdRaw = req.query.schedulerLogId as string | undefined;
+    const schedulerLogId = schedulerLogIdRaw
+      ? parseInt(schedulerLogIdRaw, 10)
+      : NaN;
+    const rawLimit = parseInt(String(req.query.limit || "200"), 10);
+    const limit = isNaN(rawLimit) || rawLimit < 1 ? 200 : Math.min(rawLimit, 1000);
+
+    const tableCheck = await pool.query(
+      `SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'welcome_series_email_logs'`
+    );
+    if (tableCheck.rows.length === 0) {
+      res.json({ emails: [] });
+      return;
+    }
+
+    const params: unknown[] = [];
+    let where = `WHERE 1=1`;
+    if (!isNaN(schedulerLogId)) {
+      params.push(schedulerLogId);
+      const idx = params.length;
+      where += ` AND (
+        wsel.scheduler_log_id = $${idx}
+        OR (
+          wsel.scheduler_log_id IS NULL
+          AND wsel.sent_at >= (SELECT start_time FROM scheduler_logs WHERE id = $${idx})
+          AND wsel.sent_at < COALESCE(
+            (SELECT MIN(start_time) FROM scheduler_logs sl2
+              WHERE sl2.job_name = (SELECT job_name FROM scheduler_logs WHERE id = $${idx})
+                AND sl2.start_time > (SELECT start_time FROM scheduler_logs WHERE id = $${idx})),
+            NOW() + INTERVAL '100 years'
+          )
+        )
+      )`;
+    } else {
+      if (startTime) {
+        params.push(startTime);
+        where += ` AND wsel.sent_at >= $${params.length}`;
+      }
+      if (endTime) {
+        params.push(endTime);
+        where += ` AND wsel.sent_at <= $${params.length}`;
+      }
+    }
+    params.push(limit);
+
+    const query = `
+      SELECT wsel.id,
+             wsel.form_submission_id AS "formSubmissionId",
+             wsel.day_offset AS "dayOffset",
+             wsel.success AS "success",
+             wsel.error_message AS "errorMessage",
+             wsel.sent_at AS "sentDate",
+             fs.email AS "userEmail",
+             fs.first_name AS "userFirstName",
+             fs.last_name AS "userLastName"
+      FROM welcome_series_email_logs wsel
+      LEFT JOIN form_submissions fs ON fs.id = wsel.form_submission_id
+      ${where}
+      ORDER BY wsel.sent_at DESC
+      LIMIT $${params.length}
+    `;
+
+    const result = await pool.query(query, params);
+    res.json({ emails: result.rows });
+  } catch (err) {
+    console.error("Scheduler sent-welcome-emails error:", err);
     res.status(500).json({ message: "Internal server error" });
   }
 });

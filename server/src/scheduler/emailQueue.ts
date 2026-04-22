@@ -8,6 +8,7 @@ interface EmailWorkItem {
   pendingGrantId: number;
   userId: string;
   reminderType: string;
+  schedulerLogId?: number | null;
 }
 
 const queue: EmailWorkItem[] = [];
@@ -50,9 +51,15 @@ async function processQueue(): Promise<void> {
     try {
       await pool.query(
         `INSERT INTO scheduled_email_logs
-          (pending_grant_id, user_id, reminder_type, error_message, sent_date, is_deleted)
-         VALUES ($1, $2, $3, $4, NOW(), false)`,
-        [item.pendingGrantId, item.userId, item.reminderType, errorMessage]
+          (pending_grant_id, user_id, reminder_type, error_message, sent_date, is_deleted, scheduler_log_id)
+         VALUES ($1, $2, $3, $4, NOW(), false, $5)`,
+        [
+          item.pendingGrantId,
+          item.userId,
+          item.reminderType,
+          errorMessage,
+          item.schedulerLogId ?? null,
+        ]
       );
     } catch (logErr: unknown) {
       const message = logErr instanceof Error ? logErr.message : String(logErr);
