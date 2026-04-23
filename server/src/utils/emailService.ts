@@ -1,7 +1,7 @@
 import { Resend } from "resend";
 import pool from "../db.js";
 
-const DEFAULT_SENDER_NAME = "CataCap";
+const DEFAULT_SENDER_NAME = "CataCap Support";
 const DEFAULT_FROM_ADDRESS = "support@catacap.org";
 
 const CACHE_TTL_MS = Math.max(1000, parseInt(process.env.EMAIL_CONFIG_CACHE_TTL_MS || "", 10) || 5 * 60 * 1000);
