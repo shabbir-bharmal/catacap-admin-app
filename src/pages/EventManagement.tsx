@@ -228,7 +228,12 @@ export default function EventManagement() {
   };
 
 
-  const selectedDate = form.eventDate ? new Date(form.eventDate) : undefined;
+  const parseLocalDate = (s: string): Date | undefined => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+    if (!m) return undefined;
+    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  };
+  const selectedDate = form.eventDate ? parseLocalDate(form.eventDate) : undefined;
 
   const isPending = createMutation.isPending || updateMutation.isPending;
 
