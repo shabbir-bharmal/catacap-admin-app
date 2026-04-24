@@ -40,6 +40,7 @@ import FormSubmissions from "./pages/FormSubmissions";
 import ArchivedRecords from "./pages/ArchivedRecords";
 import ArchivedRecordsDetail from "./pages/ArchivedRecordsDetail";
 import Schedulers from "./pages/Schedulers";
+import Analytics from "./pages/Analytics";
 
 
 function Router() {
@@ -80,6 +81,7 @@ function Router() {
         <ProtectedRoute path="/email-templates" component={EmailTemplateManagement} moduleName="content management" />
         <ProtectedRoute path="/success-stories" component={SuccessStoriesManagement} moduleName="content management" />
         <ProtectedRoute path="/schedulers" component={Schedulers} moduleName="site configuration" />
+        <ProtectedRoute path="/analytics" component={Analytics} moduleName="site configuration" />
         <ProtectedRoute path="/archived-records" component={ArchivedRecords} moduleName="site configuration" />
         <ProtectedRoute path="/archived-records/:type" component={ArchivedRecordsDetail} moduleName="site configuration" />
 
