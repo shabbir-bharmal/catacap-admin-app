@@ -42,7 +42,7 @@ router.get("/", async (req: Request, res: Response) => {
       `SELECT
          e.id, e.title, e.description, e.event_date, e.event_time,
          e.registration_link, e.status, e.image_file_name, e.image,
-         e.type, e.duration, e.deleted_at,
+         e.type, e.duration, e.page_url, e.deleted_at,
          du.first_name || ' ' || du.last_name AS deleted_by_name
        FROM events e
        LEFT JOIN users du ON e.deleted_by = du.id
@@ -64,6 +64,7 @@ router.get("/", async (req: Request, res: Response) => {
       image: resolveFileUrl(r.image, "events") || resolveFileUrl(r.image_file_name, "events"),
       type: r.type,
       duration: r.duration,
+      pageUrl: r.page_url,
       deletedAt: r.deleted_at,
       deletedBy: r.deleted_by_name,
     }));
@@ -183,7 +184,7 @@ router.get("/:id", async (req: Request, res: Response) => {
 
     const result = await pool.query(
       `SELECT id, title, description, event_date, event_time,
-              registration_link, status, image, image_file_name, type, duration
+              registration_link, status, image, image_file_name, type, duration, page_url
        FROM events WHERE id = $1`,
       [id]
     );
@@ -206,6 +207,7 @@ router.get("/:id", async (req: Request, res: Response) => {
       imageFileName: resolveFileUrl(r.image_file_name, "events"),
       type: r.type,
       duration: r.duration,
+      pageUrl: r.page_url,
     });
   } catch (err) {
     console.error("Events GetById error:", err);
@@ -249,14 +251,14 @@ router.post("/", async (req: Request, res: Response) => {
            registration_link = $5, status = $6,
            image_file_name = COALESCE(NULLIF($7, ''), image_file_name),
            image = COALESCE(NULLIF($8, ''), image),
-           type = $9, duration = $10,
-           modified_at = NOW(), modified_by = $11
-         WHERE id = $12`,
+           type = $9, duration = $10, page_url = $11,
+           modified_at = NOW(), modified_by = $12
+         WHERE id = $13`,
         [
           dto.title, dto.description, dto.eventDate, dto.eventTime,
           dto.registrationLink, dto.status,
           imageFileName, image,
-          dto.type, dto.duration,
+          dto.type, dto.duration, dto.pageUrl ?? null,
           userId, dto.id,
         ]
       );
@@ -265,14 +267,14 @@ router.post("/", async (req: Request, res: Response) => {
     } else {
       const result = await pool.query(
         `INSERT INTO events (title, description, event_date, event_time, registration_link, status,
-           image_file_name, image, type, duration, created_by, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+           image_file_name, image, type, duration, page_url, created_by, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
          RETURNING id`,
         [
           dto.title, dto.description, dto.eventDate, dto.eventTime,
           dto.registrationLink, dto.status,
           imageFileName, image,
-          dto.type, dto.duration, userId,
+          dto.type, dto.duration, dto.pageUrl ?? null, userId,
         ]
       );
 

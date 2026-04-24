@@ -43,7 +43,8 @@ const emptyForm = {
   image: "",
   imageFileName: "",
   duration: "",
-  type: ""
+  type: "",
+  pageUrl: ""
 };
 
 type FormState = typeof emptyForm;
@@ -168,7 +169,8 @@ export default function EventManagement() {
       image: event.image,
       imageFileName: event.imageFileName || "",
       duration: event.duration || "",
-      type: event.type || ""
+      type: event.type || "",
+      pageUrl: event.pageUrl || ""
     });
     setErrors({});
     setDialogOpen(true);
@@ -180,6 +182,32 @@ export default function EventManagement() {
     setForm(emptyForm);
     setErrors({});
     if (imageInputRef.current) imageInputRef.current.value = "";
+  };
+
+  const validatePageUrl = (value: string): string | undefined => {
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    let parsed: URL | null = null;
+    try {
+      parsed = new URL(trimmed);
+    } catch {
+      parsed = null;
+    }
+    if (!parsed) {
+      return "Please enter a valid URL (e.g., https://catacap.org/...)";
+    }
+    const hostname = parsed.hostname.toLowerCase();
+    const pathname = parsed.pathname.toLowerCase();
+    if (!hostname.includes("catacap.org")) {
+      return "Page URL must contain catacap.org";
+    }
+    if (pathname.includes("/investments")) {
+      return "Page URL must not contain investments page URL";
+    }
+    if (pathname.includes("/group")) {
+      return "Page URL must not contain group page URL";
+    }
+    return undefined;
   };
 
   const handleSave = () => {
@@ -205,6 +233,10 @@ export default function EventManagement() {
     if (!form.image) {
       newErrors.image = "Event image is required";
     }
+    const pageUrlError = validatePageUrl(form.pageUrl);
+    if (pageUrlError) {
+      newErrors.pageUrl = pageUrlError;
+    }
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
@@ -216,6 +248,7 @@ export default function EventManagement() {
       title: form.title.trim(),
       description: form.description.trim(),
       registrationLink: form.registrationLink.trim(),
+      pageUrl: form.pageUrl.trim() || null,
       eventTime: `${form.timeVal} ${form.timezone}`.trim(),
       image: editingEvent && !form.image?.startsWith("data:") ? null : form.image
     };
@@ -628,6 +661,23 @@ export default function EventManagement() {
                   data-testid="input-event-duration"
                 />
               </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="event-page-url">Page URL</Label>
+              <Input
+                id="event-page-url"
+                placeholder="https://catacap.org/..."
+                className={cn("h-12 px-4", errors.pageUrl && "border-destructive focus-visible:ring-destructive")}
+                value={form.pageUrl}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setForm((f) => ({ ...f, pageUrl: value }));
+                  setErrors((prev) => ({ ...prev, pageUrl: validatePageUrl(value) }));
+                }}
+                data-testid="input-event-page-url"
+              />
+              {errors.pageUrl && <p className="text-xs text-destructive mt-1">{errors.pageUrl}</p>}
             </div>
 
             <div className="space-y-1.5">

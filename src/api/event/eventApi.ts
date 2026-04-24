@@ -12,6 +12,7 @@ export interface EventApiItem {
     imageFileName?: string;
     duration?: string | null;
     type?: string | null;
+    pageUrl?: string | null;
 }
 
 export interface PaginatedEventResponse {
@@ -37,6 +38,7 @@ export interface EventCreateUpdatePayload {
     imageFileName?: string | null;
     duration?: string | null;
     type?: string | null;
+    pageUrl?: string | null;
 }
 
 /**
