@@ -145,6 +145,33 @@ function NotConfigured({ missing }: NotConfiguredProps) {
   );
 }
 
+interface DemoBannerProps {
+  missing: string[];
+}
+
+function DemoBanner({ missing }: DemoBannerProps) {
+  return (
+    <Card className="border-amber-300 bg-amber-50/60 dark:bg-amber-950/20" data-testid="card-analytics-demo">
+      <CardContent className="flex flex-col gap-2 p-4 text-sm sm:flex-row sm:items-start">
+        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
+        <div className="space-y-1">
+          <p className="font-medium">Showing sample analytics data</p>
+          <p className="text-muted-foreground">
+            Google Analytics is not connected yet, so this page is using generated demo numbers
+            so you can preview the layout. Add the GA4 secrets to see real data.
+            {missing.length > 0 && (
+              <>
+                {" "}
+                Missing: <span className="font-mono">{missing.join(", ")}</span>.
+              </>
+            )}
+          </p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 interface FunnelChartProps {
   steps: Array<{ eventName: string; count: number; dropOffPercentage: number | null }>;
 }
@@ -278,14 +305,17 @@ export default function Analytics() {
             </CardContent>
           </Card>
         ) : (
-          <AnalyticsContent
-            metrics={data.metrics}
-            timeSeries={data.timeSeries}
-            funnel={data.funnel}
-            funnelEvents={data.funnelEvents}
-            trendMetric={trendMetric}
-            onTrendMetricChange={setTrendMetric}
-          />
+          <>
+            {data.demo && <DemoBanner missing={data.missing ?? []} />}
+            <AnalyticsContent
+              metrics={data.metrics}
+              timeSeries={data.timeSeries}
+              funnel={data.funnel}
+              funnelEvents={data.funnelEvents}
+              trendMetric={trendMetric}
+              onTrendMetricChange={setTrendMetric}
+            />
+          </>
         )}
       </div>
     </AdminLayout>

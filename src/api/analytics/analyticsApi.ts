@@ -37,6 +37,8 @@ export interface AnalyticsConfiguredSuccess {
   metrics: AnalyticsMetrics;
   timeSeries: AnalyticsTimeSeriesPoint[];
   funnel: AnalyticsFunnelStep[];
+  demo?: boolean;
+  missing?: string[];
 }
 
 export interface AnalyticsConfiguredError {
@@ -103,6 +105,8 @@ function normalizeAnalyticsResponse(
         metrics: obj.metrics as AnalyticsMetrics,
         timeSeries: obj.timeSeries as AnalyticsTimeSeriesPoint[],
         funnel: obj.funnel as AnalyticsFunnelStep[],
+        demo: obj.demo === true,
+        missing: isStringArray(obj.missing) ? obj.missing : undefined,
       };
     }
   }

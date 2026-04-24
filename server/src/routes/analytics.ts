@@ -3,9 +3,17 @@ import type { Request, Response } from "express";
 import {
   FUNNEL_EVENT_NAMES,
   getAnalyticsSnapshot,
+  getDemoAnalyticsSnapshot,
   getGA4ConfigStatus,
   parseRange,
 } from "../services/ga4Service.js";
+
+function isDemoModeEnabled(): boolean {
+  const flag = (process.env.GA4_DEMO_MODE ?? "").trim().toLowerCase();
+  if (flag === "1" || flag === "true" || flag === "yes" || flag === "on") return true;
+  if (flag === "0" || flag === "false" || flag === "no" || flag === "off") return false;
+  return process.env.NODE_ENV !== "production";
+}
 
 const router = Router();
 
@@ -27,8 +35,24 @@ function classifyGA4Error(err: unknown): string {
 }
 
 router.get("/", async (req: Request, res: Response) => {
+  const range = parseRange(req.query.range);
   const status = getGA4ConfigStatus();
+
   if (!status.configured) {
+    if (isDemoModeEnabled()) {
+      const snapshot = getDemoAnalyticsSnapshot(range);
+      res.json({
+        configured: true,
+        demo: true,
+        missing: status.missing,
+        range: snapshot.range,
+        metrics: snapshot.metrics,
+        timeSeries: snapshot.timeSeries,
+        funnel: snapshot.funnel,
+        funnelEvents: FUNNEL_EVENT_NAMES,
+      });
+      return;
+    }
     res.json({
       configured: false,
       missing: status.missing,
@@ -36,8 +60,6 @@ router.get("/", async (req: Request, res: Response) => {
     });
     return;
   }
-
-  const range = parseRange(req.query.range);
 
   try {
     const snapshot = await getAnalyticsSnapshot(range);

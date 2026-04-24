@@ -37,6 +37,7 @@ export interface GA4Snapshot {
   metrics: GA4Metrics;
   timeSeries: GA4TimeSeriesPoint[];
   funnel: GA4FunnelStep[];
+  demo?: boolean;
 }
 
 export interface GA4ConfigStatus {
@@ -206,6 +207,90 @@ async function fetchFunnel(
     }
     return { eventName, count, dropOffPercentage };
   });
+}
+
+function buildDemoSnapshot(range: DateRangeKey): GA4Snapshot {
+  const days = range === "30d" ? 30 : 7;
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+
+  const seedFor = (offset: number, salt: number) => {
+    const x = Math.sin(offset * 12.9898 + salt * 78.233) * 43758.5453;
+    return x - Math.floor(x);
+  };
+
+  const timeSeries: GA4TimeSeriesPoint[] = [];
+  let totalUsers = 0;
+  let sessions = 0;
+  let screenPageViews = 0;
+  let conversions = 0;
+
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(today);
+    d.setUTCDate(d.getUTCDate() - i);
+    const iso = d.toISOString().slice(0, 10);
+    const dow = d.getUTCDay();
+    const weekendFactor = dow === 0 || dow === 6 ? 0.7 : 1;
+    const trend = 1 + (days - i) * 0.01;
+
+    const users = Math.round((180 + seedFor(i, 1) * 220) * weekendFactor * trend);
+    const sess = Math.round(users * (1.25 + seedFor(i, 2) * 0.4));
+    const views = Math.round(sess * (2.4 + seedFor(i, 3) * 1.1));
+    const conv = Math.round(users * (0.04 + seedFor(i, 4) * 0.05));
+
+    timeSeries.push({
+      date: iso,
+      totalUsers: users,
+      sessions: sess,
+      screenPageViews: views,
+      conversions: conv,
+    });
+    totalUsers += users;
+    sessions += sess;
+    screenPageViews += views;
+    conversions += conv;
+  }
+
+  const aggregateUsers = Math.round(totalUsers * 0.78);
+
+  const funnel: GA4FunnelStep[] = FUNNEL_EVENT_NAMES.map((eventName, index) => {
+    const baseCounts: Record<string, number> = {
+      page_view: screenPageViews,
+      sign_up: Math.round(aggregateUsers * 0.18),
+      purchase: Math.round(aggregateUsers * 0.06),
+    };
+    const fallback = Math.round(screenPageViews / Math.pow(3, index + 1));
+    const count = baseCounts[eventName] ?? fallback;
+    let dropOffPercentage: number | null = null;
+    if (index > 0) {
+      const previousName = FUNNEL_EVENT_NAMES[index - 1];
+      const previousCount = baseCounts[previousName] ?? Math.round(screenPageViews / Math.pow(3, index));
+      if (previousCount > 0) {
+        const drop = ((previousCount - count) / previousCount) * 100;
+        dropOffPercentage = Math.max(0, Math.round(drop * 100) / 100);
+      } else {
+        dropOffPercentage = 0;
+      }
+    }
+    return { eventName, count, dropOffPercentage };
+  });
+
+  return {
+    range,
+    demo: true,
+    metrics: {
+      totalUsers: aggregateUsers,
+      sessions,
+      screenPageViews,
+      conversions,
+    },
+    timeSeries,
+    funnel,
+  };
+}
+
+export function getDemoAnalyticsSnapshot(range: DateRangeKey): GA4Snapshot {
+  return buildDemoSnapshot(range);
 }
 
 export async function getAnalyticsSnapshot(range: DateRangeKey): Promise<GA4Snapshot> {
