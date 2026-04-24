@@ -29,6 +29,7 @@ export interface SaveAdminUserParams {
   userName: string;
   password?: string;
   isActive: boolean;
+  twoFactorEnabled?: boolean;
   roleId: string;
 }
 
@@ -81,6 +82,7 @@ export interface AdminUserEntry {
   email?: string;
   alternateEmail?: string | null;
   isActive?: boolean;
+  twoFactorEnabled?: boolean;
   dateCreated?: string | null;
   roleId?: string;
   roleName?: string;
@@ -187,7 +189,7 @@ export async function updateAccountBalance(params: {
 
 export async function updateUserSettings(
   id: string,
-  params: { isActive?: boolean; isExcludeUserBalance?: boolean }
+  params: { isActive?: boolean; isExcludeUserBalance?: boolean; twoFactorEnabled?: boolean }
 ): Promise<void> {
   await axiosInstance.patch(`/api/admin/user/${id}/settings`, null, {
     params,
