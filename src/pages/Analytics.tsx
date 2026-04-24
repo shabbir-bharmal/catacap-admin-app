@@ -104,9 +104,10 @@ function MetricCard({ label, value, Icon, iconColor }: MetricCardProps) {
 
 interface NotConfiguredProps {
   missing: string[];
+  onPreviewDemo?: () => void;
 }
 
-function NotConfigured({ missing }: NotConfiguredProps) {
+function NotConfigured({ missing, onPreviewDemo }: NotConfiguredProps) {
   return (
     <Card data-testid="card-analytics-not-configured">
       <CardHeader>
@@ -120,6 +121,22 @@ function NotConfigured({ missing }: NotConfiguredProps) {
           To start showing GA4 metrics on this page, an admin needs to add the following secrets in
           Replit. After saving them, reload this page.
         </p>
+        {onPreviewDemo && (
+          <div className="rounded-md border border-amber-300 bg-amber-50/60 p-3 dark:bg-amber-950/20">
+            <p className="mb-2 text-muted-foreground">
+              Want to see how the dashboard looks without real data? Preview it with generated
+              sample numbers (this does not save anything).
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onPreviewDemo}
+              data-testid="button-analytics-preview-demo"
+            >
+              Preview with sample data
+            </Button>
+          </div>
+        )}
         <div className="rounded-md border bg-muted/40 p-4">
           <p className="mb-2 font-medium">Setup steps</p>
           <ol className="list-decimal space-y-1 pl-5 text-muted-foreground">
@@ -147,26 +164,40 @@ function NotConfigured({ missing }: NotConfiguredProps) {
 
 interface DemoBannerProps {
   missing: string[];
+  onExit?: () => void;
 }
 
-function DemoBanner({ missing }: DemoBannerProps) {
+function DemoBanner({ missing, onExit }: DemoBannerProps) {
   return (
     <Card className="border-amber-300 bg-amber-50/60 dark:bg-amber-950/20" data-testid="card-analytics-demo">
-      <CardContent className="flex flex-col gap-2 p-4 text-sm sm:flex-row sm:items-start">
-        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
-        <div className="space-y-1">
-          <p className="font-medium">Showing sample analytics data</p>
-          <p className="text-muted-foreground">
-            Google Analytics is not connected yet, so this page is using generated demo numbers
-            so you can preview the layout. Add the GA4 secrets to see real data.
-            {missing.length > 0 && (
-              <>
-                {" "}
-                Missing: <span className="font-mono">{missing.join(", ")}</span>.
-              </>
-            )}
-          </p>
+      <CardContent className="flex flex-col gap-3 p-4 text-sm sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-2">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
+          <div className="space-y-1">
+            <p className="font-medium">Showing sample analytics data</p>
+            <p className="text-muted-foreground">
+              Google Analytics is not connected yet, so this page is using generated demo numbers
+              so you can preview the layout. Add the GA4 secrets to see real data.
+              {missing.length > 0 && (
+                <>
+                  {" "}
+                  Missing: <span className="font-mono">{missing.join(", ")}</span>.
+                </>
+              )}
+            </p>
+          </div>
         </div>
+        {onExit && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onExit}
+            data-testid="button-analytics-exit-demo"
+            className="shrink-0"
+          >
+            Exit preview
+          </Button>
+        )}
       </CardContent>
     </Card>
   );
@@ -221,10 +252,11 @@ function FunnelChart({ steps }: FunnelChartProps) {
 export default function Analytics() {
   const [range, setRange] = useState<AnalyticsRange>("7d");
   const [trendMetric, setTrendMetric] = useState<TrendMetricKey>("totalUsers");
+  const [previewDemo, setPreviewDemo] = useState(false);
 
   const query = useQuery<AnalyticsResponse>({
-    queryKey: ["analytics", range],
-    queryFn: () => fetchAnalytics(range),
+    queryKey: ["analytics", range, previewDemo],
+    queryFn: () => fetchAnalytics(range, { demo: previewDemo }),
     staleTime: 60_000,
     refetchOnWindowFocus: false,
   });
@@ -282,7 +314,10 @@ export default function Analytics() {
             </CardContent>
           </Card>
         ) : data.configured === false ? (
-          <NotConfigured missing={data.missing} />
+          <NotConfigured
+            missing={data.missing}
+            onPreviewDemo={() => setPreviewDemo(true)}
+          />
         ) : isAnalyticsError(data) ? (
           <Card data-testid="card-analytics-error">
             <CardHeader>
@@ -306,7 +341,12 @@ export default function Analytics() {
           </Card>
         ) : (
           <>
-            {data.demo && <DemoBanner missing={data.missing ?? []} />}
+            {data.demo && (
+              <DemoBanner
+                missing={data.missing ?? []}
+                onExit={previewDemo ? () => setPreviewDemo(false) : undefined}
+              />
+            )}
             <AnalyticsContent
               metrics={data.metrics}
               timeSeries={data.timeSeries}

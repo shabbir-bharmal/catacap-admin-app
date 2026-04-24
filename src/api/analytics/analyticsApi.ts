@@ -114,10 +114,15 @@ function normalizeAnalyticsResponse(
   return null;
 }
 
-export async function fetchAnalytics(range: AnalyticsRange): Promise<AnalyticsResponse> {
+export async function fetchAnalytics(
+  range: AnalyticsRange,
+  options: { demo?: boolean } = {},
+): Promise<AnalyticsResponse> {
   try {
+    const params: Record<string, string> = { range };
+    if (options.demo) params.demo = "1";
     const response = await axiosInstance.get<unknown>("/api/admin/analytics", {
-      params: { range },
+      params,
     });
     const normalized = normalizeAnalyticsResponse(response.data, range);
     if (normalized) return normalized;

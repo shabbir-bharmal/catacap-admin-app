@@ -8,9 +8,15 @@ import {
   parseRange,
 } from "../services/ga4Service.js";
 
-function isDemoModeEnabled(): boolean {
-  const flag = (process.env.GA4_DEMO_MODE ?? "").trim().toLowerCase();
+function isTruthyFlag(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  const flag = value.trim().toLowerCase();
   return flag === "1" || flag === "true" || flag === "yes" || flag === "on";
+}
+
+function isDemoModeRequested(req: Request): boolean {
+  if (isTruthyFlag(process.env.GA4_DEMO_MODE)) return true;
+  return isTruthyFlag(req.query.demo);
 }
 
 const router = Router();
@@ -37,7 +43,7 @@ router.get("/", async (req: Request, res: Response) => {
   const status = getGA4ConfigStatus();
 
   if (!status.configured) {
-    if (isDemoModeEnabled()) {
+    if (isDemoModeRequested(req)) {
       const snapshot = getDemoAnalyticsSnapshot(range);
       res.json({
         configured: true,
