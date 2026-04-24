@@ -24,6 +24,12 @@ namespace Invest.Core.Models
         public string? PitchDeckName { get; set; }
         public string? InvestmentDocument { get; set; }
         public string? InvestmentDocumentName { get; set; }
+        public bool? TracksMetrics { get; set; }
+        public string? MetricsReport { get; set; }
+        public string? MetricsReportName { get; set; }
+
+        [Column(TypeName = "jsonb")]
+        public string? MetricsPairs { get; set; }
 
         [Column(TypeName = "datetime")]
         public DateTime CreatedAt { get; set; } = DateTime.Now;

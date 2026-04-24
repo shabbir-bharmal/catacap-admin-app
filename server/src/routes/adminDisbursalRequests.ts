@@ -87,6 +87,29 @@ function formatDate(dateVal: any): string {
   return d.format("MM-DD-YYYY");
 }
 
+function parseMetricsPairs(raw: any): Array<{ key: string; value: string }> | null {
+  if (raw === null || raw === undefined) return null;
+  let parsed: any = raw;
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      return null;
+    }
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) return null;
+  const out: Array<{ key: string; value: string }> = [];
+  for (const item of parsed) {
+    if (item == null || typeof item !== "object") continue;
+    const key = (item as any).key ?? (item as any).Key ?? "";
+    const value = (item as any).value ?? (item as any).Value ?? "";
+    out.push({ key: String(key ?? ""), value: String(value ?? "") });
+  }
+  return out.length > 0 ? out : null;
+}
+
 function formatDateSlash(dateVal: any): string {
   if (!dateVal) return "";
   const d = dayjs.utc(dateVal);
@@ -117,6 +140,7 @@ router.get("/", async (req: Request, res: Response) => {
       SELECT d.id, d.receive_date, u.email, d.mobile, d.distributed_amount,
              c.name, c.id AS investment_id, c.property, d.quote, d.status,
              d.pitch_deck, d.pitch_deck_name, d.investment_document, d.investment_document_name,
+             d.tracks_metrics, d.metrics_report, d.metrics_report_name, d.metrics_pairs,
              c.investment_instruments, d.deleted_at,
              du.first_name AS deleted_by_first_name, du.last_name AS deleted_by_last_name
       FROM disbursal_requests d
@@ -200,6 +224,10 @@ router.get("/", async (req: Request, res: Response) => {
       pitchDeckName: x.pitch_deck_name,
       investmentDocument: resolveFileUrl(x.investment_document, "disbursal-requests"),
       investmentDocumentName: x.investment_document_name,
+      tracksMetrics: x.tracks_metrics,
+      metricsReport: resolveFileUrl(x.metrics_report, "disbursal-requests"),
+      metricsReportName: x.metrics_report_name,
+      metricsPairs: parseMetricsPairs(x.metrics_pairs),
       hasNotes: notesSet.has(x.id),
       deletedAt: x.deleted_at,
       deletedBy: x.deleted_by_first_name
@@ -332,6 +360,7 @@ router.get("/:id", async (req: Request, res: Response) => {
               d.status, d.quote, c.name, d.distributed_amount, c.property,
               d.investment_remain_open, d.receive_date, d.pitch_deck, d.pitch_deck_name,
               d.investment_document, d.investment_document_name,
+              d.tracks_metrics, d.metrics_report, d.metrics_report_name, d.metrics_pairs,
               d.impact_assets_funding_previously, c.investment_instruments
        FROM disbursal_requests d
        JOIN campaigns c ON d.campaign_id = c.id
@@ -367,6 +396,10 @@ router.get("/:id", async (req: Request, res: Response) => {
       pitchDeckName: row.pitch_deck_name,
       investmentDocument: resolveFileUrl(row.investment_document, "disbursal-requests"),
       investmentDocumentName: row.investment_document_name,
+      tracksMetrics: row.tracks_metrics,
+      metricsReport: resolveFileUrl(row.metrics_report, "disbursal-requests"),
+      metricsReportName: row.metrics_report_name,
+      metricsPairs: parseMetricsPairs(row.metrics_pairs),
       impactAssetsFundingPreviously: row.impact_assets_funding_previously,
       investmentTypeNames,
     });

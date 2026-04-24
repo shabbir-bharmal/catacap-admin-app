@@ -285,11 +285,51 @@ export default function DisbursalRequestDetail() {
                         />
                     </section>
 
+                    {detail.metricsPairs && detail.metricsPairs.length > 0 && (
+                        <section>
+                            <h2 className="text-base font-bold text-foreground mb-4" data-testid="heading-impact-metrics">
+                                Impact Metrics
+                            </h2>
+                            <div className="space-y-4" data-testid="list-metrics-pairs">
+                                {detail.metricsPairs.map((pair, idx) => (
+                                    <div
+                                        key={idx}
+                                        className="grid grid-cols-1 md:grid-cols-2 gap-4"
+                                        data-testid={`item-metrics-pair-${idx}`}
+                                    >
+                                        <div>
+                                            <label className="text-sm font-medium text-foreground mb-1 block">
+                                                Key
+                                            </label>
+                                            <Input
+                                                value={pair.key || ""}
+                                                readOnly
+                                                className="bg-muted/30"
+                                                data-testid={`input-metrics-pair-key-${idx}`}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-sm font-medium text-foreground mb-1 block">
+                                                Value
+                                            </label>
+                                            <Input
+                                                value={pair.value || ""}
+                                                readOnly
+                                                className="bg-muted/30"
+                                                data-testid={`input-metrics-pair-value-${idx}`}
+                                            />
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </section>
+                    )}
+
                     <section>
                         <h2 className="text-base font-bold text-foreground mb-4" data-testid="heading-documents">
                             Documents
                         </h2>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className={cn("grid grid-cols-1 gap-4", detail.metricsReport && detail.metricsReportName ? "md:grid-cols-3" : "md:grid-cols-2")}>
                             <div>
                                 <label className="text-sm font-medium text-foreground mb-2 block">Most recent pitch deck</label>
                                 <div className="border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-lg p-6 flex flex-col items-center justify-center text-center bg-muted/10">
@@ -324,6 +364,24 @@ export default function DisbursalRequestDetail() {
                                     )}
                                 </div>
                             </div>
+                            {detail.metricsReport && detail.metricsReportName && (
+                                <div>
+                                    <label className="text-sm font-medium text-foreground mb-2 block">Most recent impact metrics</label>
+                                    <div className="border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-lg p-6 flex flex-col items-center justify-center text-center bg-muted/10">
+                                        <Upload className="h-8 w-8 text-[#405189] mb-2" />
+                                        <span className="text-sm text-muted-foreground mb-2" data-testid="text-impact-metrics-file">{detail.metricsReportName}</span>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="text-[#405189] border-[#405189] h-8"
+                                            data-testid="button-download-impact-metrics"
+                                            onClick={() => handleDocumentDownload(detail.metricsReport as string, detail.metricsReportName as string)}
+                                        >
+                                            Download
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </section>
                 </div>

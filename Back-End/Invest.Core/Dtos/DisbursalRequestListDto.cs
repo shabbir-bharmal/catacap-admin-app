@@ -20,6 +20,10 @@ namespace Invest.Core.Dtos
         public string? PitchDeckName { get; set; }
         public string? InvestmentDocument { get; set; }
         public string? InvestmentDocumentName { get; set; }
+        public bool? TracksMetrics { get; set; }
+        public string? MetricsReport { get; set; }
+        public string? MetricsReportName { get; set; }
+        public List<DisbursalMetricPairDto>? MetricsPairs { get; set; }
         public bool HasNotes { get; set; }
         public DateTime? DeletedAt { get; set; }
         public string? DeletedBy { get; set; }

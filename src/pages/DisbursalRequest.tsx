@@ -272,19 +272,24 @@ export default function AdminDisbursalRequest() {
                       <br />
                       Terms
                     </th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+                      Impact
+                      <br />
+                      Metrics
+                    </th>
                     <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap min-w-[200px]">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {isLoading ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      <td colSpan={10} className="px-4 py-8 text-center text-sm text-muted-foreground">
                         Loading disbursal requests...
                       </td>
                     </tr>
                   ) : paginatedData.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      <td colSpan={10} className="px-4 py-8 text-center text-sm text-muted-foreground">
                         No disbursal requests found.
                       </td>
                     </tr>
@@ -351,6 +356,19 @@ export default function AdminDisbursalRequest() {
                                 className="text-[#0ab39c]"
                                 data-testid={`button-investment-terms-${entry.id}`}
                                 onClick={() => handleDocumentDownload(entry.investmentDocument!, entry.investmentDocumentName || entry.investmentDocument!)}
+                              >
+                                <Download className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            {entry.metricsReport && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="text-[#0ab39c]"
+                                data-testid={`button-impact-metrics-${entry.id}`}
+                                onClick={() => handleDocumentDownload(entry.metricsReport!, entry.metricsReportName || entry.metricsReport!)}
                               >
                                 <Download className="h-4 w-4" />
                               </Button>
@@ -454,7 +472,7 @@ export default function AdminDisbursalRequest() {
                         </tr>
                         {expandedRow === entry.id && (
                           <tr className="border-b border-border" data-testid={`row-notes-${entry.id}`}>
-                            <td colSpan={9} className="p-0">
+                            <td colSpan={10} className="p-0">
                               <AdminDisbursalNotes id={entry.id} />
                             </td>
                           </tr>
