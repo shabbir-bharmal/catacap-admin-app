@@ -74,10 +74,8 @@ const US_STATES = [
 ];
 
 const INVESTMENT_TYPE_CATEGORY_OPTIONS = [
-  { value: "fund", label: "Fund" },
-  { value: "debt", label: "Debt" },
-  { value: "equity", label: "Equity" },
-  { value: "hybrid", label: "Hybrid" },
+  { value: "funds", label: "Funds" },
+  { value: "direct_investments", label: "Direct Investments" },
 ];
 
 const DEBT_FREQUENCY_OPTIONS = [
@@ -2248,14 +2246,14 @@ export default function AdminInvestmentEdit() {
                     />
                   </div>
 
-                  {/* Type of Investment — multi-select dropdown */}
+                  {/* Investment Instruments — multi-select dropdown */}
                   <div className="space-y-1.5">
-                    <Label className="text-sm">Type of Investment (Select all that apply)</Label>
+                    <Label className="text-sm">Investment Instruments (Select all that apply)</Label>
                     <MultiSelectPopover
                       options={investmentTypes}
                       selected={formData.investmentTypeIds}
                       onToggle={(id) => toggleId("investmentTypeIds", id)}
-                      placeholder="Select Investment Type"
+                      placeholder="Select Investment Instruments"
                       testId="multiselect-investment-type"
                     />
                   </div>

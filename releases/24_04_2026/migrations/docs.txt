@@ -1,0 +1,79 @@
+Migration: 2026_04_24_investment_instruments.sql
+Release date: 2026-04-24
+Feature: Rename Investment Types to Investment Instruments
+
+Overview
+--------
+This migration applies the product-wide rename of "Investment Types" to
+"Investment Instruments" at the database layer. It performs two separate
+renames inside a single transaction:
+
+  1. Renames the lookup table `investment_types` to `investment_instruments`.
+  2. Renames the column `campaigns.investment_types` to
+     `campaigns.investment_instruments`.
+
+Both renames are guarded with information_schema checks so the script is
+idempotent: it is a no-op on a database that has already been migrated,
+and it is safe to re-run.
+
+What it does
+------------
+1. Renames the lookup table `investment_types` to
+   `investment_instruments`. The table stores the catalog of selectable
+   instruments (e.g. Venture Capital, Private Equity, Private Debt) that
+   admins pick from on the Investment Edit page (Admin Settings tab) and
+   the Completed Investments page.
+
+   The rename is only performed when:
+     - `investment_types` exists, AND
+     - `investment_instruments` does not yet exist
+   so the script is safe to re-run on partially-migrated databases.
+
+2. Renames the column `campaigns.investment_types` to
+   `campaigns.investment_instruments`. This column stores the
+   comma-separated list of selected lookup IDs on each campaign (e.g.
+   "1,3,7") and powers the multi-select dropdown on the Investment Edit
+   page Admin Settings tab plus the per-campaign instrument display on
+   the Completed Investments admin page, the Disbursal Requests page,
+   the public campaign endpoints, and the dashboard.
+
+   The column rename is only performed when:
+     - `campaigns.investment_types` exists, AND
+     - `campaigns.investment_instruments` does not yet exist
+   so the script is safe to re-run.
+
+What it deliberately does NOT do
+--------------------------------
+- It does NOT rename the `investment_requests.investment_types` column,
+  which stores the same kind of comma-separated list on the public
+  RaiseMoney form submissions. That column is intentionally left in
+  place — the RaiseMoney path is out of scope for this rename.
+
+Application-side behavior (not in this migration)
+-------------------------------------------------
+The server code has been updated in the same release to read from /
+write to the new names:
+- Every Node/Express route that previously queried the `investment_types`
+  lookup table (the multi-select dropdown options on the Investment Edit
+  page, the Completed Investments admin page, the Disbursal Requests
+  page, the public campaign endpoints, the dashboard, and the on-the-fly
+  "Type of Investment" inserter on the Completed Investments page) now
+  targets `investment_instruments`.
+- Every Node/Express route that previously selected, inserted, or updated
+  the `campaigns.investment_types` column now uses
+  `campaigns.investment_instruments` instead. Internal row-property
+  accesses on the campaign rows have been updated to match.
+
+API request/response field names (e.g. `investmentTypes`,
+`investmentTypeIds`), route paths, React Query keys, and the helper
+`fetchInvestmentTypes` were intentionally left as-is so the API contract
+with the frontend does not change. The user-visible label and
+placeholder on the Investment Edit page (Admin Settings tab) have also
+been updated from "Type of Investment" to "Investment Instruments".
+
+Rollback
+--------
+A commented rollback block at the bottom of the SQL file shows how to
+revert both renames (in the reverse order — column first, then table).
+Apply the rollback BEFORE rolling the application code back to a build
+that still queries `investment_types`.

@@ -49,8 +49,8 @@ function formatAmount(amount: any): string {
 async function buildInvestmentTypeMap(rows: any[]): Promise<Record<number, string>> {
   const allIds = new Set<number>();
   for (const row of rows) {
-    if (row.investment_types) {
-      const ids = row.investment_types
+    if (row.investment_instruments) {
+      const ids = row.investment_instruments
         .split(",")
         .map((s: string) => parseInt(s.trim(), 10))
         .filter((n: number) => !isNaN(n));
@@ -62,7 +62,7 @@ async function buildInvestmentTypeMap(rows: any[]): Promise<Record<number, strin
   const idArr = Array.from(allIds);
   const placeholders = idArr.map((_, i) => `$${i + 1}`).join(", ");
   const result = await pool.query(
-    `SELECT id, name FROM investment_types WHERE id IN (${placeholders})`,
+    `SELECT id, name FROM investment_instruments WHERE id IN (${placeholders})`,
     idArr
   );
   const map: Record<number, string> = {};
@@ -91,7 +91,7 @@ router.get("/get-all-investment-name-list", async (req: Request, res: Response) 
 
     if (investmentStage === 4) {
       const campaignResult = await pool.query(
-        `SELECT id, name, investment_types
+        `SELECT id, name, investment_instruments
          FROM campaigns
          WHERE stage != $1 AND TRIM(COALESCE(name, '')) != ''
          AND (is_deleted IS NULL OR is_deleted = false)
@@ -99,13 +99,13 @@ router.get("/get-all-investment-name-list", async (req: Request, res: Response) 
         [STAGE_CLOSED_NOT_INVESTED]
       );
 
-      const investmentTypesResult = await pool.query(`SELECT id, name FROM investment_types`);
+      const investmentTypesResult = await pool.query(`SELECT id, name FROM investment_instruments`);
       const investmentTypes = investmentTypesResult.rows;
 
       const result = campaignResult.rows.map((c: any) => {
         let isPrivateDebt = false;
-        if (c.investment_types) {
-          const typeIds = c.investment_types
+        if (c.investment_instruments) {
+          const typeIds = c.investment_instruments
             .split(",")
             .map((s: string) => parseInt(s.trim(), 10))
             .filter((n: number) => !isNaN(n));
@@ -161,7 +161,7 @@ router.get("/user-disbursal-investments", jwtUserAuthMiddleware, async (req: Req
 
     const result = await pool.query(
       `SELECT id, name, property, investment_role, impact_assets_funding_status,
-              contact_info_phone_number, investment_types
+              contact_info_phone_number, investment_instruments
        FROM campaigns
        WHERE is_active = true
          AND (is_deleted IS NULL OR is_deleted = false)
@@ -186,7 +186,7 @@ router.get("/user-disbursal-investments", jwtUserAuthMiddleware, async (req: Req
       investmentRole: c.investment_role,
       impactAssetsFundingStatus: c.impact_assets_funding_status,
       contactInfoPhoneNumber: c.contact_info_phone_number,
-      investmentType: resolveInvestmentTypeString(c.investment_types, typeMap),
+      investmentType: resolveInvestmentTypeString(c.investment_instruments, typeMap),
     }));
 
     res.json(mapped);
@@ -316,7 +316,7 @@ router.get("/get-disbursal-request", jwtUserAuthMiddleware, async (req: Request,
               d.status, d.quote, c.name, d.distributed_amount, c.property,
               d.investment_remain_open, d.receive_date, d.pitch_deck,
               d.pitch_deck_name, d.investment_document, d.investment_document_name,
-              d.impact_assets_funding_previously, c.investment_types
+              d.impact_assets_funding_previously, c.investment_instruments
        FROM disbursal_requests d
        JOIN campaigns c ON d.campaign_id = c.id AND (c.is_deleted IS NULL OR c.is_deleted = false)
        LEFT JOIN users u ON d.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
@@ -331,7 +331,7 @@ router.get("/get-disbursal-request", jwtUserAuthMiddleware, async (req: Request,
 
     const row = result.rows[0];
     const typeMap = await buildInvestmentTypeMap([row]);
-    const investmentTypeNames = resolveInvestmentTypeString(row.investment_types, typeMap);
+    const investmentTypeNames = resolveInvestmentTypeString(row.investment_instruments, typeMap);
 
     res.json({
       id: row.id,
@@ -373,7 +373,7 @@ router.get("/get-disbursal-request-list", jwtUserAuthMiddleware, async (req: Req
       SELECT d.id, d.receive_date, u.email, d.mobile, d.distributed_amount,
              d.status, d.quote, c.name, c.id AS investment_id, c.property,
              d.pitch_deck, d.pitch_deck_name, d.investment_document,
-             d.investment_document_name, c.investment_types
+             d.investment_document_name, c.investment_instruments
       FROM disbursal_requests d
       JOIN campaigns c ON d.campaign_id = c.id AND (c.is_deleted IS NULL OR c.is_deleted = false)
       LEFT JOIN users u ON d.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
@@ -442,7 +442,7 @@ router.get("/get-disbursal-request-list", jwtUserAuthMiddleware, async (req: Req
       statusName: getStatusName(x.status),
       receiveDate: formatDate(x.receive_date),
       distributedAmount: parseFloat(x.distributed_amount) || 0,
-      investmentType: resolveInvestmentTypeString(x.investment_types, typeMap),
+      investmentType: resolveInvestmentTypeString(x.investment_instruments, typeMap),
       pitchDeck: resolveFileUrl(x.pitch_deck, "disbursal-requests"),
       pitchDeckName: x.pitch_deck_name,
       investmentDocument: resolveFileUrl(x.investment_document, "disbursal-requests"),
@@ -468,7 +468,7 @@ router.get("/export-disbursal-request-list", jwtUserAuthMiddleware, async (req: 
     const loginUserId = req.user?.id;
     const queryText = `
       SELECT d.id, d.receive_date, u.email, d.distributed_amount,
-             c.name, d.quote, d.status, c.investment_types
+             c.name, d.quote, d.status, c.investment_instruments
       FROM disbursal_requests d
       JOIN campaigns c ON d.campaign_id = c.id AND (c.is_deleted IS NULL OR c.is_deleted = false)
       LEFT JOIN users u ON d.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
@@ -494,7 +494,7 @@ router.get("/export-disbursal-request-list", jwtUserAuthMiddleware, async (req: 
         row.email || "",
         row.receive_date ? row.receive_date : "",
         parseFloat(row.distributed_amount) || 0,
-        resolveInvestmentTypeString(row.investment_types, typeMap),
+        resolveInvestmentTypeString(row.investment_instruments, typeMap),
         getStatusName(row.status),
         row.quote || "",
       ]);
@@ -905,7 +905,7 @@ router.post("/raisemoney", async (req: Request, res: Response) => {
 
     const insertResult = await pool.query(
       `INSERT INTO campaigns (
-        name, description, themes, approved_by, sdgs, investment_types, terms,
+        name, description, themes, approved_by, sdgs, investment_instruments, terms,
         minimum_investment, website, network_description, contact_info_full_name,
         contact_info_address, contact_info_address_2, contact_info_email_address,
         investment_informational_email, contact_info_phone_number, country,
@@ -1009,7 +1009,7 @@ router.post("/raisemoney", async (req: Request, res: Response) => {
     }
     if (parsIdInvestmentTypes.length > 0) {
       const placeholders = parsIdInvestmentTypes.map((_: any, i: number) => `$${i + 1}`).join(", ");
-      const itResult = await pool.query(`SELECT name FROM investment_types WHERE id IN (${placeholders})`, parsIdInvestmentTypes);
+      const itResult = await pool.query(`SELECT name FROM investment_instruments WHERE id IN (${placeholders})`, parsIdInvestmentTypes);
       investmentTypeNamesString = itResult.rows.map((r: any) => r.name).join(", ");
     }
     if (parsIdThemes.length > 0) {

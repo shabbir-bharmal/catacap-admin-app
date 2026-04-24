@@ -90,7 +90,7 @@ function normalizeMentionFormat(html: string): string {
 
 router.get("/types", async (_req: Request, res: Response) => {
   try {
-    const result = await pool.query(`SELECT id, name FROM investment_types ORDER BY name ASC`);
+    const result = await pool.query(`SELECT id, name FROM investment_instruments ORDER BY name ASC`);
     const types = result.rows.map((r: any) => ({ id: Number(r.id), name: r.name }));
     types.push({ id: -1, name: "Other" });
     res.json(types);
@@ -107,21 +107,21 @@ router.get("/names", async (req: Request, res: Response) => {
 
     if (stage === 4) {
       const result = await pool.query(
-        `SELECT id, name, investment_types FROM campaigns
+        `SELECT id, name, investment_instruments FROM campaigns
          WHERE stage != $1 AND TRIM(COALESCE(name, '')) != ''
          AND (is_deleted IS NULL OR is_deleted = false)
          ORDER BY name ASC`,
         [InvestmentStageEnum.ClosedNotInvested]
       );
 
-      const invTypesResult = await pool.query(`SELECT id, name FROM investment_types`);
+      const invTypesResult = await pool.query(`SELECT id, name FROM investment_instruments`);
       const invTypeMap: Record<number, string> = {};
       for (const t of invTypesResult.rows) invTypeMap[t.id] = t.name;
 
       const campaigns = result.rows.map((r: any) => {
         let isPrivateDebt = false;
-        if (r.investment_types) {
-          const ids = r.investment_types
+        if (r.investment_instruments) {
+          const ids = r.investment_instruments
             .split(",")
             .map((s: string) => parseInt(s.trim(), 10))
             .filter((n: number) => !isNaN(n));
@@ -182,7 +182,7 @@ router.get("/data", async (_req: Request, res: Response) => {
     const [sdgsResult, themesResult, typesResult, approvedByResult, tagsResult] = await Promise.all([
       pool.query(`SELECT id, name FROM sdgs ORDER BY id`),
       pool.query(`SELECT id, name FROM themes WHERE (is_deleted IS NULL OR is_deleted = false) ORDER BY id`),
-      pool.query(`SELECT id, name FROM investment_types ORDER BY id`),
+      pool.query(`SELECT id, name FROM investment_instruments ORDER BY id`),
       pool.query(`SELECT id, name FROM approvers WHERE (is_deleted IS NULL OR is_deleted = false) ORDER BY id`),
       pool.query(`SELECT id, tag FROM investment_tags WHERE (is_deleted IS NULL OR is_deleted = false) ORDER BY id`),
     ]);
@@ -410,7 +410,7 @@ router.get("/export", async (_req: Request, res: Response) => {
         c.themes,
         c.approved_by,
         c.sdgs,
-        c.investment_types,
+        c.investment_instruments,
         c.terms,
         parseCurrency(c.minimum_investment),
         c.website,
@@ -888,7 +888,7 @@ router.get("/:id", async (req: Request, res: Response) => {
       themes: c.themes,
       approvedBy: c.approved_by,
       sdGs: c.sdgs,
-      investmentTypes: c.investment_types,
+      investmentTypes: c.investment_instruments,
       terms,
       minimumInvestment: c.minimum_investment,
       website: c.website,
@@ -1148,7 +1148,7 @@ router.post("/", async (req: Request, res: Response) => {
 
     const insertResult = await pool.query(
       `INSERT INTO campaigns (
-        name, description, themes, approved_by, sdgs, investment_types, terms,
+        name, description, themes, approved_by, sdgs, investment_instruments, terms,
         minimum_investment, website, network_description, contact_info_full_name,
         contact_info_address, contact_info_address_2, contact_info_email_address,
         investment_informational_email, contact_info_phone_number, country,
@@ -1593,7 +1593,7 @@ router.put("/:id", async (req: Request, res: Response) => {
     await pool.query(
       `UPDATE campaigns SET
         name = $1, description = $2, themes = $3, approved_by = $4, sdgs = $5,
-        investment_types = $6, terms = $7, minimum_investment = $8, website = $9,
+        investment_instruments = $6, terms = $7, minimum_investment = $8, website = $9,
         network_description = $10, contact_info_full_name = $11, contact_info_address = $12,
         contact_info_address_2 = $13, contact_info_email_address = $14,
         investment_informational_email = $15, contact_info_phone_number = $16,
@@ -1622,7 +1622,7 @@ router.put("/:id", async (req: Request, res: Response) => {
         campaign.themes ?? existing.themes,
         finalApprovedBy ?? existing.approved_by,
         campaign.sdGs || campaign.sdgs || existing.sdgs,
-        campaign.investmentTypes ?? existing.investment_types,
+        campaign.investmentTypes ?? existing.investment_instruments,
         campaign.terms ?? existing.terms,
         finalMinimumInvestment ?? existing.minimum_investment,
         campaign.website ?? existing.website,
@@ -1997,7 +1997,7 @@ router.post("/:id/clone", async (req: Request, res: Response) => {
 
     const cloneResult = await pool.query(
       `INSERT INTO campaigns (
-        name, description, themes, approved_by, sdgs, investment_types, terms,
+        name, description, themes, approved_by, sdgs, investment_instruments, terms,
         minimum_investment, website, network_description, contact_info_full_name,
         contact_info_address, contact_info_address_2, contact_info_phone_number,
         country, other_country_address, city, state, zip_code,
@@ -2017,7 +2017,7 @@ router.post("/:id/clone", async (req: Request, res: Response) => {
         c.themes,
         c.approved_by,
         c.sdgs,
-        c.investment_types,
+        c.investment_instruments,
         c.terms,
         c.minimum_investment,
         c.website,
@@ -2079,7 +2079,7 @@ function mapCampaignRow(c: any): any {
     themes: c.themes,
     approvedBy: c.approved_by,
     sdGs: c.sdgs,
-    investmentTypes: c.investment_types,
+    investmentTypes: c.investment_instruments,
     terms: c.terms,
     minimumInvestment: c.minimum_investment,
     website: c.website,
