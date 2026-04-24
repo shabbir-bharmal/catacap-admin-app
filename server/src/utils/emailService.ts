@@ -85,6 +85,41 @@ function getResendClient(): Resend | null {
   return new Resend(apiKey);
 }
 
+const PLACEHOLDER_REGEX = /\{\{\s*([^{}]+?)\s*\}\}/g;
+const INLINE_TAGS_INSIDE_PLACEHOLDER_REGEX = /\{\{((?:(?!\}\}).)*?)\}\}/gs;
+const HTML_TAG_REGEX = /<[^>]+>/g;
+
+function stripInlineTagsInsidePlaceholders(content: string): string {
+  return content.replace(INLINE_TAGS_INSIDE_PLACEHOLDER_REGEX, (_match, inner: string) => {
+    const stripped = inner.replace(HTML_TAG_REGEX, "");
+    return `{{${stripped}}}`;
+  });
+}
+
+export function replaceTemplateVariables(
+  content: string,
+  variables: Record<string, string>,
+  isHtml = false
+): string {
+  if (!content) return "";
+
+  let working = content;
+  if (isHtml) {
+    working = stripInlineTagsInsidePlaceholders(working);
+  }
+
+  const lookup = new Map<string, string>();
+  for (const [key, value] of Object.entries(variables || {})) {
+    if (key) lookup.set(key.toLowerCase(), value ?? "");
+  }
+
+  return working.replace(PLACEHOLDER_REGEX, (_match, rawKey: string) => {
+    const key = rawKey.trim().toLowerCase();
+    const value = lookup.get(key);
+    return value !== undefined ? value : "";
+  });
+}
+
 function applyTestOverride(recipient: string, subject: string, bodyHtml: string): { recipient: string; subject: string; bodyHtml: string } {
   const testEmail = process.env.TEST_EMAIL_OVERRIDE;
   if (!testEmail) return { recipient, subject, bodyHtml };
@@ -114,14 +149,8 @@ export async function sendTemplateEmail(
     }
 
     const template = templateResult.rows[0];
-    let bodyHtml = template.body_html || "";
-    let subject = template.subject || "";
-
-    for (const [key, value] of Object.entries(variables)) {
-      const regex = new RegExp(`\\{\\{${key}\\}\\}`, "g");
-      bodyHtml = bodyHtml.replace(regex, value);
-      subject = subject.replace(regex, value);
-    }
+    let subject = replaceTemplateVariables(template.subject || "", variables);
+    let bodyHtml = replaceTemplateVariables(template.body_html || "", variables, true);
 
     const originalRecipient = toEmail || template.receiver;
     const overridden = applyTestOverride(originalRecipient, subject, bodyHtml);
@@ -186,14 +215,8 @@ export async function sendTemplateEmailWithAttachments(
     }
 
     const template = templateResult.rows[0];
-    let bodyHtml = template.body_html || "";
-    let subject = template.subject || "";
-
-    for (const [key, value] of Object.entries(variables)) {
-      const regex = new RegExp(`\\{\\{${key}\\}\\}`, "g");
-      bodyHtml = bodyHtml.replace(regex, value);
-      subject = subject.replace(regex, value);
-    }
+    let subject = replaceTemplateVariables(template.subject || "", variables);
+    let bodyHtml = replaceTemplateVariables(template.body_html || "", variables, true);
 
     const originalRecipient = toEmail || template.receiver;
     const overridden = applyTestOverride(originalRecipient, subject, bodyHtml);
