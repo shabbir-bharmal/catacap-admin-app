@@ -10,9 +10,7 @@ import {
 
 function isDemoModeEnabled(): boolean {
   const flag = (process.env.GA4_DEMO_MODE ?? "").trim().toLowerCase();
-  if (flag === "1" || flag === "true" || flag === "yes" || flag === "on") return true;
-  if (flag === "0" || flag === "false" || flag === "no" || flag === "off") return false;
-  return process.env.NODE_ENV !== "production";
+  return flag === "1" || flag === "true" || flag === "yes" || flag === "on";
 }
 
 const router = Router();
