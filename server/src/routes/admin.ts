@@ -25,7 +25,7 @@ router.get("/user/by-token", async (req: Request, res: Response) => {
       `SELECT id, email, user_name, first_name, last_name, picture_file_name,
               is_approuve_required, is_user_hidden, email_from_users_on, email_from_groups_on,
               opt_out_email_notifications, is_anonymous_investment, consent_to_show_avatar,
-              is_active
+              is_active, two_factor_enabled
        FROM users 
        WHERE id = $1
        LIMIT 1`,
@@ -103,6 +103,7 @@ router.get("/user/by-token", async (req: Request, res: Response) => {
       optOutEmailNotifications: user.opt_out_email_notifications ?? false,
       isAnonymousInvestment: user.is_anonymous_investment ?? false,
       consentToShowAvatar: user.consent_to_show_avatar ?? true,
+      twoFactorEnabled: user.two_factor_enabled === true,
       permissions: isSuperAdmin ? [] : permissions,
     };
 

@@ -251,6 +251,17 @@ export async function updateUserProfile(params: UpdateUserProfileParams): Promis
   return response.data;
 }
 
+export async function updateTwoFactorEnabled(
+  twoFactorEnabled: boolean
+): Promise<{ success: boolean; message: string; twoFactorEnabled: boolean }> {
+  const response = await axiosInstance.patch<{
+    success: boolean;
+    message: string;
+    twoFactorEnabled: boolean;
+  }>("/api/admin/user/two-factor", { twoFactorEnabled });
+  return response.data;
+}
+
 export async function saveAdminUser(params: SaveAdminUserParams): Promise<{ success: boolean; message: string }> {
   const response = await axiosInstance.post<{ success: boolean; message: string }>(
     "/api/admin/user/admin-users",

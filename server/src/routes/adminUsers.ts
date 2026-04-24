@@ -297,7 +297,7 @@ router.get("/by-token", async (req: Request, res: Response) => {
     }
 
     const userResult = await pool.query(
-      `SELECT id, email, first_name, last_name, picture_file_name, user_name
+      `SELECT id, email, first_name, last_name, picture_file_name, user_name, two_factor_enabled
        FROM users WHERE id = $1`,
       [decoded.id]
     );
@@ -358,6 +358,7 @@ router.get("/by-token", async (req: Request, res: Response) => {
       lastName: user.last_name || "",
       pictureFileName: resolveFileUrl(user.picture_file_name, "users") || "",
       userName: user.user_name,
+      twoFactorEnabled: user.two_factor_enabled === true,
       roleName: userRoles.length > 0 ? (userRoles[0].name || "") : "",
       roles: userRoles.map((r: { name: string }) => r.name || ""),
       isSuperAdmin,
@@ -1192,6 +1193,65 @@ router.put("/", async (req: Request, res: Response) => {
   } catch (err) {
     console.error("Update user profile error:", err);
     res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+router.patch("/two-factor", async (req: Request, res: Response) => {
+  try {
+    const jwtUser = req.user;
+    if (!jwtUser?.id) {
+      res.status(401).json({ success: false, message: "Unauthorized" });
+      return;
+    }
+
+    const { twoFactorEnabled } = req.body ?? {};
+    if (typeof twoFactorEnabled !== "boolean") {
+      res.status(400).json({ success: false, message: "twoFactorEnabled must be a boolean." });
+      return;
+    }
+
+    const userResult = await pool.query(
+      `SELECT id, two_factor_enabled FROM users WHERE id = $1`,
+      [jwtUser.id]
+    );
+
+    if (userResult.rows.length === 0) {
+      res.status(404).json({ success: false, message: "User not found." });
+      return;
+    }
+
+    const existingUser = userResult.rows[0];
+    const previousValue = existingUser.two_factor_enabled === true;
+
+    if (previousValue === twoFactorEnabled) {
+      res.json({ success: true, message: "No change.", twoFactorEnabled });
+      return;
+    }
+
+    await pool.query(
+      `UPDATE users SET two_factor_enabled = $1 WHERE id = $2`,
+      [twoFactorEnabled, existingUser.id]
+    );
+
+    await logAudit({
+      tableName: "users",
+      recordId: existingUser.id,
+      actionType: "Modified",
+      oldValues: { two_factor_enabled: previousValue },
+      newValues: { two_factor_enabled: twoFactorEnabled },
+      updatedBy: jwtUser.id,
+    });
+
+    res.json({
+      success: true,
+      message: twoFactorEnabled
+        ? "Two-factor authentication enabled."
+        : "Two-factor authentication disabled.",
+      twoFactorEnabled,
+    });
+  } catch (err) {
+    console.error("Update two-factor error:", err);
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
 
