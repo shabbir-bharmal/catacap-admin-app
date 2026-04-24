@@ -111,57 +111,59 @@ export function parseRange(value: unknown): DateRangeKey {
   return pickRange(value);
 }
 
-async function fetchMetricsAndTimeSeries(
+const METRIC_NAMES = ["totalUsers", "sessions", "screenPageViews", "conversions"] as const;
+
+async function fetchAggregateMetrics(
   client: BetaAnalyticsDataClient,
   property: string,
   startDate: string,
-): Promise<{ metrics: GA4Metrics; timeSeries: GA4TimeSeriesPoint[] }> {
+): Promise<GA4Metrics> {
+  const [report] = await client.runReport({
+    property,
+    dateRanges: [{ startDate, endDate: "today" }],
+    metrics: METRIC_NAMES.map((name) => ({ name })),
+  });
+
+  const row = report.rows?.[0];
+  const read = (idx: number) => Number(row?.metricValues?.[idx]?.value ?? 0) || 0;
+  return {
+    totalUsers: read(0),
+    sessions: read(1),
+    screenPageViews: read(2),
+    conversions: read(3),
+  };
+}
+
+async function fetchTimeSeries(
+  client: BetaAnalyticsDataClient,
+  property: string,
+  startDate: string,
+): Promise<GA4TimeSeriesPoint[]> {
   const [report] = await client.runReport({
     property,
     dateRanges: [{ startDate, endDate: "today" }],
     dimensions: [{ name: "date" }],
-    metrics: [
-      { name: "totalUsers" },
-      { name: "sessions" },
-      { name: "screenPageViews" },
-      { name: "conversions" },
-    ],
+    metrics: METRIC_NAMES.map((name) => ({ name })),
     orderBys: [{ dimension: { dimensionName: "date" } }],
   });
 
   const timeSeries: GA4TimeSeriesPoint[] = [];
-  let totalUsers = 0;
-  let sessions = 0;
-  let screenPageViews = 0;
-  let conversions = 0;
-
   for (const row of report.rows ?? []) {
     const rawDate = row.dimensionValues?.[0]?.value ?? "";
     const formattedDate =
       rawDate.length === 8
         ? `${rawDate.slice(0, 4)}-${rawDate.slice(4, 6)}-${rawDate.slice(6, 8)}`
         : rawDate;
-    const u = Number(row.metricValues?.[0]?.value ?? 0) || 0;
-    const s = Number(row.metricValues?.[1]?.value ?? 0) || 0;
-    const v = Number(row.metricValues?.[2]?.value ?? 0) || 0;
-    const c = Number(row.metricValues?.[3]?.value ?? 0) || 0;
+    const read = (idx: number) => Number(row.metricValues?.[idx]?.value ?? 0) || 0;
     timeSeries.push({
       date: formattedDate,
-      totalUsers: u,
-      sessions: s,
-      screenPageViews: v,
-      conversions: c,
+      totalUsers: read(0),
+      sessions: read(1),
+      screenPageViews: read(2),
+      conversions: read(3),
     });
-    totalUsers += u;
-    sessions += s;
-    screenPageViews += v;
-    conversions += c;
   }
-
-  return {
-    metrics: { totalUsers, sessions, screenPageViews, conversions },
-    timeSeries,
-  };
+  return timeSeries;
 }
 
 async function fetchFunnel(
@@ -216,15 +218,16 @@ export async function getAnalyticsSnapshot(range: DateRangeKey): Promise<GA4Snap
   const property = getPropertyName();
   const startDate = rangeToStartDate(range);
 
-  const [metricsAndSeries, funnel] = await Promise.all([
-    fetchMetricsAndTimeSeries(client, property, startDate),
+  const [metrics, timeSeries, funnel] = await Promise.all([
+    fetchAggregateMetrics(client, property, startDate),
+    fetchTimeSeries(client, property, startDate),
     fetchFunnel(client, property, startDate),
   ]);
 
   const snapshot: GA4Snapshot = {
     range,
-    metrics: metricsAndSeries.metrics,
-    timeSeries: metricsAndSeries.timeSeries,
+    metrics,
+    timeSeries,
     funnel,
   };
 

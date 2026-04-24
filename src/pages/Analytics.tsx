@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import {
   fetchAnalytics,
+  isAnalyticsError,
   type AnalyticsRange,
   type AnalyticsResponse,
 } from "@/api/analytics/analyticsApi";
@@ -255,7 +256,7 @@ export default function Analytics() {
           </Card>
         ) : data.configured === false ? (
           <NotConfigured missing={data.missing} />
-        ) : data.error || !data.metrics || !data.timeSeries || !data.funnel ? (
+        ) : isAnalyticsError(data) ? (
           <Card data-testid="card-analytics-error">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base text-destructive">
@@ -278,9 +279,9 @@ export default function Analytics() {
           </Card>
         ) : (
           <AnalyticsContent
-            metrics={data.metrics!}
-            timeSeries={data.timeSeries!}
-            funnel={data.funnel!}
+            metrics={data.metrics}
+            timeSeries={data.timeSeries}
+            funnel={data.funnel}
             funnelEvents={data.funnelEvents}
             trendMetric={trendMetric}
             onTrendMetricChange={setTrendMetric}

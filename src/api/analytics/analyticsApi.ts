@@ -1,3 +1,4 @@
+import axios from "axios";
 import axiosInstance from "../axios";
 
 export type AnalyticsRange = "7d" | "30d";
@@ -29,29 +30,117 @@ export interface AnalyticsNotConfigured {
   funnelEvents: string[];
 }
 
-export interface AnalyticsConfigured {
+export interface AnalyticsConfiguredSuccess {
   configured: true;
   range: AnalyticsRange;
-  metrics?: AnalyticsMetrics;
-  timeSeries?: AnalyticsTimeSeriesPoint[];
-  funnel?: AnalyticsFunnelStep[];
   funnelEvents: string[];
-  error?: string;
+  metrics: AnalyticsMetrics;
+  timeSeries: AnalyticsTimeSeriesPoint[];
+  funnel: AnalyticsFunnelStep[];
+}
+
+export interface AnalyticsConfiguredError {
+  configured: true;
+  range: AnalyticsRange;
+  funnelEvents: string[];
+  error: string;
   detail?: string;
 }
 
-export type AnalyticsResponse = AnalyticsNotConfigured | AnalyticsConfigured;
+export type AnalyticsResponse =
+  | AnalyticsNotConfigured
+  | AnalyticsConfiguredSuccess
+  | AnalyticsConfiguredError;
+
+export function isAnalyticsError(
+  response: AnalyticsResponse,
+): response is AnalyticsConfiguredError {
+  return response.configured === true && "error" in response;
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((v) => typeof v === "string");
+}
+
+function parseRangeValue(value: unknown, fallback: AnalyticsRange): AnalyticsRange {
+  return value === "7d" || value === "30d" ? value : fallback;
+}
+
+function normalizeAnalyticsResponse(
+  payload: unknown,
+  fallbackRange: AnalyticsRange,
+): AnalyticsResponse | null {
+  if (!payload || typeof payload !== "object") return null;
+  const obj = payload as Record<string, unknown>;
+  const funnelEvents = isStringArray(obj.funnelEvents) ? obj.funnelEvents : [];
+
+  if (obj.configured === false) {
+    const missing = isStringArray(obj.missing) ? obj.missing : [];
+    return { configured: false, missing, funnelEvents };
+  }
+
+  if (obj.configured === true) {
+    const range = parseRangeValue(obj.range, fallbackRange);
+    if (typeof obj.error === "string") {
+      return {
+        configured: true,
+        range,
+        funnelEvents,
+        error: obj.error,
+        detail: typeof obj.detail === "string" ? obj.detail : undefined,
+      };
+    }
+    if (
+      obj.metrics &&
+      typeof obj.metrics === "object" &&
+      Array.isArray(obj.timeSeries) &&
+      Array.isArray(obj.funnel)
+    ) {
+      return {
+        configured: true,
+        range,
+        funnelEvents,
+        metrics: obj.metrics as AnalyticsMetrics,
+        timeSeries: obj.timeSeries as AnalyticsTimeSeriesPoint[],
+        funnel: obj.funnel as AnalyticsFunnelStep[],
+      };
+    }
+  }
+
+  return null;
+}
 
 export async function fetchAnalytics(range: AnalyticsRange): Promise<AnalyticsResponse> {
   try {
-    const response = await axiosInstance.get<AnalyticsResponse>("/api/admin/analytics", {
+    const response = await axiosInstance.get<unknown>("/api/admin/analytics", {
       params: { range },
     });
-    return response.data;
-  } catch (err: any) {
-    if (err?.response?.data) {
-      return err.response.data as AnalyticsResponse;
+    const normalized = normalizeAnalyticsResponse(response.data, range);
+    if (normalized) return normalized;
+    return {
+      configured: true,
+      range,
+      funnelEvents: [],
+      error: "Unexpected response from analytics endpoint.",
+    };
+  } catch (err: unknown) {
+    if (axios.isAxiosError(err)) {
+      const normalized = normalizeAnalyticsResponse(err.response?.data, range);
+      if (normalized) return normalized;
+      return {
+        configured: true,
+        range,
+        funnelEvents: [],
+        error: "Failed to fetch analytics.",
+        detail: err.message,
+      };
     }
-    throw err;
+    return {
+      configured: true,
+      range,
+      funnelEvents: [],
+      error: "Failed to fetch analytics.",
+      detail: err instanceof Error ? err.message : undefined,
+    };
   }
 }
