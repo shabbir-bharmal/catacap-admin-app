@@ -9,6 +9,23 @@ import {
 
 const router = Router();
 
+function classifyGA4Error(err: unknown): string {
+  const code = (err as { code?: number | string } | null)?.code;
+  if (code === 7 || code === "PERMISSION_DENIED") {
+    return "The GA4 service account does not have access to the configured property.";
+  }
+  if (code === 16 || code === "UNAUTHENTICATED") {
+    return "GA4 credentials were rejected. Verify the service account email and private key.";
+  }
+  if (code === 5 || code === "NOT_FOUND") {
+    return "The configured GA4 property could not be found.";
+  }
+  if (code === 3 || code === "INVALID_ARGUMENT") {
+    return "GA4 rejected the request as invalid. Verify the property ID format.";
+  }
+  return "Unable to reach Google Analytics. Check the service account configuration.";
+}
+
 router.get("/", async (req: Request, res: Response) => {
   const status = getGA4ConfigStatus();
   if (!status.configured) {
@@ -33,12 +50,11 @@ router.get("/", async (req: Request, res: Response) => {
       funnelEvents: FUNNEL_EVENT_NAMES,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
     console.error("GA4 analytics error:", err);
     res.status(502).json({
       configured: true,
       error: "Failed to fetch Google Analytics data.",
-      detail: message,
+      detail: classifyGA4Error(err),
       range,
       funnelEvents: FUNNEL_EVENT_NAMES,
     });
