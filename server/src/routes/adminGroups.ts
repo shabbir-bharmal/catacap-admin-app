@@ -854,7 +854,7 @@ router.put("/update-group-investments", async (req: Request, res: Response) => {
     const campaignIds: number[] = rawCampaignIds.filter((id) => !privateLinkedIds.has(id));
 
     const groupResult = await pool.query(
-      `SELECT id, name, owner_id FROM groups WHERE id = $1`,
+      `SELECT id, name, identifier, owner_id FROM groups WHERE id = $1`,
       [groupId]
     );
     if (groupResult.rows.length === 0) {
@@ -923,7 +923,7 @@ router.put("/update-group-investments", async (req: Request, res: Response) => {
       let campaignsToNotify: any[] = [];
       const placeholders = addedIds.map((_: any, i: number) => `$${i + 1}`).join(", ");
       const campResult = await pool.query(
-        `SELECT id, name, stage, property FROM campaigns WHERE id IN (${placeholders})`,
+        `SELECT id, name, stage, property, target, description FROM campaigns WHERE id IN (${placeholders})`,
         addedIds
       );
       campaignsToNotify = campResult.rows.filter((c: any) => !NON_NOTIFY_STAGES.includes(c.stage));
@@ -942,6 +942,16 @@ router.put("/update-group-investments", async (req: Request, res: Response) => {
         );
 
         const requestOrigin = process.env.REQUEST_ORIGIN || process.env.VITE_FRONTEND_URL || "";
+        const groupSlug = (group.identifier && String(group.identifier).trim()) || String(group.id);
+        const groupPageUrl = requestOrigin ? `${requestOrigin}/group/${groupSlug}` : "";
+        const unsubscribeUrl = requestOrigin ? `${requestOrigin}/settings` : "";
+
+        const formatTargetAmount = (val: any): string => {
+          if (val == null || val === "") return "";
+          const num = typeof val === "number" ? val : parseFloat(String(val).replace(/[$,]/g, ""));
+          if (isNaN(num)) return "";
+          return `$${num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        };
 
         for (const campaign of campaignsToNotify) {
           for (const member of membersResult.rows) {
@@ -965,7 +975,11 @@ router.put("/update-group-investments", async (req: Request, res: Response) => {
                 groupName: group.name,
                 investmentName: campaign.name,
                 investmentLink: `${requestOrigin}/investments/${campaign.property || campaign.id}`,
-                memberName: member.first_name || "Member",
+                firstName: member.first_name || "Member",
+                groupPageUrl,
+                targetAmount: formatTargetAmount(campaign.target),
+                investmentDescription: campaign.description || "",
+                unsubscribeUrl,
               }).catch((emailErr) => {
                 console.error(`[EMAIL] Failed to send group investment notification to ${member.email}:`, emailErr);
               });
