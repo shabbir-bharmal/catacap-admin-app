@@ -468,6 +468,88 @@ router.get("/kpis/account-balance-cumulative", async (req: Request, res: Respons
   }
 });
 
+router.get("/kpis/completed-investments", async (req: Request, res: Response) => {
+  try {
+    const range = String(req.query.range || "all").toLowerCase();
+    const granularityRaw = String(req.query.granularity || "").toLowerCase();
+    const days = RANGE_TO_DAYS[range] ?? null;
+
+    let granularity = granularityRaw;
+    if (!VALID_GRANULARITIES.has(granularity)) {
+      if (days === null || days > 365 * 2) granularity = "month";
+      else if (days > 90) granularity = "week";
+      else granularity = "day";
+    }
+
+    const truncUnit = granularity === "day" ? "day" : granularity === "week" ? "week" : "month";
+    const dateExpr = "COALESCE(date_of_last_investment::timestamp, created_on)";
+
+    const params: Array<string | number> = [];
+    let dateFilter = "";
+    if (days !== null) {
+      params.push(days);
+      dateFilter = `AND ${dateExpr} >= NOW() - ($${params.length}::int * INTERVAL '1 day')`;
+    }
+
+    const periodResult = await pool.query(
+      `SELECT date_trunc('${truncUnit}', ${dateExpr}) AS bucket,
+              COUNT(*) AS count,
+              COALESCE(SUM(amount), 0) AS amount
+       FROM completed_investment_details
+       WHERE (is_deleted IS NULL OR is_deleted = false)
+         AND ${dateExpr} IS NOT NULL
+         ${dateFilter}
+       GROUP BY bucket
+       ORDER BY bucket ASC`,
+      params,
+    );
+
+    let baselineCount = 0;
+    let baselineAmount = 0;
+    if (days !== null) {
+      const baselineResult = await pool.query(
+        `SELECT COUNT(*) AS count, COALESCE(SUM(amount), 0) AS amount
+         FROM completed_investment_details
+         WHERE (is_deleted IS NULL OR is_deleted = false)
+           AND ${dateExpr} IS NOT NULL
+           AND ${dateExpr} < NOW() - ($1::int * INTERVAL '1 day')`,
+        [days],
+      );
+      baselineCount = parseInt(baselineResult.rows[0]?.count) || 0;
+      baselineAmount = parseFloat(baselineResult.rows[0]?.amount) || 0;
+    }
+
+    let runningCount = baselineCount;
+    let runningAmount = baselineAmount;
+    const series = periodResult.rows.map((row: { bucket: Date; count: string; amount: string }) => {
+      const count = parseInt(row.count) || 0;
+      const amount = parseFloat(row.amount) || 0;
+      runningCount += count;
+      runningAmount += amount;
+      return {
+        date: new Date(row.bucket).toISOString().slice(0, 10),
+        count,
+        amount,
+        cumulativeCount: runningCount,
+        cumulativeAmount: runningAmount,
+      };
+    });
+
+    res.json({
+      range,
+      granularity,
+      baselineCount,
+      baselineAmount,
+      currentCumulativeCount: runningCount,
+      currentCumulativeAmount: runningAmount,
+      series,
+    });
+  } catch (err) {
+    console.error("KPI completed investments error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
 router.get("/export", async (_req: Request, res: Response) => {
   try {
     const data = await getFinancesData();
