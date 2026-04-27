@@ -114,6 +114,36 @@ export async function fetchCompletedInvestmentsKPI(
   return response.data;
 }
 
+export interface CompletedInvestmentListItem {
+  id: number;
+  investmentDetail: string;
+  amount: number;
+  dateOfLastInvestment: string | null;
+  typeOfInvestment: string;
+  donors: number;
+  campaignId: number | null;
+  campaignName: string;
+}
+
+export interface CompletedInvestmentsListResponse {
+  start: string;
+  end: string;
+  count: number;
+  totalAmount: number;
+  items: CompletedInvestmentListItem[];
+}
+
+export async function fetchCompletedInvestmentsList(
+  startIso: string,
+  endIso: string,
+): Promise<CompletedInvestmentsListResponse> {
+  const response = await axiosInstance.get<CompletedInvestmentsListResponse>(
+    "/api/admin/finance/kpis/completed-investments/list",
+    { params: { start: startIso, end: endIso } },
+  );
+  return response.data;
+}
+
 export async function exportFinanceData(): Promise<void> {
   const response = await axiosInstance.get("/api/admin/finance/export", {
     responseType: "blob",

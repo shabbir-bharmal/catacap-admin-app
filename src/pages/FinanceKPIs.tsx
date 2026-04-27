@@ -10,6 +10,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import {
   AreaChart,
   Area,
   BarChart,
@@ -24,8 +31,10 @@ import { TrendingUp, CheckSquare, Layers } from "lucide-react";
 import {
   fetchCumulativeAccountBalance,
   fetchCompletedInvestmentsKPI,
+  fetchCompletedInvestmentsList,
   type CumulativeBalanceResponse,
   type CompletedInvestmentsResponse,
+  type CompletedInvestmentsListResponse,
 } from "../api/finance/financeApi";
 import { currency_format } from "../helpers/format";
 
@@ -60,6 +69,50 @@ function compactCurrency(n: number): string {
   if (Math.abs(n) >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
   if (Math.abs(n) >= 1_000) return `$${(n / 1_000).toFixed(0)}K`;
   return `$${n.toFixed(0)}`;
+}
+
+function bucketBounds(
+  dateStr: string,
+  granularity: "day" | "week" | "month",
+): { startIso: string; endIso: string } {
+  const start = new Date(dateStr + "T00:00:00.000Z");
+  const end = new Date(start);
+  if (granularity === "month") {
+    end.setUTCMonth(end.getUTCMonth() + 1);
+  } else if (granularity === "week") {
+    end.setUTCDate(end.getUTCDate() + 7);
+  } else {
+    end.setUTCDate(end.getUTCDate() + 1);
+  }
+  return { startIso: start.toISOString(), endIso: end.toISOString() };
+}
+
+function bucketRangeLabel(dateStr: string, granularity: "day" | "week" | "month"): string {
+  const start = new Date(dateStr + "T00:00:00Z");
+  if (granularity === "month") {
+    return start.toLocaleDateString("en-US", {
+      month: "long",
+      year: "numeric",
+      timeZone: "UTC",
+    });
+  }
+  if (granularity === "week") {
+    const end = new Date(start);
+    end.setUTCDate(end.getUTCDate() + 6);
+    const opts: Intl.DateTimeFormatOptions = {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      timeZone: "UTC",
+    };
+    return `${start.toLocaleDateString("en-US", opts)} – ${end.toLocaleDateString("en-US", opts)}`;
+  }
+  return start.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
 }
 
 function granularityLabel(g: "day" | "week" | "month" | undefined): string {
@@ -213,7 +266,17 @@ function CumulativeBalanceCard() {
   );
 }
 
-function CompletedInvestmentsPerPeriodCard() {
+interface DrilldownSelection {
+  startIso: string;
+  endIso: string;
+  label: string;
+}
+
+function CompletedInvestmentsPerPeriodCard({
+  onBarClick,
+}: {
+  onBarClick: (sel: DrilldownSelection) => void;
+}) {
   const [range, setRange] = useState<string>("all");
 
   const { data, isLoading, isError } = useQuery<CompletedInvestmentsResponse>({
@@ -321,6 +384,17 @@ function CompletedInvestmentsPerPeriodCard() {
                   fill="#0ab39c"
                   radius={[4, 4, 0, 0]}
                   isAnimationActive={false}
+                  cursor="pointer"
+                  onClick={(entry: { date?: string; payload?: { date?: string } } | undefined) => {
+                    const date = entry?.payload?.date ?? entry?.date;
+                    if (!date || !data) return;
+                    const { startIso, endIso } = bucketBounds(date, data.granularity);
+                    onBarClick({
+                      startIso,
+                      endIso,
+                      label: bucketRangeLabel(date, data.granularity),
+                    });
+                  }}
                 />
               </BarChart>
             </ResponsiveContainer>
@@ -331,7 +405,11 @@ function CompletedInvestmentsPerPeriodCard() {
   );
 }
 
-function CompletedInvestmentsCumulativeCard() {
+function CompletedInvestmentsCumulativeCard({
+  onBarClick,
+}: {
+  onBarClick: (sel: DrilldownSelection) => void;
+}) {
   const [range, setRange] = useState<string>("all");
 
   const { data, isLoading, isError } = useQuery<CompletedInvestmentsResponse>({
@@ -425,6 +503,17 @@ function CompletedInvestmentsCumulativeCard() {
                   fill="#f7b84b"
                   radius={[4, 4, 0, 0]}
                   isAnimationActive={false}
+                  cursor="pointer"
+                  onClick={(entry: { date?: string; payload?: { date?: string } } | undefined) => {
+                    const date = entry?.payload?.date ?? entry?.date;
+                    if (!date || !data) return;
+                    const { startIso, endIso } = bucketBounds(date, data.granularity);
+                    onBarClick({
+                      startIso,
+                      endIso,
+                      label: bucketRangeLabel(date, data.granularity),
+                    });
+                  }}
                 />
               </BarChart>
             </ResponsiveContainer>
@@ -435,7 +524,112 @@ function CompletedInvestmentsCumulativeCard() {
   );
 }
 
+function CompletedInvestmentsDrilldownDialog({
+  selection,
+  onClose,
+}: {
+  selection: DrilldownSelection | null;
+  onClose: () => void;
+}) {
+  const { data, isLoading, isError } = useQuery<CompletedInvestmentsListResponse>({
+    queryKey: [
+      "/api/admin/finance/kpis/completed-investments/list",
+      selection?.startIso,
+      selection?.endIso,
+    ],
+    queryFn: () =>
+      fetchCompletedInvestmentsList(selection!.startIso, selection!.endIso),
+    enabled: !!selection,
+  });
+
+  return (
+    <Dialog open={!!selection} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-2xl" data-testid="dialog-completed-drilldown">
+        <DialogHeader>
+          <DialogTitle>Completed Investments — {selection?.label ?? ""}</DialogTitle>
+          <DialogDescription>
+            {isLoading
+              ? "Loading..."
+              : data
+                ? `${data.count.toLocaleString()} ${data.count === 1 ? "investment" : "investments"} · ${currency_format(data.totalAmount)} total`
+                : ""}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="max-h-[60vh] overflow-auto -mx-1 px-1">
+          {isLoading ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">Loading investments...</div>
+          ) : isError ? (
+            <div className="py-8 text-center text-sm text-destructive">Failed to load investments.</div>
+          ) : !data || data.items.length === 0 ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">
+              No completed investments in this period.
+            </div>
+          ) : (
+            <table className="w-full text-sm" data-testid="table-completed-drilldown">
+              <thead className="sticky top-0 bg-background">
+                <tr className="border-b text-left">
+                  <th className="py-2 pr-3 font-medium text-muted-foreground">Date</th>
+                  <th className="py-2 pr-3 font-medium text-muted-foreground">Investment</th>
+                  <th className="py-2 pl-3 font-medium text-muted-foreground text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.items.map((it) => (
+                  <tr
+                    key={it.id}
+                    className="border-b last:border-b-0 align-top"
+                    data-testid={`row-investment-${it.id}`}
+                  >
+                    <td className="py-2 pr-3 whitespace-nowrap text-muted-foreground">
+                      {it.dateOfLastInvestment
+                        ? new Date(it.dateOfLastInvestment + "T00:00:00Z").toLocaleDateString(
+                            "en-US",
+                            { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" },
+                          )
+                        : "—"}
+                    </td>
+                    <td className="py-2 pr-3">
+                      <div className="font-medium" data-testid={`text-investment-detail-${it.id}`}>
+                        {it.investmentDetail || it.campaignName || `Investment #${it.id}`}
+                      </div>
+                      {it.campaignName && it.investmentDetail && (
+                        <div className="text-xs text-muted-foreground">{it.campaignName}</div>
+                      )}
+                    </td>
+                    <td
+                      className="py-2 pl-3 text-right font-semibold tabular-nums"
+                      data-testid={`text-investment-amount-${it.id}`}
+                    >
+                      {currency_format(it.amount)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2">
+                  <td colSpan={2} className="py-2 pr-3 text-right text-muted-foreground">
+                    Total
+                  </td>
+                  <td
+                    className="py-2 pl-3 text-right font-bold tabular-nums"
+                    data-testid="text-drilldown-total"
+                  >
+                    {currency_format(data.totalAmount)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function FinanceKPIs() {
+  const [drilldown, setDrilldown] = useState<DrilldownSelection | null>(null);
+
   return (
     <AdminLayout>
       <div className="space-y-6">
@@ -446,8 +640,13 @@ export default function FinanceKPIs() {
         </div>
 
         <CumulativeBalanceCard />
-        <CompletedInvestmentsPerPeriodCard />
-        <CompletedInvestmentsCumulativeCard />
+        <CompletedInvestmentsPerPeriodCard onBarClick={setDrilldown} />
+        <CompletedInvestmentsCumulativeCard onBarClick={setDrilldown} />
+
+        <CompletedInvestmentsDrilldownDialog
+          selection={drilldown}
+          onClose={() => setDrilldown(null)}
+        />
       </div>
     </AdminLayout>
   );
