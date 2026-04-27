@@ -4,12 +4,14 @@ import { runSendReminderEmail } from "./sendReminderEmail.js";
 import { runDailyCleanup } from "./dailyCleanup.js";
 import { runDeleteTestUsers } from "./deleteTestUsers.js";
 import { runWelcomeSeries } from "./welcomeSeries.js";
+import { runWeeklyKenStats } from "./weeklyKenStats.js";
 
 const LOCK_KEYS: Record<string, number> = {
   SendReminderEmail: 900001,
   DeleteArchivedUsers: 900002,
   DeleteTestUsers: 900003,
   WelcomeSeries: 900004,
+  WeeklyKenStats: 900005,
 };
 
 const JOB_RUNNERS: Record<string, () => Promise<void>> = {
@@ -17,6 +19,11 @@ const JOB_RUNNERS: Record<string, () => Promise<void>> = {
   DeleteArchivedUsers: runDailyCleanup,
   DeleteTestUsers: runDeleteTestUsers,
   WelcomeSeries: runWelcomeSeries,
+  WeeklyKenStats: runWeeklyKenStats,
+};
+
+const WEEKLY_JOBS: Record<string, number> = {
+  WeeklyKenStats: 5,
 };
 
 const activeTasks: ScheduledTask[] = [];
@@ -131,6 +138,7 @@ function getDefaultConfigs(): SchedulerConfigRow[] {
     { job_name: "DeleteArchivedUsers", hour: 2, minute: 0, timezone: "America/New_York", is_enabled: true },
     { job_name: "DeleteTestUsers", hour: 18, minute: 0, timezone: "Asia/Kolkata", is_enabled: true },
     { job_name: "WelcomeSeries", hour: 9, minute: 0, timezone: "America/New_York", is_enabled: true },
+    { job_name: "WeeklyKenStats", hour: 12, minute: 0, timezone: "America/Los_Angeles", is_enabled: true },
   ];
 }
 
@@ -151,7 +159,11 @@ function scheduleJob(config: SchedulerConfigRow): void {
     return;
   }
 
-  const cronExpression = `${minute} ${hour} * * *`;
+  const dayOfWeek = WEEKLY_JOBS[job_name];
+  const cronExpression =
+    dayOfWeek !== undefined
+      ? `${minute} ${hour} * * ${dayOfWeek}`
+      : `${minute} ${hour} * * *`;
 
   const task = cron.schedule(
     cronExpression,
@@ -178,9 +190,16 @@ function scheduleJob(config: SchedulerConfigRow): void {
   );
 
   activeTasks.push(task);
-  console.log(
-    `  - ${job_name}: daily at ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")} (${timezone})`
-  );
+  if (dayOfWeek !== undefined) {
+    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    console.log(
+      `  - ${job_name}: weekly on ${dayNames[dayOfWeek] || `day ${dayOfWeek}`} at ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")} (${timezone})`
+    );
+  } else {
+    console.log(
+      `  - ${job_name}: daily at ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")} (${timezone})`
+    );
+  }
 }
 
 export async function executeJobWithLock(jobName: string): Promise<{ executed: boolean }> {

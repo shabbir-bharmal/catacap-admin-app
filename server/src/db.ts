@@ -138,7 +138,8 @@ async function ensureSchedulerTables(client: pg.PoolClient): Promise<void> {
       ('SendReminderEmail', 'Sends reminder emails to users', 8, 0, 'America/New_York', true),
       ('DeleteArchivedUsers', 'Archives and deletes soft-deleted records past retention period', 2, 0, 'America/New_York', true),
       ('DeleteTestUsers', 'Deletes test user accounts', 18, 0, 'Asia/Kolkata', true),
-      ('WelcomeSeries', 'Sends Day 1, Day 6, and Day 10 welcome emails to Learn More form submitters', 9, 0, 'America/New_York', true)
+      ('WelcomeSeries', 'Sends Day 1, Day 6, and Day 10 welcome emails to Learn More form submitters', 9, 0, 'America/New_York', true),
+      ('WeeklyKenStats', 'Weekly Friday-noon stats email to Ken (pending grants, donations, investments, distributions)', 12, 0, 'America/Los_Angeles', true)
     ON CONFLICT (job_name) DO NOTHING
   `);
 
