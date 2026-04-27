@@ -71,7 +71,7 @@ function Router() {
         <ProtectedRoute path="/disbursal-request" component={AdminDisbursalRequest} moduleName="disbursal request" />
         <ProtectedRoute path="/disbursal-request-detail/:id" component={AdminDisbursalRequestDetail} moduleName="disbursal request" />
         <ProtectedRoute path="/consolidated-finances" component={AdminConsolidatedFinances} moduleName="consolidated finances" />
-        <ProtectedRoute path="/finance-kpis" component={FinanceKPIs} moduleName="consolidated finances" />
+        <ProtectedRoute path="/kpis" component={FinanceKPIs} moduleName="consolidated finances" />
         <ProtectedRoute path="/completed-investments" component={AdminCompletedInvestments} moduleName="completed investments" />
         <ProtectedRoute path="/returns" component={AdminReturns} moduleName="return" />
         <ProtectedRoute path="/site-configuration" component={SiteConfiguration} moduleName="site configuration" />

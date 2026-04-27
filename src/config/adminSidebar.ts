@@ -127,7 +127,7 @@ export const sidebarConfig = [
           },
           {
             title: "KPIs",
-            url: "/finance-kpis",
+            url: "/kpis",
             icon: TrendingUp,
             permission: { module: "consolidated-finances", action: "view" }
           }
