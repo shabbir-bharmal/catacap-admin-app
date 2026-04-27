@@ -39,8 +39,7 @@ export function GroupInvestmentsSection({ apiGroupId, cardClassName }: GroupInve
                         .map((c) => c.id)
                 )
             );
-            const combined = [...data.publicCampaigns, ...data.completedCampaigns];
-            setAvailableCampaigns(combined);
+            setAvailableCampaigns(data.publicCampaigns);
             setCurrentPage(1);
         } catch {
             toast({ title: "Failed to load investments", variant: "destructive" });
