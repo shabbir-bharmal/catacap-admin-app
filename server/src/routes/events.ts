@@ -126,16 +126,24 @@ async function replaceEventLinks(
 const LINK_TARGETS_BY_TYPE_SUBQUERY = `jsonb_build_object(
   'investments',
     COALESCE(
-      (SELECT jsonb_agg(target_id ORDER BY target_id)
-         FROM event_links
-        WHERE event_id = e.id AND target_type = 'investments'),
+      (SELECT jsonb_agg(el.target_id ORDER BY el.target_id)
+         FROM event_links el
+         JOIN campaigns c
+           ON c.id = el.target_id
+          AND (c.is_deleted IS NULL OR c.is_deleted = false)
+          AND c.deleted_at IS NULL
+        WHERE el.event_id = e.id AND el.target_type = 'investments'),
       '[]'::jsonb
     ),
   'groups',
     COALESCE(
-      (SELECT jsonb_agg(target_id ORDER BY target_id)
-         FROM event_links
-        WHERE event_id = e.id AND target_type = 'groups'),
+      (SELECT jsonb_agg(el.target_id ORDER BY el.target_id)
+         FROM event_links el
+         JOIN groups g
+           ON g.id = el.target_id
+          AND (g.is_deleted IS NULL OR g.is_deleted = false)
+          AND g.deleted_at IS NULL
+        WHERE el.event_id = e.id AND el.target_type = 'groups'),
       '[]'::jsonb
     ),
   'custom-pages',
