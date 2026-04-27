@@ -32,6 +32,8 @@ export interface ThemeInvestment {
 
 export interface RecentInvestment {
     investor: string;
+    firstName?: string;
+    email?: string;
     userName: string;
     investment: string;
     amount: number;

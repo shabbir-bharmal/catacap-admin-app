@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useLocation } from "wouter";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { DollarSign, Users, UsersRound, TrendingUp, ArrowUpRight, ArrowDownRight, Clock, Briefcase, Search } from "lucide-react";
+import { DollarSign, Users, UsersRound, TrendingUp, ArrowUpRight, ArrowDownRight, Clock, Briefcase, Search, Mail } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -35,6 +35,25 @@ function getInitials(name: string) {
     .join("")
     .toUpperCase()
     .slice(0, 2);
+}
+
+function buildThankYouMailto(item: { investor: string; firstName?: string; email?: string; investment: string }) {
+  const firstName = (item.firstName || item.investor.split(" ")[0] || "there").trim();
+  const subject = `Thank you for investing in ${item.investment} on CataCap`;
+  const body =
+    `Hi ${firstName},\n\n` +
+    `I wanted to send you a quick personal note to say thank you for your investment in ${item.investment} on CataCap. It means a great deal that you've chosen to put your philanthropic capital behind this work, and on behalf of our whole team, we're truly grateful.\n\n` +
+    `One of the things we care about most is hearing directly from our donor investors. I'd love to better understand what matters to you, so please feel free to hit reply and share:\n\n` +
+    `  • What you like about CataCap, and how we can improve to better support you\n` +
+    `  • The themes and causes you care about most\n` +
+    `  • The kinds of investments you'd like to see featured on CataCap\n` +
+    `  • Any friends or colleagues who might want to join you in investing in impact together using philanthropic capital\n\n` +
+    `Your suggestions and feedback genuinely shape where we take this platform next. Thank you again for being part of CataCap.\n\n` +
+    `With gratitude,\n\n` +
+    `Ken Kurtzig\n` +
+    `Co-Founder, CataCap`;
+  const params = `subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  return `mailto:${item.email || ""}?${params}`;
 }
 
 function AnimatedCounter({
@@ -556,10 +575,13 @@ export default function AdminDashboard() {
                             Status <SortIcon field="status" sortField={investsSortField || null} sortDir={investsSortDirection || null} />
                           </div>
                         </TableHead>
-                        <TableHead className="text-right pr-5 text-xs uppercase tracking-wider font-medium cursor-pointer" onClick={() => toggleSort("date")}>
+                        <TableHead className="text-right text-xs uppercase tracking-wider font-medium cursor-pointer" onClick={() => toggleSort("date")}>
                           <div className="flex items-center justify-end gap-1">
                             Date <SortIcon field="date" sortField={investsSortField || null} sortDir={investsSortDirection || null} />
                           </div>
+                        </TableHead>
+                        <TableHead className="text-center pr-5 text-xs uppercase tracking-wider font-medium w-[60px]">
+                          Thank
                         </TableHead>
                       </TableRow>
                     </TableHeader>
@@ -600,11 +622,29 @@ export default function AdminDashboard() {
                               {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-right pr-5">
+                          <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-1 text-xs text-muted-foreground" data-testid={`text-recent-investment-date-${idx}`}>
                               <Clock className="h-3 w-3" />
                               {item.date}
                             </div>
+                          </TableCell>
+                          <TableCell className="text-center pr-5">
+                            {item.email ? (
+                              <Button
+                                asChild
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7 text-[#405189] hover:bg-[#405189]/10"
+                                data-testid={`button-thank-${idx}`}
+                                title="Send thank-you email"
+                              >
+                                <a href={buildThankYouMailto(item)}>
+                                  <Mail className="h-3.5 w-3.5" />
+                                </a>
+                              </Button>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
                           </TableCell>
                         </TableRow>
                       ))}

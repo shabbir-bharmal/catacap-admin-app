@@ -358,6 +358,8 @@ router.get("/recent-investments", async (req: Request, res: Response) => {
     const dataResult = await pool.query(
       `SELECT
          u.first_name || ' ' || u.last_name AS investor,
+         u.first_name AS first_name,
+         u.email AS email,
          '@' || u.user_name AS "userName",
          c.name AS investment,
          COALESCE(r.amount, 0) AS amount,
@@ -374,10 +376,12 @@ router.get("/recent-investments", async (req: Request, res: Response) => {
       [...values, params.perPage, offset]
     );
 
-    const items = dataResult.rows.map((row: { investor: string; userName: string; investment: string; amount: string; status: string; date_created: string }) => {
+    const items = dataResult.rows.map((row: { investor: string; first_name: string | null; email: string | null; userName: string; investment: string; amount: string; status: string; date_created: string }) => {
       const d = row.date_created ? dayjs(row.date_created) : null;
       return {
         investor: row.investor,
+        firstName: row.first_name || "",
+        email: row.email || "",
         userName: row.userName,
         investment: row.investment,
         amount: Math.round(parseFloat(row.amount) || 0),
