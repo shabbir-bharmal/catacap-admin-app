@@ -174,13 +174,13 @@ export const sidebarConfig = [
             url: "/archived-records",
             icon: Archive,
             permission: { module: "site-configuration", action: "view" }
-          },
-          {
-            title: "Analytics",
-            url: "/analytics",
-            icon: BarChart3,
-            permission: { module: "site-configuration", action: "view" }
           }
+          // {
+          //   title: "Analytics",
+          //   url: "/analytics",
+          //   icon: BarChart3,
+          //   permission: { module: "site-configuration", action: "view" }
+          // }
         ]
       }
     ]
