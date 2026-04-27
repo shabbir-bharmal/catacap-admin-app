@@ -56,6 +56,33 @@ export async function fetchFinanceData(): Promise<FinanceData> {
   return response.data;
 }
 
+export interface CumulativeBalancePoint {
+  date: string;
+  added: number;
+  cumulative: number;
+}
+
+export interface CumulativeBalanceResponse {
+  range: string;
+  granularity: "day" | "week" | "month";
+  baselineCumulative: number;
+  currentCumulative: number;
+  series: CumulativeBalancePoint[];
+}
+
+export async function fetchCumulativeAccountBalance(
+  range: string,
+  granularity?: "day" | "week" | "month",
+): Promise<CumulativeBalanceResponse> {
+  const params: Record<string, string> = { range };
+  if (granularity) params.granularity = granularity;
+  const response = await axiosInstance.get<CumulativeBalanceResponse>(
+    "/api/admin/finance/kpis/account-balance-cumulative",
+    { params },
+  );
+  return response.data;
+}
+
 export async function exportFinanceData(): Promise<void> {
   const response = await axiosInstance.get("/api/admin/finance/export", {
     responseType: "blob",

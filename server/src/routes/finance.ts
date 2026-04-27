@@ -383,6 +383,91 @@ router.get("/", async (_req: Request, res: Response) => {
   }
 });
 
+const RANGE_TO_DAYS: Record<string, number | null> = {
+  all: null,
+  "5y": 365 * 5,
+  "3y": 365 * 3,
+  "1y": 365,
+  "6m": 180,
+  "3m": 90,
+  "1m": 30,
+};
+
+const VALID_GRANULARITIES = new Set(["day", "week", "month"]);
+
+router.get("/kpis/account-balance-cumulative", async (req: Request, res: Response) => {
+  try {
+    const range = String(req.query.range || "all").toLowerCase();
+    const granularityRaw = String(req.query.granularity || "").toLowerCase();
+    const days = RANGE_TO_DAYS[range] ?? null;
+
+    let granularity = granularityRaw;
+    if (!VALID_GRANULARITIES.has(granularity)) {
+      if (days === null || days > 365 * 2) granularity = "month";
+      else if (days > 90) granularity = "week";
+      else granularity = "day";
+    }
+
+    const truncUnit = granularity === "day" ? "day" : granularity === "week" ? "week" : "month";
+
+    const params: Array<string | number> = [];
+    let dateFilter = "";
+    if (days !== null) {
+      params.push(days);
+      dateFilter = `AND change_date >= NOW() - ($${params.length}::int * INTERVAL '1 day')`;
+    }
+
+    const periodResult = await pool.query(
+      `SELECT date_trunc('${truncUnit}', change_date) AS bucket,
+              COALESCE(SUM(GREATEST(new_value - old_value, 0)), 0) AS added
+       FROM account_balance_change_logs
+       WHERE (is_deleted IS NULL OR is_deleted = false)
+         AND new_value > old_value
+         AND change_date IS NOT NULL
+         ${dateFilter}
+       GROUP BY bucket
+       ORDER BY bucket ASC`,
+      params,
+    );
+
+    let baselineCumulative = 0;
+    if (days !== null) {
+      const baselineResult = await pool.query(
+        `SELECT COALESCE(SUM(GREATEST(new_value - old_value, 0)), 0) AS total
+         FROM account_balance_change_logs
+         WHERE (is_deleted IS NULL OR is_deleted = false)
+           AND new_value > old_value
+           AND change_date IS NOT NULL
+           AND change_date < NOW() - ($1::int * INTERVAL '1 day')`,
+        [days],
+      );
+      baselineCumulative = parseFloat(baselineResult.rows[0]?.total) || 0;
+    }
+
+    let runningTotal = baselineCumulative;
+    const series = periodResult.rows.map((row: { bucket: Date; added: string }) => {
+      const added = parseFloat(row.added) || 0;
+      runningTotal += added;
+      return {
+        date: new Date(row.bucket).toISOString().slice(0, 10),
+        added,
+        cumulative: runningTotal,
+      };
+    });
+
+    res.json({
+      range,
+      granularity,
+      baselineCumulative,
+      currentCumulative: runningTotal,
+      series,
+    });
+  } catch (err) {
+    console.error("KPI cumulative balance error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
 router.get("/export", async (_req: Request, res: Response) => {
   try {
     const data = await getFinancesData();
