@@ -8,14 +8,20 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { MoreVertical, Edit, Trash2, ExternalLink, Calendar, Search, Plus, ArrowUpDown, ChevronLeft, ChevronRight, Pencil, Upload, X } from "lucide-react";
 import { formatLongDate, formatTime12h, formatDateISO } from "@/helpers/format";
 import { RichTextEditor } from "../components/RichTextEditor";
+import { MultiSelectPopover, type MultiSelectOption } from "@/components/MultiSelectPopover";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import * as eventApi from "../api/event/eventApi";
+import type { EventLinkTargetType } from "../api/event/eventApi";
+import { fetchAllInvestmentNameList } from "../api/investment/investmentApi";
+import { fetchAllGroups } from "../api/group/groupApi";
+import { fetchCustomPages } from "../api/event/customPagesApi";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSort } from "../hooks/useSort";
 import { SortHeader } from "../components/ui/table-sort";
@@ -31,12 +37,36 @@ import catacapLogo from "@assets/CataCap-Logo.png";
 
 type Event = eventApi.EventApiItem;
 
-const emptyForm = {
+const LINK_TARGET_OPTIONS: { value: EventLinkTargetType; label: string }[] = [
+  { value: "investments", label: "Investments" },
+  { value: "groups", label: "Groups" },
+  { value: "custom-pages", label: "Custom Pages" },
+];
+
+interface FormState {
+  title: string;
+  description: string;
+  eventDate: string;
+  eventTime: string;
+  timeVal: string;
+  timezone: string;
+  registrationLink: string;
+  status: boolean;
+  image: string;
+  imageFileName: string;
+  duration: string;
+  type: string;
+  pageUrl: string;
+  linkTargetType: EventLinkTargetType;
+  linkTargetIdsByType: Record<EventLinkTargetType, Array<number | string>>;
+}
+
+const emptyForm: FormState = {
   title: "",
   description: "",
   eventDate: "",
   eventTime: "",
-  timeVal: "", // HH:mm
+  timeVal: "",
   timezone: "IST",
   registrationLink: "",
   status: true,
@@ -44,10 +74,14 @@ const emptyForm = {
   imageFileName: "",
   duration: "",
   type: "",
-  pageUrl: ""
+  pageUrl: "",
+  linkTargetType: "investments",
+  linkTargetIdsByType: {
+    investments: [],
+    groups: [],
+    "custom-pages": [],
+  },
 };
-
-type FormState = typeof emptyForm;
 
 export default function EventManagement() {
   const { toast } = useToast();
@@ -139,6 +173,65 @@ export default function EventManagement() {
     }
   });
 
+  const investmentsListQuery = useQuery({
+    queryKey: ["event-link-target", "investments"],
+    queryFn: () => fetchAllInvestmentNameList(0, 0),
+    enabled: dialogOpen && form.linkTargetType === "investments",
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const groupsListQuery = useQuery({
+    queryKey: ["event-link-target", "groups"],
+    queryFn: () => fetchAllGroups(),
+    enabled: dialogOpen && form.linkTargetType === "groups",
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const customPagesListQuery = useQuery({
+    queryKey: ["event-link-target", "custom-pages"],
+    queryFn: () => fetchCustomPages(),
+    enabled: dialogOpen && form.linkTargetType === "custom-pages",
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const linkTargetOptionsByType: Record<EventLinkTargetType, MultiSelectOption<number | string>[]> = useMemo(() => {
+    const investments: MultiSelectOption<number | string>[] = (investmentsListQuery.data || [])
+      .map((it: any) => ({ id: Number(it?.id), name: String(it?.name ?? "").trim() }))
+      .filter((o) => Number.isFinite(o.id as number) && (o.id as number) > 0 && o.name.length > 0);
+
+    const groups: MultiSelectOption<number | string>[] = (groupsListQuery.data || [])
+      .map((g: any) => ({ id: Number(g?.id), name: String(g?.name ?? "").trim() }))
+      .filter((o) => Number.isFinite(o.id as number) && (o.id as number) > 0 && o.name.length > 0);
+
+    const customPages: MultiSelectOption<number | string>[] = (customPagesListQuery.data || [])
+      .map((p: any) => ({
+        id: String(p?.slug ?? "").trim(),
+        name: String(p?.title ?? p?.slug ?? "").trim(),
+      }))
+      .filter((o) => (o.id as string).length > 0 && o.name.length > 0);
+
+    return { investments, groups, "custom-pages": customPages };
+  }, [investmentsListQuery.data, groupsListQuery.data, customPagesListQuery.data]);
+
+  const isLoadingLinkOptions =
+    (form.linkTargetType === "investments" && investmentsListQuery.isLoading) ||
+    (form.linkTargetType === "groups" && groupsListQuery.isLoading) ||
+    (form.linkTargetType === "custom-pages" && customPagesListQuery.isLoading);
+
+  const toggleLinkTargetId = (id: number | string) => {
+    setForm((f) => {
+      const current = f.linkTargetIdsByType[f.linkTargetType] ?? [];
+      const next = current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
+      return {
+        ...f,
+        linkTargetIdsByType: {
+          ...f.linkTargetIdsByType,
+          [f.linkTargetType]: next,
+        },
+      };
+    });
+  };
+
   const openCreate = () => {
     setEditingEvent(null);
     setForm(emptyForm);
@@ -157,6 +250,19 @@ export default function EventManagement() {
     }
 
     setEditingEvent(event);
+    const linkTargetType: EventLinkTargetType =
+      event.linkTargetType && LINK_TARGET_OPTIONS.some((o) => o.value === event.linkTargetType)
+        ? (event.linkTargetType as EventLinkTargetType)
+        : "investments";
+    const linkTargetIdsByType: Record<EventLinkTargetType, Array<number | string>> = {
+      investments: [],
+      groups: [],
+      "custom-pages": [],
+    };
+    if (event.linkTargetType && Array.isArray(event.linkTargetIds)) {
+      linkTargetIdsByType[linkTargetType] = [...event.linkTargetIds];
+    }
+
     setForm({
       title: event.title,
       description: event.description,
@@ -170,7 +276,9 @@ export default function EventManagement() {
       imageFileName: event.imageFileName || "",
       duration: event.duration || "",
       type: event.type || "",
-      pageUrl: event.pageUrl || ""
+      pageUrl: event.pageUrl || "",
+      linkTargetType,
+      linkTargetIdsByType,
     });
     setErrors({});
     setDialogOpen(true);
@@ -243,14 +351,19 @@ export default function EventManagement() {
       return;
     }
 
-    const payload = {
-      ...form,
+    const selectedLinkIds = form.linkTargetIdsByType[form.linkTargetType] ?? [];
+    const hasLinkSelections = selectedLinkIds.length > 0;
+    const { linkTargetIdsByType: _unused, ...formRest } = form;
+    const payload: eventApi.EventCreateUpdatePayload = {
+      ...formRest,
       title: form.title.trim(),
       description: form.description.trim(),
       registrationLink: form.registrationLink.trim(),
       pageUrl: form.pageUrl.trim() || null,
       eventTime: `${form.timeVal} ${form.timezone}`.trim(),
-      image: editingEvent && !form.image?.startsWith("data:") ? null : form.image
+      image: editingEvent && !form.image?.startsWith("data:") ? null : form.image,
+      linkTargetType: hasLinkSelections ? form.linkTargetType : null,
+      linkTargetIds: hasLinkSelections ? selectedLinkIds : [],
     };
 
     if (editingEvent) {
@@ -478,7 +591,7 @@ export default function EventManagement() {
             <DialogTitle data-testid="text-dialog-title">{editingEvent ? "Edit Event" : "Create Event"}</DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-5 py-2">
+          <div className="space-y-5 py-2 min-w-0">
             <div className="space-y-1.5">
               <Label htmlFor="event-title">
                 Event Title <span className="text-destructive">*</span>
@@ -678,6 +791,49 @@ export default function EventManagement() {
                 data-testid="input-event-page-url"
               />
               {errors.pageUrl && <p className="text-xs text-destructive mt-1">{errors.pageUrl}</p>}
+            </div>
+
+            <div className="space-y-2">
+              <Label>Link Event To</Label>
+              <RadioGroup
+                value={form.linkTargetType}
+                onValueChange={(v) => setForm((f) => ({ ...f, linkTargetType: v as EventLinkTargetType }))}
+                className="flex flex-wrap gap-x-6 gap-y-2"
+                data-testid="radio-event-link-target"
+              >
+                {LINK_TARGET_OPTIONS.map((opt) => (
+                  <div key={opt.value} className="flex items-center gap-2">
+                    <RadioGroupItem
+                      value={opt.value}
+                      id={`event-link-target-${opt.value}`}
+                      data-testid={`radio-event-link-target-${opt.value}`}
+                    />
+                    <Label
+                      htmlFor={`event-link-target-${opt.value}`}
+                      className="font-normal cursor-pointer"
+                    >
+                      {opt.label}
+                    </Label>
+                  </div>
+                ))}
+              </RadioGroup>
+
+              <MultiSelectPopover<number | string>
+                options={linkTargetOptionsByType[form.linkTargetType] || []}
+                selected={form.linkTargetIdsByType[form.linkTargetType] || []}
+                onToggle={toggleLinkTargetId}
+                placeholder={
+                  isLoadingLinkOptions
+                    ? "Loading..."
+                    : `Select ${LINK_TARGET_OPTIONS.find((o) => o.value === form.linkTargetType)?.label || ""}`
+                }
+                searchPlaceholder={`Search ${LINK_TARGET_OPTIONS.find((o) => o.value === form.linkTargetType)?.label.toLowerCase() || ""}…`}
+                emptyMessage={isLoadingLinkOptions ? "Loading…" : "No results"}
+                showChips
+                disabled={isLoadingLinkOptions}
+                triggerClassName="h-12 px-4"
+                testId="multiselect-event-link-target"
+              />
             </div>
 
             <div className="space-y-1.5">

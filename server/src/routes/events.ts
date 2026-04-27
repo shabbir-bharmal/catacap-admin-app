@@ -7,6 +7,98 @@ import { modulePermission } from "../middleware/jwtAuth.js";
 
 const router = Router();
 
+const ALLOWED_LINK_TARGET_TYPES = new Set(["investments", "groups", "custom-pages"]);
+
+type NormalizedLinkTarget = {
+  type: string | null;
+  ids: number[];
+  slugs: string[];
+};
+
+function normalizeLinkTarget(dto: any): NormalizedLinkTarget {
+  const rawType = typeof dto?.linkTargetType === "string" ? dto.linkTargetType.trim() : "";
+  const type = ALLOWED_LINK_TARGET_TYPES.has(rawType) ? rawType : null;
+  if (!type) return { type: null, ids: [], slugs: [] };
+
+  const rawList = Array.isArray(dto?.linkTargetIds) ? dto.linkTargetIds : [];
+
+  if (type === "custom-pages") {
+    const slugs = Array.from(
+      new Set(
+        rawList
+          .map((v: unknown) => (v == null ? "" : String(v).trim()))
+          .filter((s: string) => s.length > 0)
+      )
+    ) as string[];
+    return { type, ids: [], slugs };
+  }
+
+  const ids = Array.from(
+    new Set(
+      rawList
+        .map((v: unknown) => parseInt(String(v), 10))
+        .filter((n: number) => Number.isInteger(n) && n > 0)
+    )
+  ) as number[];
+  return { type, ids, slugs: [] };
+}
+
+async function replaceEventLinks(
+  client: { query: (text: string, params?: unknown[]) => Promise<unknown> },
+  eventId: number,
+  target: NormalizedLinkTarget
+): Promise<void> {
+  await client.query(`DELETE FROM event_links WHERE event_id = $1`, [eventId]);
+  if (!target.type) return;
+
+  if (target.type === "custom-pages") {
+    if (target.slugs.length === 0) return;
+    const valuesSql = target.slugs.map((_, i) => `($1, $2, NULL, $${i + 3})`).join(", ");
+    await client.query(
+      `INSERT INTO event_links (event_id, target_type, target_id, target_slug)
+       VALUES ${valuesSql}
+       ON CONFLICT DO NOTHING`,
+      [eventId, target.type, ...target.slugs]
+    );
+    return;
+  }
+
+  if (target.ids.length === 0) return;
+  const valuesSql = target.ids.map((_, i) => `($1, $2, $${i + 3}, NULL)`).join(", ");
+  await client.query(
+    `INSERT INTO event_links (event_id, target_type, target_id, target_slug)
+     VALUES ${valuesSql}
+     ON CONFLICT DO NOTHING`,
+    [eventId, target.type, ...target.ids]
+  );
+}
+
+const LINK_TARGET_TYPE_SUBQUERY = `(
+  SELECT target_type FROM event_links WHERE event_id = e.id LIMIT 1
+)`;
+
+const LINK_TARGET_IDS_SUBQUERY = `COALESCE(
+  (
+    SELECT array_agg(
+             COALESCE(target_id::TEXT, target_slug)
+             ORDER BY COALESCE(target_id::TEXT, target_slug)
+           )
+    FROM event_links
+    WHERE event_id = e.id
+  ),
+  ARRAY[]::TEXT[]
+)`;
+
+function decodeLinkTargetIds(rawType: string | null, rawIds: unknown): Array<number | string> {
+  if (!rawType || !Array.isArray(rawIds)) return [];
+  if (rawType === "custom-pages") {
+    return (rawIds as unknown[]).map((v) => String(v));
+  }
+  return (rawIds as unknown[])
+    .map((v) => parseInt(String(v), 10))
+    .filter((n) => Number.isInteger(n));
+}
+
 router.get("/", async (req: Request, res: Response) => {
   try {
     const params = parsePagination(req.query as Record<string, unknown>);
@@ -42,7 +134,10 @@ router.get("/", async (req: Request, res: Response) => {
       `SELECT
          e.id, e.title, e.description, e.event_date, e.event_time,
          e.registration_link, e.status, e.image_file_name, e.image,
-         e.type, e.duration, e.page_url, e.deleted_at,
+         e.type, e.duration, e.page_url,
+         ${LINK_TARGET_TYPE_SUBQUERY} AS link_target_type,
+         ${LINK_TARGET_IDS_SUBQUERY} AS link_target_ids,
+         e.deleted_at,
          du.first_name || ' ' || du.last_name AS deleted_by_name
        FROM events e
        LEFT JOIN users du ON e.deleted_by = du.id
@@ -65,6 +160,8 @@ router.get("/", async (req: Request, res: Response) => {
       type: r.type,
       duration: r.duration,
       pageUrl: r.page_url,
+      linkTargetType: r.link_target_type,
+      linkTargetIds: decodeLinkTargetIds(r.link_target_type, r.link_target_ids),
       deletedAt: r.deleted_at,
       deletedBy: r.deleted_by_name,
     }));
@@ -183,9 +280,12 @@ router.get("/:id", async (req: Request, res: Response) => {
     if (isNaN(id)) { res.status(400).json({ message: "Invalid ID" }); return; }
 
     const result = await pool.query(
-      `SELECT id, title, description, event_date, event_time,
-              registration_link, status, image, image_file_name, type, duration, page_url
-       FROM events WHERE id = $1`,
+      `SELECT e.id, e.title, e.description, e.event_date, e.event_time,
+              e.registration_link, e.status, e.image, e.image_file_name, e.type, e.duration, e.page_url,
+              ${LINK_TARGET_TYPE_SUBQUERY} AS link_target_type,
+              ${LINK_TARGET_IDS_SUBQUERY} AS link_target_ids
+       FROM events e
+       WHERE e.id = $1`,
       [id]
     );
 
@@ -208,6 +308,8 @@ router.get("/:id", async (req: Request, res: Response) => {
       type: r.type,
       duration: r.duration,
       pageUrl: r.page_url,
+      linkTargetType: r.link_target_type,
+      linkTargetIds: decodeLinkTargetIds(r.link_target_type, r.link_target_ids),
     });
   } catch (err) {
     console.error("Events GetById error:", err);
@@ -216,6 +318,7 @@ router.get("/:id", async (req: Request, res: Response) => {
 });
 
 router.post("/", async (req: Request, res: Response) => {
+  const client = await pool.connect();
   try {
     const dto = req.body;
     if (!dto) { res.status(400).json({ message: "Invalid data." }); return; }
@@ -238,14 +341,21 @@ router.post("/", async (req: Request, res: Response) => {
       }
     }
 
+    const linkTarget = normalizeLinkTarget(dto);
+
+    await client.query("BEGIN");
+
+    let savedId: number;
+
     if (dto.id && dto.id > 0) {
-      const existing = await pool.query(`SELECT id, image, image_file_name FROM events WHERE id = $1`, [dto.id]);
+      const existing = await client.query(`SELECT id FROM events WHERE id = $1`, [dto.id]);
       if (existing.rows.length === 0) {
+        await client.query("ROLLBACK");
         res.json({ success: false, message: "Event not found." });
         return;
       }
 
-      await pool.query(
+      await client.query(
         `UPDATE events SET
            title = $1, description = $2, event_date = $3, event_time = $4,
            registration_link = $5, status = $6,
@@ -263,26 +373,37 @@ router.post("/", async (req: Request, res: Response) => {
         ]
       );
 
-      res.json({ success: true, message: "Event updated successfully.", data: dto.id });
+      savedId = dto.id;
+      await replaceEventLinks(client, savedId, linkTarget);
+      await client.query("COMMIT");
+      res.json({ success: true, message: "Event updated successfully.", data: savedId });
     } else {
-      const result = await pool.query(
+      const result = await client.query(
         `INSERT INTO events (title, description, event_date, event_time, registration_link, status,
-           image_file_name, image, type, duration, page_url, created_by, created_at)
+           image_file_name, image, type, duration, page_url,
+           created_by, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
          RETURNING id`,
         [
           dto.title, dto.description, dto.eventDate, dto.eventTime,
           dto.registrationLink, dto.status,
           imageFileName, image,
-          dto.type, dto.duration, dto.pageUrl ?? null, userId,
+          dto.type, dto.duration, dto.pageUrl ?? null,
+          userId,
         ]
       );
 
-      res.json({ success: true, message: "Event created successfully.", data: result.rows[0].id });
+      savedId = result.rows[0].id as number;
+      await replaceEventLinks(client, savedId, linkTarget);
+      await client.query("COMMIT");
+      res.json({ success: true, message: "Event created successfully.", data: savedId });
     }
   } catch (err) {
+    try { await client.query("ROLLBACK"); } catch { /* noop */ }
     console.error("Events Save error:", err);
     res.status(500).json({ message: "Internal server error" });
+  } finally {
+    client.release();
   }
 });
 

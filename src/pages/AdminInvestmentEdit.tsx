@@ -34,6 +34,7 @@ import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import BannerCropper from "@/components/BannerCropper";
+import { MultiSelectPopover } from "@/components/MultiSelectPopover";
 import { CalendarIcon, ArrowLeft, Download, ChevronDown, Copy, QrCode, Mail, User, Briefcase, ImageIcon, Settings, ArrowRight, CheckCircle2, Check, Pencil, Trash2, HelpCircle, FileText } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { QRCodeCanvas } from "qrcode.react";
@@ -312,59 +313,6 @@ const compressImage = (file: File, imageType: string) => {
     };
   });
 };
-
-function MultiSelectPopover({
-  label,
-  options,
-  selected,
-  onToggle,
-  placeholder,
-  testId,
-}: {
-  label?: string;
-  options: { id: number; name: string }[];
-  selected: number[];
-  onToggle: (id: number) => void;
-  placeholder: string;
-  testId?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const selectedNames = options.filter((o) => selected.includes(o.id)).map((o) => o.name).join(", ");
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring"
-          data-testid={testId}
-        >
-          <span className={cn("truncate", !selectedNames && "text-muted-foreground")}>
-            {selectedNames || placeholder}
-          </span>
-          <ChevronDown className="h-4 w-4 shrink-0 opacity-50 ml-2" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent className="w-72 p-2 max-h-60 overflow-y-auto" align="start">
-        {options.map((opt) => (
-          <div
-            key={opt.id}
-            className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer"
-            onClick={() => onToggle(opt.id)}
-          >
-            <Checkbox
-              checked={selected.includes(opt.id)}
-              onCheckedChange={() => onToggle(opt.id)}
-              className="pointer-events-none"
-            />
-            <span className="text-sm">{opt.name}</span>
-          </div>
-        ))}
-        {options.length === 0 && <p className="text-sm text-muted-foreground px-2 py-1">No options available</p>}
-      </PopoverContent>
-    </Popover>
-  );
-}
 
 function TagSelectPopover({
   options,

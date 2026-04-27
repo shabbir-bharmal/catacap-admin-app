@@ -1,5 +1,7 @@
 import axiosInstance from "../axios";
 
+export type EventLinkTargetType = "investments" | "groups" | "custom-pages";
+
 export interface EventApiItem {
     id: number;
     title: string;
@@ -13,6 +15,8 @@ export interface EventApiItem {
     duration?: string | null;
     type?: string | null;
     pageUrl?: string | null;
+    linkTargetType?: EventLinkTargetType | null;
+    linkTargetIds?: Array<number | string>;
 }
 
 export interface PaginatedEventResponse {
@@ -39,6 +43,8 @@ export interface EventCreateUpdatePayload {
     duration?: string | null;
     type?: string | null;
     pageUrl?: string | null;
+    linkTargetType?: EventLinkTargetType | null;
+    linkTargetIds?: Array<number | string>;
 }
 
 /**
