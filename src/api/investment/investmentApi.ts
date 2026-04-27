@@ -116,6 +116,30 @@ export async function deleteInvestment(investmentId: number): Promise<any> {
     return response.data;
 }
 
+export interface InvestmentInvestor {
+    name: string;
+    email: string | null;
+    contributions: number;
+    totalAmount: number;
+    lastContributionAt: string | null;
+}
+
+export interface InvestmentInvestorsResponse {
+    campaignId: number;
+    totalInvestors: number;
+    totalAmount: number;
+    items: InvestmentInvestor[];
+}
+
+export async function fetchInvestmentInvestors(
+    investmentId: number,
+): Promise<InvestmentInvestorsResponse> {
+    const response = await axiosInstance.get<InvestmentInvestorsResponse>(
+        `/api/admin/investment/${investmentId}/investors`,
+    );
+    return response.data;
+}
+
 export async function exportInvestmentRecommendations(investmentId: number, investmentName: string): Promise<void> {
     const response = await axiosInstance.get(`/api/admin/investment/${investmentId}/recommendations/export`, {
         responseType: "blob",

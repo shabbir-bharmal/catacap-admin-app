@@ -746,6 +746,66 @@ router.get("/:id/notes/export", async (req: Request, res: Response) => {
   }
 });
 
+router.get("/:id/investors", async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) {
+      res.status(400).json({ message: "Invalid investment id" });
+      return;
+    }
+
+    const PREDICATE = `r.campaign_id = $1
+         AND (r.is_deleted IS NULL OR r.is_deleted = false)
+         AND (LOWER(r.status) = 'approved' OR LOWER(r.status) = 'pending')
+         AND r.amount > 0
+         AND r.user_email IS NOT NULL`;
+
+    const [groupedResult, totalResult] = await Promise.all([
+      pool.query(
+        `SELECT
+           COALESCE(NULLIF(TRIM(MAX(r.user_full_name)), ''), MAX(r.user_email)) AS name,
+           MAX(r.user_email) AS email,
+           COUNT(*) AS contributions,
+           COALESCE(SUM(r.amount), 0) AS total_amount,
+           MAX(r.date_created) AS last_contribution_at
+         FROM recommendations r
+         WHERE ${PREDICATE}
+         GROUP BY LOWER(TRIM(r.user_email))
+         ORDER BY total_amount DESC, name ASC`,
+        [id],
+      ),
+      pool.query(
+        `SELECT COALESCE(SUM(r.amount), 0) AS total_amount
+         FROM recommendations r
+         WHERE ${PREDICATE}`,
+        [id],
+      ),
+    ]);
+
+    const items = groupedResult.rows.map((r: any) => ({
+      name: r.name || "Anonymous",
+      email: r.email || null,
+      contributions: parseInt(r.contributions) || 0,
+      totalAmount: parseFloat(r.total_amount) || 0,
+      lastContributionAt: r.last_contribution_at
+        ? new Date(r.last_contribution_at).toISOString()
+        : null,
+    }));
+
+    const totalAmount = parseFloat(totalResult.rows[0]?.total_amount) || 0;
+
+    res.json({
+      campaignId: id,
+      totalInvestors: items.length,
+      totalAmount,
+      items,
+    });
+  } catch (err) {
+    console.error("Error fetching investment investors:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
 router.get("/:id/recommendations/export", async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -972,7 +1032,7 @@ router.get("/", async (req: Request, res: Response) => {
     const recResult = await pool.query(
       `SELECT campaign_id,
               SUM(amount) AS current_balance,
-              COUNT(DISTINCT user_email) AS number_of_investors
+              COUNT(DISTINCT LOWER(TRIM(user_email))) AS number_of_investors
        FROM recommendations
        WHERE amount > 0 AND user_email IS NOT NULL
          AND (LOWER(status) = 'approved' OR LOWER(status) = 'pending')
