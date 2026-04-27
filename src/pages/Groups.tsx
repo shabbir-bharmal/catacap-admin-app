@@ -40,7 +40,7 @@ interface GroupData {
   featuredGroup: boolean;
 }
 
-type SortField = "groupName" | "memberCount" | "memberInvestedTotal" | "investmentCount" | "status" | "active" | "corporateGroup";
+type SortField = "groupName" | "memberCount" | "memberInvestedTotal" | "investmentCount" | "status" | "active";
 
 export default function GroupsPage() {
   const { user: authUser } = useAuth();
@@ -302,7 +302,7 @@ export default function GroupsPage() {
                       Member Count
                     </SortHeader>
                     <SortHeader field="memberInvestedTotal" sortField={sortField} sortDir={sortDir} handleSort={handleSort} className="text-right whitespace-nowrap">
-                      Total Mem Invested
+                      <span className="leading-tight">Total Mem<br />Invested</span>
                     </SortHeader>
                     <SortHeader field="investmentCount" sortField={sortField} sortDir={sortDir} handleSort={handleSort} className="text-center">
                       Investment Count
@@ -313,23 +313,20 @@ export default function GroupsPage() {
                     <SortHeader field="active" sortField={sortField} sortDir={sortDir} handleSort={handleSort} className="text-center whitespace-nowrap">
                       Active
                     </SortHeader>
-                    <SortHeader field="corporateGroup" sortField={sortField} sortDir={sortDir} handleSort={handleSort} className="text-center whitespace-nowrap">
-                      Corporate Group
-                    </SortHeader>
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">Featured Group</th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">Featured</th>
                     <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {isLoading ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
+                      <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
                         Loading groups...
                       </td>
                     </tr>
                   ) : groups.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
+                      <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
                         No groups found.
                       </td>
                     </tr>
@@ -374,15 +371,6 @@ export default function GroupsPage() {
                         </td>
                         <td className="px-4 py-3 text-center" data-testid={`status-active-${group.id}`}>
                           <div className="flex items-center justify-center">{group.active ? <Check className="h-4 w-4 text-emerald-600" /> : <X className="h-4 w-4 text-rose-600" />}</div>
-                        </td>
-                        <td className="px-4 py-3 text-center" data-testid={`checkbox-corporate-${group.id}`}>
-                          <div className="flex items-center justify-center">
-                            <Checkbox
-                              checked={group.corporateGroup}
-                              onCheckedChange={() => handleToggleStatus(group.id, "corporateGroup", group.corporateGroup)}
-                              className="data-[state=checked]:bg-[#405189] data-[state=checked]:border-[#405189]"
-                            />
-                          </div>
                         </td>
                         <td className="px-4 py-3 text-center" data-testid={`checkbox-featured-${group.id}`}>
                           <div className="flex items-center justify-center">
