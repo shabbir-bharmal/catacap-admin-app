@@ -309,6 +309,7 @@ router.get("/export", async (req: Request, res: Response) => {
     }
 
     let memberCounts: Record<number, number> = {};
+    let memberInvestedTotals: Record<number, number> = {};
     if (groupIds.length > 0) {
       const memberPlaceholders = groupIds.map((_: any, i: number) => `$${i + 1}`).join(", ");
       const memberResult = await pool.query(
@@ -322,6 +323,22 @@ router.get("/export", async (req: Request, res: Response) => {
       );
       for (const row of memberResult.rows) {
         memberCounts[row.group_to_follow_id] = parseInt(row.cnt);
+      }
+
+      const memberInvestedResult = await pool.query(
+        `SELECT req.group_to_follow_id, COALESCE(SUM(r.amount), 0) AS total
+         FROM requests req
+         JOIN recommendations r
+           ON r.user_id = req.request_owner_id
+          AND (r.is_deleted IS NULL OR r.is_deleted = false)
+         WHERE req.group_to_follow_id IN (${memberPlaceholders})
+           AND req.status = 'accepted'
+           AND (req.is_deleted IS NULL OR req.is_deleted = false)
+         GROUP BY req.group_to_follow_id`,
+        groupIds
+      );
+      for (const row of memberInvestedResult.rows) {
+        memberInvestedTotals[row.group_to_follow_id] = parseFloat(row.total) || 0;
       }
     }
 
@@ -373,13 +390,19 @@ router.get("/export", async (req: Request, res: Response) => {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet("InvestmentNotes");
 
-    const headers = ["Group Name", "Group URL", "Group Leader(s)", "Member Count", "Investment Count", "Status", "Active", "Corporate Group", "Featured Group", "Themes"];
+    const headers = ["Group Name", "Group URL", "Group Leader(s)", "Member Count", "Total Mem Invested", "Investment Count", "Status", "Active", "Corporate Group", "Featured Group", "Themes"];
     const headerRow = worksheet.addRow(headers);
     headerRow.eachCell((cell) => {
       cell.font = { bold: true };
     });
 
-    for (const g of groups) {
+    const sortedGroups = [...groups].sort((a: any, b: any) => {
+      const ta = memberInvestedTotals[a.id] || 0;
+      const tb = memberInvestedTotals[b.id] || 0;
+      return tb - ta;
+    });
+
+    for (const g of sortedGroups) {
       let leaderNames: string[] = [];
       if (g.leaders) {
         try {
@@ -411,11 +434,13 @@ router.get("/export", async (req: Request, res: Response) => {
 
       const url = g.identifier?.trim() ? `${requestOrigin}/group/${g.identifier.trim()}` : `${requestOrigin}/group/${g.id}`;
 
-      worksheet.addRow([
+      const memInvested = memberInvestedTotals[g.id] || 0;
+      const newRow = worksheet.addRow([
         g.name || "",
         url,
         leaderNames.join(", "),
         memberCounts[g.id] || 0,
+        memInvested,
         allCampaignIds.size,
         g.is_private_group ? "Private" : "Public",
         g.is_deactivated ? "False" : "True",
@@ -423,6 +448,7 @@ router.get("/export", async (req: Request, res: Response) => {
         g.featured_group ? "True" : "",
         groupThemeNames.join(", "),
       ]);
+      newRow.getCell(5).numFmt = '"$"#,##0';
     }
 
     worksheet.columns.forEach((col) => {
