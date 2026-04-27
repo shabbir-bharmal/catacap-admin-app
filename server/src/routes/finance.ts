@@ -395,11 +395,55 @@ const RANGE_TO_DAYS: Record<string, number | null> = {
 
 const VALID_GRANULARITIES = new Set(["day", "week", "month"]);
 
+function buildRangeFilter(
+  range: string,
+  dateColExpr: string,
+): {
+  periodFilter: string;
+  periodParams: Array<string | number>;
+  baselineFilter: string | null;
+  baselineParams: Array<string | number>;
+  days: number | null;
+} {
+  if (range === "ytd") {
+    const now = new Date();
+    const jan1 = Date.UTC(now.getUTCFullYear(), 0, 1);
+    const daysSinceJan1 = Math.max(1, Math.floor((Date.now() - jan1) / 86400000));
+    return {
+      periodFilter: `AND ${dateColExpr} >= date_trunc('year', NOW())`,
+      periodParams: [],
+      baselineFilter: `AND ${dateColExpr} < date_trunc('year', NOW())`,
+      baselineParams: [],
+      days: daysSinceJan1,
+    };
+  }
+
+  const days = RANGE_TO_DAYS[range] ?? null;
+  if (days === null) {
+    return {
+      periodFilter: "",
+      periodParams: [],
+      baselineFilter: null,
+      baselineParams: [],
+      days: null,
+    };
+  }
+
+  return {
+    periodFilter: `AND ${dateColExpr} >= NOW() - ($1::int * INTERVAL '1 day')`,
+    periodParams: [days],
+    baselineFilter: `AND ${dateColExpr} < NOW() - ($1::int * INTERVAL '1 day')`,
+    baselineParams: [days],
+    days,
+  };
+}
+
 router.get("/kpis/account-balance-cumulative", async (req: Request, res: Response) => {
   try {
     const range = String(req.query.range || "all").toLowerCase();
     const granularityRaw = String(req.query.granularity || "").toLowerCase();
-    const days = RANGE_TO_DAYS[range] ?? null;
+    const { periodFilter, periodParams, baselineFilter, baselineParams, days } =
+      buildRangeFilter(range, "change_date");
 
     let granularity = granularityRaw;
     if (!VALID_GRANULARITIES.has(granularity)) {
@@ -410,13 +454,6 @@ router.get("/kpis/account-balance-cumulative", async (req: Request, res: Respons
 
     const truncUnit = granularity === "day" ? "day" : granularity === "week" ? "week" : "month";
 
-    const params: Array<string | number> = [];
-    let dateFilter = "";
-    if (days !== null) {
-      params.push(days);
-      dateFilter = `AND change_date >= NOW() - ($${params.length}::int * INTERVAL '1 day')`;
-    }
-
     const periodResult = await pool.query(
       `SELECT date_trunc('${truncUnit}', change_date) AS bucket,
               COALESCE(SUM(GREATEST(new_value - old_value, 0)), 0) AS added
@@ -424,22 +461,22 @@ router.get("/kpis/account-balance-cumulative", async (req: Request, res: Respons
        WHERE (is_deleted IS NULL OR is_deleted = false)
          AND new_value > old_value
          AND change_date IS NOT NULL
-         ${dateFilter}
+         ${periodFilter}
        GROUP BY bucket
        ORDER BY bucket ASC`,
-      params,
+      periodParams,
     );
 
     let baselineCumulative = 0;
-    if (days !== null) {
+    if (baselineFilter !== null) {
       const baselineResult = await pool.query(
         `SELECT COALESCE(SUM(GREATEST(new_value - old_value, 0)), 0) AS total
          FROM account_balance_change_logs
          WHERE (is_deleted IS NULL OR is_deleted = false)
            AND new_value > old_value
            AND change_date IS NOT NULL
-           AND change_date < NOW() - ($1::int * INTERVAL '1 day')`,
-        [days],
+           ${baselineFilter}`,
+        baselineParams,
       );
       baselineCumulative = parseFloat(baselineResult.rows[0]?.total) || 0;
     }
@@ -472,7 +509,9 @@ router.get("/kpis/completed-investments", async (req: Request, res: Response) =>
   try {
     const range = String(req.query.range || "all").toLowerCase();
     const granularityRaw = String(req.query.granularity || "").toLowerCase();
-    const days = RANGE_TO_DAYS[range] ?? null;
+    const dateExpr = "COALESCE(date_of_last_investment::timestamp, created_on)";
+    const { periodFilter, periodParams, baselineFilter, baselineParams, days } =
+      buildRangeFilter(range, dateExpr);
 
     let granularity = granularityRaw;
     if (!VALID_GRANULARITIES.has(granularity)) {
@@ -482,14 +521,6 @@ router.get("/kpis/completed-investments", async (req: Request, res: Response) =>
     }
 
     const truncUnit = granularity === "day" ? "day" : granularity === "week" ? "week" : "month";
-    const dateExpr = "COALESCE(date_of_last_investment::timestamp, created_on)";
-
-    const params: Array<string | number> = [];
-    let dateFilter = "";
-    if (days !== null) {
-      params.push(days);
-      dateFilter = `AND ${dateExpr} >= NOW() - ($${params.length}::int * INTERVAL '1 day')`;
-    }
 
     const periodResult = await pool.query(
       `SELECT date_trunc('${truncUnit}', ${dateExpr}) AS bucket,
@@ -498,22 +529,22 @@ router.get("/kpis/completed-investments", async (req: Request, res: Response) =>
        FROM completed_investment_details
        WHERE (is_deleted IS NULL OR is_deleted = false)
          AND ${dateExpr} IS NOT NULL
-         ${dateFilter}
+         ${periodFilter}
        GROUP BY bucket
        ORDER BY bucket ASC`,
-      params,
+      periodParams,
     );
 
     let baselineCount = 0;
     let baselineAmount = 0;
-    if (days !== null) {
+    if (baselineFilter !== null) {
       const baselineResult = await pool.query(
         `SELECT COUNT(*) AS count, COALESCE(SUM(amount), 0) AS amount
          FROM completed_investment_details
          WHERE (is_deleted IS NULL OR is_deleted = false)
            AND ${dateExpr} IS NOT NULL
-           AND ${dateExpr} < NOW() - ($1::int * INTERVAL '1 day')`,
-        [days],
+           ${baselineFilter}`,
+        baselineParams,
       );
       baselineCount = parseInt(baselineResult.rows[0]?.count) || 0;
       baselineAmount = parseFloat(baselineResult.rows[0]?.amount) || 0;

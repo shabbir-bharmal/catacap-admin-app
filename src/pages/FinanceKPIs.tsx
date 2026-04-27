@@ -43,6 +43,7 @@ const RANGE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "5y", label: "Last 5 Years" },
   { value: "3y", label: "Last 3 Years" },
   { value: "1y", label: "Last 1 Year" },
+  { value: "ytd", label: "Year to Date" },
   { value: "6m", label: "Last 6 Months" },
   { value: "3m", label: "Last 3 Months" },
   { value: "1m", label: "Last 1 Month" },
