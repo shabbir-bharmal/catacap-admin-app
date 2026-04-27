@@ -302,7 +302,7 @@ export default function GroupsPage() {
                       Member Count
                     </SortHeader>
                     <SortHeader field="memberInvestedTotal" sortField={sortField} sortDir={sortDir} handleSort={handleSort} className="text-right whitespace-nowrap">
-                      Total Invested by Members
+                      Total Mem Invested
                     </SortHeader>
                     <SortHeader field="investmentCount" sortField={sortField} sortDir={sortDir} handleSort={handleSort} className="text-center">
                       Investment Count
