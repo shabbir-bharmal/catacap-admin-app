@@ -9,94 +9,168 @@ const router = Router();
 
 const ALLOWED_LINK_TARGET_TYPES = new Set(["investments", "groups", "custom-pages"]);
 
-type NormalizedLinkTarget = {
-  type: string | null;
-  ids: number[];
-  slugs: string[];
+type EventLinkTargetsByType = {
+  investments: number[];
+  groups: number[];
+  "custom-pages": string[];
 };
 
-function normalizeLinkTarget(dto: any): NormalizedLinkTarget {
-  const rawType = typeof dto?.linkTargetType === "string" ? dto.linkTargetType.trim() : "";
-  const type = ALLOWED_LINK_TARGET_TYPES.has(rawType) ? rawType : null;
-  if (!type) return { type: null, ids: [], slugs: [] };
+function emptyLinkTargets(): EventLinkTargetsByType {
+  return { investments: [], groups: [], "custom-pages": [] };
+}
 
-  const rawList = Array.isArray(dto?.linkTargetIds) ? dto.linkTargetIds : [];
-
-  if (type === "custom-pages") {
-    const slugs = Array.from(
-      new Set(
-        rawList
-          .map((v: unknown) => (v == null ? "" : String(v).trim()))
-          .filter((s: string) => s.length > 0)
-      )
-    ) as string[];
-    return { type, ids: [], slugs };
-  }
-
-  const ids = Array.from(
+function normalizeIntIds(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [];
+  return Array.from(
     new Set(
-      rawList
+      raw
         .map((v: unknown) => parseInt(String(v), 10))
         .filter((n: number) => Number.isInteger(n) && n > 0)
     )
   ) as number[];
-  return { type, ids, slugs: [] };
+}
+
+function normalizeSlugs(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return Array.from(
+    new Set(
+      raw
+        .map((v: unknown) => (v == null ? "" : String(v).trim()))
+        .filter((s: string) => s.length > 0)
+    )
+  ) as string[];
+}
+
+type NormalizeResult =
+  | { ok: true; targets: EventLinkTargetsByType }
+  | { ok: false; error: string };
+
+function normalizeLinkTargets(dto: any): NormalizeResult {
+  const targets = emptyLinkTargets();
+
+  const grouped = dto?.linkTargetsByType;
+  if (grouped !== undefined && grouped !== null) {
+    if (typeof grouped !== "object" || Array.isArray(grouped)) {
+      return { ok: false, error: "linkTargetsByType must be an object." };
+    }
+    for (const key of Object.keys(grouped)) {
+      if (!ALLOWED_LINK_TARGET_TYPES.has(key)) {
+        return { ok: false, error: `Unknown link target type: ${key}` };
+      }
+    }
+    targets.investments = normalizeIntIds((grouped as any).investments);
+    targets.groups = normalizeIntIds((grouped as any).groups);
+    targets["custom-pages"] = normalizeSlugs((grouped as any)["custom-pages"]);
+    return { ok: true, targets };
+  }
+
+  if (dto?.linkTargetType !== undefined && dto?.linkTargetType !== null) {
+    const rawType = typeof dto.linkTargetType === "string" ? dto.linkTargetType.trim() : "";
+    if (rawType.length > 0 && !ALLOWED_LINK_TARGET_TYPES.has(rawType)) {
+      return { ok: false, error: `Unknown link target type: ${rawType}` };
+    }
+    const rawList = Array.isArray(dto?.linkTargetIds) ? dto.linkTargetIds : [];
+    if (rawType === "custom-pages") {
+      targets["custom-pages"] = normalizeSlugs(rawList);
+    } else if (rawType === "investments") {
+      targets.investments = normalizeIntIds(rawList);
+    } else if (rawType === "groups") {
+      targets.groups = normalizeIntIds(rawList);
+    }
+  }
+  return { ok: true, targets };
+}
+
+async function insertLinkRowsForType(
+  client: { query: (text: string, params?: unknown[]) => Promise<unknown> },
+  eventId: number,
+  type: "investments" | "groups",
+  ids: number[]
+): Promise<void> {
+  if (ids.length === 0) return;
+  const valuesSql = ids.map((_, i) => `($1, $2, $${i + 3}, NULL)`).join(", ");
+  await client.query(
+    `INSERT INTO event_links (event_id, target_type, target_id, target_slug)
+     VALUES ${valuesSql}
+     ON CONFLICT DO NOTHING`,
+    [eventId, type, ...ids]
+  );
+}
+
+async function insertLinkRowsForSlugs(
+  client: { query: (text: string, params?: unknown[]) => Promise<unknown> },
+  eventId: number,
+  slugs: string[]
+): Promise<void> {
+  if (slugs.length === 0) return;
+  const valuesSql = slugs.map((_, i) => `($1, 'custom-pages', NULL, $${i + 2})`).join(", ");
+  await client.query(
+    `INSERT INTO event_links (event_id, target_type, target_id, target_slug)
+     VALUES ${valuesSql}
+     ON CONFLICT DO NOTHING`,
+    [eventId, ...slugs]
+  );
 }
 
 async function replaceEventLinks(
   client: { query: (text: string, params?: unknown[]) => Promise<unknown> },
   eventId: number,
-  target: NormalizedLinkTarget
+  targets: EventLinkTargetsByType
 ): Promise<void> {
   await client.query(`DELETE FROM event_links WHERE event_id = $1`, [eventId]);
-  if (!target.type) return;
-
-  if (target.type === "custom-pages") {
-    if (target.slugs.length === 0) return;
-    const valuesSql = target.slugs.map((_, i) => `($1, $2, NULL, $${i + 3})`).join(", ");
-    await client.query(
-      `INSERT INTO event_links (event_id, target_type, target_id, target_slug)
-       VALUES ${valuesSql}
-       ON CONFLICT DO NOTHING`,
-      [eventId, target.type, ...target.slugs]
-    );
-    return;
-  }
-
-  if (target.ids.length === 0) return;
-  const valuesSql = target.ids.map((_, i) => `($1, $2, $${i + 3}, NULL)`).join(", ");
-  await client.query(
-    `INSERT INTO event_links (event_id, target_type, target_id, target_slug)
-     VALUES ${valuesSql}
-     ON CONFLICT DO NOTHING`,
-    [eventId, target.type, ...target.ids]
-  );
+  await insertLinkRowsForType(client, eventId, "investments", targets.investments);
+  await insertLinkRowsForType(client, eventId, "groups", targets.groups);
+  await insertLinkRowsForSlugs(client, eventId, targets["custom-pages"]);
 }
 
-const LINK_TARGET_TYPE_SUBQUERY = `(
-  SELECT target_type FROM event_links WHERE event_id = e.id LIMIT 1
+const LINK_TARGETS_BY_TYPE_SUBQUERY = `jsonb_build_object(
+  'investments',
+    COALESCE(
+      (SELECT jsonb_agg(target_id ORDER BY target_id)
+         FROM event_links
+        WHERE event_id = e.id AND target_type = 'investments'),
+      '[]'::jsonb
+    ),
+  'groups',
+    COALESCE(
+      (SELECT jsonb_agg(target_id ORDER BY target_id)
+         FROM event_links
+        WHERE event_id = e.id AND target_type = 'groups'),
+      '[]'::jsonb
+    ),
+  'custom-pages',
+    COALESCE(
+      (SELECT jsonb_agg(target_slug ORDER BY target_slug)
+         FROM event_links
+        WHERE event_id = e.id AND target_type = 'custom-pages'),
+      '[]'::jsonb
+    )
 )`;
 
-const LINK_TARGET_IDS_SUBQUERY = `COALESCE(
-  (
-    SELECT array_agg(
-             COALESCE(target_id::TEXT, target_slug)
-             ORDER BY COALESCE(target_id::TEXT, target_slug)
-           )
-    FROM event_links
-    WHERE event_id = e.id
-  ),
-  ARRAY[]::TEXT[]
-)`;
+function decodeLinkTargetsByType(raw: unknown): EventLinkTargetsByType {
+  const out = emptyLinkTargets();
+  if (!raw || typeof raw !== "object") return out;
+  const r = raw as Record<string, unknown>;
+  out.investments = normalizeIntIds(r.investments);
+  out.groups = normalizeIntIds(r.groups);
+  out["custom-pages"] = normalizeSlugs(r["custom-pages"]);
+  return out;
+}
 
-function decodeLinkTargetIds(rawType: string | null, rawIds: unknown): Array<number | string> {
-  if (!rawType || !Array.isArray(rawIds)) return [];
-  if (rawType === "custom-pages") {
-    return (rawIds as unknown[]).map((v) => String(v));
+function deriveLegacyLinkFields(grouped: EventLinkTargetsByType): {
+  linkTargetType: "investments" | "groups" | "custom-pages" | null;
+  linkTargetIds: Array<number | string>;
+} {
+  if (grouped.investments.length > 0) {
+    return { linkTargetType: "investments", linkTargetIds: [...grouped.investments] };
   }
-  return (rawIds as unknown[])
-    .map((v) => parseInt(String(v), 10))
-    .filter((n) => Number.isInteger(n));
+  if (grouped.groups.length > 0) {
+    return { linkTargetType: "groups", linkTargetIds: [...grouped.groups] };
+  }
+  if (grouped["custom-pages"].length > 0) {
+    return { linkTargetType: "custom-pages", linkTargetIds: [...grouped["custom-pages"]] };
+  }
+  return { linkTargetType: null, linkTargetIds: [] };
 }
 
 router.get("/", async (req: Request, res: Response) => {
@@ -135,8 +209,7 @@ router.get("/", async (req: Request, res: Response) => {
          e.id, e.title, e.description, e.event_date, e.event_time,
          e.registration_link, e.status, e.image_file_name, e.image,
          e.type, e.duration, e.page_url,
-         ${LINK_TARGET_TYPE_SUBQUERY} AS link_target_type,
-         ${LINK_TARGET_IDS_SUBQUERY} AS link_target_ids,
+         ${LINK_TARGETS_BY_TYPE_SUBQUERY} AS link_targets_by_type,
          e.deleted_at,
          du.first_name || ' ' || du.last_name AS deleted_by_name
        FROM events e
@@ -147,24 +220,29 @@ router.get("/", async (req: Request, res: Response) => {
       [...values, params.perPage, offset]
     );
 
-    const items = dataResult.rows.map((r: any) => ({
-      id: r.id,
-      title: r.title,
-      description: r.description,
-      eventDate: r.event_date,
-      eventTime: r.event_time,
-      registrationLink: r.registration_link,
-      status: r.status ?? false,
-      imageFileName: resolveFileUrl(r.image_file_name, "events"),
-      image: resolveFileUrl(r.image, "events") || resolveFileUrl(r.image_file_name, "events"),
-      type: r.type,
-      duration: r.duration,
-      pageUrl: r.page_url,
-      linkTargetType: r.link_target_type,
-      linkTargetIds: decodeLinkTargetIds(r.link_target_type, r.link_target_ids),
-      deletedAt: r.deleted_at,
-      deletedBy: r.deleted_by_name,
-    }));
+    const items = dataResult.rows.map((r: any) => {
+      const linkTargetsByType = decodeLinkTargetsByType(r.link_targets_by_type);
+      const legacy = deriveLegacyLinkFields(linkTargetsByType);
+      return {
+        id: r.id,
+        title: r.title,
+        description: r.description,
+        eventDate: r.event_date,
+        eventTime: r.event_time,
+        registrationLink: r.registration_link,
+        status: r.status ?? false,
+        imageFileName: resolveFileUrl(r.image_file_name, "events"),
+        image: resolveFileUrl(r.image, "events") || resolveFileUrl(r.image_file_name, "events"),
+        type: r.type,
+        duration: r.duration,
+        pageUrl: r.page_url,
+        linkTargetsByType,
+        linkTargetType: legacy.linkTargetType,
+        linkTargetIds: legacy.linkTargetIds,
+        deletedAt: r.deleted_at,
+        deletedBy: r.deleted_by_name,
+      };
+    });
 
     res.json({ totalRecords: parseInt(countResult.rows[0].total) || 0, items });
   } catch (err: any) {
@@ -282,8 +360,7 @@ router.get("/:id", async (req: Request, res: Response) => {
     const result = await pool.query(
       `SELECT e.id, e.title, e.description, e.event_date, e.event_time,
               e.registration_link, e.status, e.image, e.image_file_name, e.type, e.duration, e.page_url,
-              ${LINK_TARGET_TYPE_SUBQUERY} AS link_target_type,
-              ${LINK_TARGET_IDS_SUBQUERY} AS link_target_ids
+              ${LINK_TARGETS_BY_TYPE_SUBQUERY} AS link_targets_by_type
        FROM events e
        WHERE e.id = $1`,
       [id]
@@ -295,6 +372,8 @@ router.get("/:id", async (req: Request, res: Response) => {
     }
 
     const r = result.rows[0];
+    const linkTargetsByType = decodeLinkTargetsByType(r.link_targets_by_type);
+    const legacy = deriveLegacyLinkFields(linkTargetsByType);
     res.json({
       id: r.id,
       title: r.title,
@@ -308,8 +387,9 @@ router.get("/:id", async (req: Request, res: Response) => {
       type: r.type,
       duration: r.duration,
       pageUrl: r.page_url,
-      linkTargetType: r.link_target_type,
-      linkTargetIds: decodeLinkTargetIds(r.link_target_type, r.link_target_ids),
+      linkTargetsByType,
+      linkTargetType: legacy.linkTargetType,
+      linkTargetIds: legacy.linkTargetIds,
     });
   } catch (err) {
     console.error("Events GetById error:", err);
@@ -341,7 +421,12 @@ router.post("/", async (req: Request, res: Response) => {
       }
     }
 
-    const linkTarget = normalizeLinkTarget(dto);
+    const linkTargetsResult = normalizeLinkTargets(dto);
+    if (!linkTargetsResult.ok) {
+      res.status(400).json({ success: false, message: linkTargetsResult.error });
+      return;
+    }
+    const linkTargets = linkTargetsResult.targets;
 
     await client.query("BEGIN");
 
@@ -374,7 +459,7 @@ router.post("/", async (req: Request, res: Response) => {
       );
 
       savedId = dto.id;
-      await replaceEventLinks(client, savedId, linkTarget);
+      await replaceEventLinks(client, savedId, linkTargets);
       await client.query("COMMIT");
       res.json({ success: true, message: "Event updated successfully.", data: savedId });
     } else {
@@ -394,7 +479,7 @@ router.post("/", async (req: Request, res: Response) => {
       );
 
       savedId = result.rows[0].id as number;
-      await replaceEventLinks(client, savedId, linkTarget);
+      await replaceEventLinks(client, savedId, linkTargets);
       await client.query("COMMIT");
       res.json({ success: true, message: "Event created successfully.", data: savedId });
     }

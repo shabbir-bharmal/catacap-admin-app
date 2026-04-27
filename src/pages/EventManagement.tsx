@@ -176,21 +176,21 @@ export default function EventManagement() {
   const investmentsListQuery = useQuery({
     queryKey: ["event-link-target", "investments"],
     queryFn: () => fetchAllInvestmentNameList(0, 0),
-    enabled: dialogOpen && form.linkTargetType === "investments",
+    enabled: dialogOpen,
     staleTime: 5 * 60 * 1000,
   });
 
   const groupsListQuery = useQuery({
     queryKey: ["event-link-target", "groups"],
     queryFn: () => fetchAllGroups(),
-    enabled: dialogOpen && form.linkTargetType === "groups",
+    enabled: dialogOpen,
     staleTime: 5 * 60 * 1000,
   });
 
   const customPagesListQuery = useQuery({
     queryKey: ["event-link-target", "custom-pages"],
     queryFn: () => fetchCustomPages(),
-    enabled: dialogOpen && form.linkTargetType === "custom-pages",
+    enabled: dialogOpen,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -250,18 +250,24 @@ export default function EventManagement() {
     }
 
     setEditingEvent(event);
-    const linkTargetType: EventLinkTargetType =
-      event.linkTargetType && LINK_TARGET_OPTIONS.some((o) => o.value === event.linkTargetType)
-        ? (event.linkTargetType as EventLinkTargetType)
-        : "investments";
     const linkTargetIdsByType: Record<EventLinkTargetType, Array<number | string>> = {
       investments: [],
       groups: [],
       "custom-pages": [],
     };
-    if (event.linkTargetType && Array.isArray(event.linkTargetIds)) {
-      linkTargetIdsByType[linkTargetType] = [...event.linkTargetIds];
+    const grouped = event.linkTargetsByType;
+    if (grouped && typeof grouped === "object") {
+      if (Array.isArray(grouped.investments)) linkTargetIdsByType.investments = [...grouped.investments];
+      if (Array.isArray(grouped.groups)) linkTargetIdsByType.groups = [...grouped.groups];
+      if (Array.isArray(grouped["custom-pages"])) linkTargetIdsByType["custom-pages"] = [...grouped["custom-pages"]];
+    } else if (event.linkTargetType && Array.isArray(event.linkTargetIds)) {
+      const legacyType = LINK_TARGET_OPTIONS.some((o) => o.value === event.linkTargetType)
+        ? (event.linkTargetType as EventLinkTargetType)
+        : null;
+      if (legacyType) linkTargetIdsByType[legacyType] = [...event.linkTargetIds];
     }
+    const linkTargetType: EventLinkTargetType =
+      LINK_TARGET_OPTIONS.find((o) => linkTargetIdsByType[o.value].length > 0)?.value ?? "investments";
 
     setForm({
       title: event.title,
@@ -351,9 +357,21 @@ export default function EventManagement() {
       return;
     }
 
-    const selectedLinkIds = form.linkTargetIdsByType[form.linkTargetType] ?? [];
-    const hasLinkSelections = selectedLinkIds.length > 0;
-    const { linkTargetIdsByType: _unused, ...formRest } = form;
+    const investmentsIds = (form.linkTargetIdsByType.investments ?? [])
+      .map((v) => Number(v))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    const groupsIds = (form.linkTargetIdsByType.groups ?? [])
+      .map((v) => Number(v))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    const customPagesSlugs = (form.linkTargetIdsByType["custom-pages"] ?? [])
+      .map((v) => String(v).trim())
+      .filter((s) => s.length > 0);
+    const linkTargetsByType: eventApi.EventLinkTargetsByType = {
+      investments: investmentsIds,
+      groups: groupsIds,
+      "custom-pages": customPagesSlugs,
+    };
+    const { linkTargetIdsByType: _unusedIds, linkTargetType: _unusedType, ...formRest } = form;
     const payload: eventApi.EventCreateUpdatePayload = {
       ...formRest,
       title: form.title.trim(),
@@ -362,8 +380,7 @@ export default function EventManagement() {
       pageUrl: form.pageUrl.trim() || null,
       eventTime: `${form.timeVal} ${form.timezone}`.trim(),
       image: editingEvent && !form.image?.startsWith("data:") ? null : form.image,
-      linkTargetType: hasLinkSelections ? form.linkTargetType : null,
-      linkTargetIds: hasLinkSelections ? selectedLinkIds : [],
+      linkTargetsByType,
     };
 
     if (editingEvent) {

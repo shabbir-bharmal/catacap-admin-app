@@ -2,6 +2,12 @@ import axiosInstance from "../axios";
 
 export type EventLinkTargetType = "investments" | "groups" | "custom-pages";
 
+export interface EventLinkTargetsByType {
+    investments: number[];
+    groups: number[];
+    "custom-pages": string[];
+}
+
 export interface EventApiItem {
     id: number;
     title: string;
@@ -15,7 +21,10 @@ export interface EventApiItem {
     duration?: string | null;
     type?: string | null;
     pageUrl?: string | null;
+    linkTargetsByType?: EventLinkTargetsByType;
+    /** @deprecated Use linkTargetsByType. Kept for backwards compatibility. */
     linkTargetType?: EventLinkTargetType | null;
+    /** @deprecated Use linkTargetsByType. Kept for backwards compatibility. */
     linkTargetIds?: Array<number | string>;
 }
 
@@ -43,7 +52,10 @@ export interface EventCreateUpdatePayload {
     duration?: string | null;
     type?: string | null;
     pageUrl?: string | null;
+    linkTargetsByType?: EventLinkTargetsByType;
+    /** @deprecated Use linkTargetsByType. Kept for backwards compatibility. */
     linkTargetType?: EventLinkTargetType | null;
+    /** @deprecated Use linkTargetsByType. Kept for backwards compatibility. */
     linkTargetIds?: Array<number | string>;
 }
 
