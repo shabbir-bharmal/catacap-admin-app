@@ -41,6 +41,13 @@ router.get("/", async (req: Request, res: Response) => {
 
     softDeleteFilter("g", params.isDeleted, conditions);
 
+    const activeFilter = ((req.query.ActiveFilter as string) || (req.query.activeFilter as string) || "").toLowerCase();
+    if (activeFilter === "active") {
+      conditions.push(`(g.is_deactivated IS NULL OR g.is_deactivated = false)`);
+    } else if (activeFilter === "inactive") {
+      conditions.push(`g.is_deactivated = true`);
+    }
+
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     const groupsResult = await pool.query(
@@ -217,6 +224,10 @@ router.get("/", async (req: Request, res: Response) => {
         case "membercount":
           valA = a.member;
           valB = b.member;
+          break;
+        case "memberinvestedtotal":
+          valA = a.memberInvestedTotal || 0;
+          valB = b.memberInvestedTotal || 0;
           break;
         case "investmentcount":
           valA = a.investment;

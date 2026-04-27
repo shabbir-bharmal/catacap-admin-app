@@ -12,6 +12,7 @@ export interface GroupParams {
     stages?: string;
     investmentStatus?: boolean;
     isDeleted?: boolean;
+    activeFilter?: string;
 }
 
 // Raw shape returned by the API
@@ -80,6 +81,7 @@ export async function fetchGroups(
         if (params.stages) queryParams.Stages = params.stages;
         if (params.investmentStatus !== undefined) queryParams.InvestmentStatus = params.investmentStatus.toString();
         if (params.isDeleted !== undefined) queryParams.IsDeleted = params.isDeleted.toString();
+        if (params.activeFilter) queryParams.ActiveFilter = params.activeFilter;
     }
 
     const response = await axiosInstance.get<PaginatedGroupResponse>(

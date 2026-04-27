@@ -48,7 +48,8 @@ export default function GroupsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearch = useDebounce(searchQuery, 500);
   const effectiveSearch = debouncedSearch.length >= 3 || debouncedSearch.length === 0 ? debouncedSearch : "";
-  const { sortField, sortDir, handleSort: originalHandleSort } = useSort<SortField>("groupName", "asc");
+  const { sortField, sortDir, handleSort: originalHandleSort } = useSort<SortField>("memberInvestedTotal", "desc");
+  const [activeFilter, setActiveFilter] = useState<"active" | "inactive" | "all">("active");
 
   const handleSort = (field: SortField) => {
     originalHandleSort(field);
@@ -111,7 +112,7 @@ export default function GroupsPage() {
 
   useEffect(() => {
     loadGroups();
-  }, [effectiveSearch, sortField, sortDir, currentPage, rowsPerPage]);
+  }, [effectiveSearch, sortField, sortDir, currentPage, rowsPerPage, activeFilter]);
 
   const loadGroups = async (showLoading = true) => {
     if (showLoading) setIsLoading(true);
@@ -121,7 +122,8 @@ export default function GroupsPage() {
         perPage: rowsPerPage,
         sortField: sortField || undefined,
         sortDirection: sortDir || undefined,
-        searchValue: effectiveSearch || undefined
+        searchValue: effectiveSearch || undefined,
+        activeFilter: activeFilter === "all" ? undefined : activeFilter
       });
 
       if (response && response.items) {
@@ -274,18 +276,36 @@ export default function GroupsPage() {
 
         <Card>
           <CardHeader className="border-b px-6 py-4">
-            <div className="relative w-full max-w-xs">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search by Group Name"
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative w-full max-w-xs">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by Group Name"
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="pl-9"
+                  data-testid="input-search-groups"
+                />
+              </div>
+              <Select
+                value={activeFilter}
+                onValueChange={(val) => {
+                  setActiveFilter(val as "active" | "inactive" | "all");
                   setCurrentPage(1);
                 }}
-                className="pl-9"
-                data-testid="input-search-groups"
-              />
+              >
+                <SelectTrigger className="w-[140px]" data-testid="select-active-filter">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active" data-testid="option-active">Active</SelectItem>
+                  <SelectItem value="inactive" data-testid="option-inactive">Inactive</SelectItem>
+                  <SelectItem value="all" data-testid="option-all">All</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </CardHeader>
 
