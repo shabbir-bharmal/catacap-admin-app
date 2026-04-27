@@ -16,12 +16,14 @@ interface WeeklyStats {
   periodEnd: Date;
   pendingGrantsThisWeekCount: number;
   pendingGrantsThisWeekAmount: number;
-  pendingGrantsOpenCount: number;
-  pendingGrantsOpenAmount: number;
+  grantsReceivedThisWeekCount: number;
+  grantsReceivedThisWeekAmount: number;
   creditCardDonationsCount: number;
   creditCardDonationsAmount: number;
   achDonationsCount: number;
   achDonationsAmount: number;
+  newRecommendationsCount: number;
+  newRecommendationsAmount: number;
   approvedInvestmentsCount: number;
   approvedInvestmentsAmount: number;
   distributionsCount: number;
@@ -68,11 +70,17 @@ async function gatherStats(periodEnd: Date): Promise<WeeklyStats> {
     [periodStart, periodEnd],
   );
 
-  const pendingOpen = await pool.query(
+  // "Grants Received" approximates received-this-week as records currently in
+  // status='received' whose modified_date falls in the window. Without a status
+  // change history table, this is the best signal available; it could overcount
+  // if a received grant is edited again later within the same week.
+  const grantsReceived = await pool.query(
     `SELECT COUNT(*) AS cnt, COALESCE(SUM(grant_amount), 0) AS total
      FROM pending_grants
      WHERE (is_deleted IS NULL OR is_deleted = false)
-       AND (LOWER(TRIM(COALESCE(status, 'pending'))) = 'pending')`,
+       AND LOWER(TRIM(COALESCE(status, ''))) = 'received'
+       AND modified_date >= $1 AND modified_date < $2`,
+    [periodStart, periodEnd],
   );
 
   const ccDonations = await pool.query(
@@ -92,6 +100,14 @@ async function gatherStats(periodEnd: Date): Promise<WeeklyStats> {
      WHERE (is_deleted IS NULL OR is_deleted = false)
        AND change_date >= $1 AND change_date < $2
        AND (payment_type ILIKE 'ach%' OR payment_type ILIKE '%bank%')`,
+    [periodStart, periodEnd],
+  );
+
+  const newRecommendations = await pool.query(
+    `SELECT COUNT(*) AS cnt, COALESCE(SUM(amount), 0) AS total
+     FROM recommendations
+     WHERE (is_deleted IS NULL OR is_deleted = false)
+       AND date_created >= $1 AND date_created < $2`,
     [periodStart, periodEnd],
   );
 
@@ -146,12 +162,14 @@ async function gatherStats(periodEnd: Date): Promise<WeeklyStats> {
     periodEnd,
     pendingGrantsThisWeekCount: parseInt(pendingThisWeek.rows[0].cnt) || 0,
     pendingGrantsThisWeekAmount: parseFloat(pendingThisWeek.rows[0].total) || 0,
-    pendingGrantsOpenCount: parseInt(pendingOpen.rows[0].cnt) || 0,
-    pendingGrantsOpenAmount: parseFloat(pendingOpen.rows[0].total) || 0,
+    grantsReceivedThisWeekCount: parseInt(grantsReceived.rows[0].cnt) || 0,
+    grantsReceivedThisWeekAmount: parseFloat(grantsReceived.rows[0].total) || 0,
     creditCardDonationsCount: parseInt(ccDonations.rows[0].cnt) || 0,
     creditCardDonationsAmount: parseFloat(ccDonations.rows[0].total) || 0,
     achDonationsCount: parseInt(achDonations.rows[0].cnt) || 0,
     achDonationsAmount: parseFloat(achDonations.rows[0].total) || 0,
+    newRecommendationsCount: parseInt(newRecommendations.rows[0].cnt) || 0,
+    newRecommendationsAmount: parseFloat(newRecommendations.rows[0].total) || 0,
     approvedInvestmentsCount: parseInt(approvedInvestments.rows[0].cnt) || 0,
     approvedInvestmentsAmount: parseFloat(approvedInvestments.rows[0].total) || 0,
     distributionsCount: parseInt(distRollup.rows[0].cnt) || 0,
@@ -192,15 +210,15 @@ function buildEmailHtml(stats: WeeklyStats): string {
 
     <div style="background:#fff;padding:24px;border:1px solid #e5e7eb;border-top:none;">
 
-      <h2 style="font-size:15px;margin:0 0 12px;color:#405189;">Pending Grants</h2>
+      <h2 style="font-size:15px;margin:0 0 12px;color:#405189;">Grants This Week</h2>
       <table style="width:100%;border-collapse:collapse;margin-bottom:24px;font-size:14px;">
         <tr>
-          <td style="padding:8px 12px;background:#f9fafb;">New pending grants this week</td>
+          <td style="padding:8px 12px;background:#f9fafb;">New Pending Grants</td>
           <td style="padding:8px 12px;background:#f9fafb;text-align:right;font-weight:600;">${fmtNumber(stats.pendingGrantsThisWeekCount)} grants · ${fmtMoney(stats.pendingGrantsThisWeekAmount)}</td>
         </tr>
         <tr>
-          <td style="padding:8px 12px;">Total open pending grants (current)</td>
-          <td style="padding:8px 12px;text-align:right;font-weight:600;">${fmtNumber(stats.pendingGrantsOpenCount)} grants · ${fmtMoney(stats.pendingGrantsOpenAmount)}</td>
+          <td style="padding:8px 12px;">Grants Received</td>
+          <td style="padding:8px 12px;text-align:right;font-weight:600;">${fmtNumber(stats.grantsReceivedThisWeekCount)} grants · ${fmtMoney(stats.grantsReceivedThisWeekAmount)}</td>
         </tr>
       </table>
 
@@ -220,11 +238,15 @@ function buildEmailHtml(stats: WeeklyStats): string {
         </tr>
       </table>
 
-      <h2 style="font-size:15px;margin:0 0 12px;color:#405189;">New Approved Investments</h2>
+      <h2 style="font-size:15px;margin:0 0 12px;color:#405189;">Investment Recommendations This Week</h2>
       <table style="width:100%;border-collapse:collapse;margin-bottom:24px;font-size:14px;">
         <tr>
-          <td style="padding:8px 12px;background:#f9fafb;">Approved investments this week</td>
-          <td style="padding:8px 12px;background:#f9fafb;text-align:right;font-weight:600;">${fmtNumber(stats.approvedInvestmentsCount)} · ${fmtMoney(stats.approvedInvestmentsAmount)}</td>
+          <td style="padding:8px 12px;background:#f9fafb;">New recommendations made</td>
+          <td style="padding:8px 12px;background:#f9fafb;text-align:right;font-weight:600;">${fmtNumber(stats.newRecommendationsCount)} · ${fmtMoney(stats.newRecommendationsAmount)}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px 12px;">Approved this week</td>
+          <td style="padding:8px 12px;text-align:right;font-weight:600;">${fmtNumber(stats.approvedInvestmentsCount)} · ${fmtMoney(stats.approvedInvestmentsAmount)}</td>
         </tr>
       </table>
 
