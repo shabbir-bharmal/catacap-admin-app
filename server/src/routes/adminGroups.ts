@@ -854,7 +854,7 @@ router.put("/update-group-investments", async (req: Request, res: Response) => {
     const campaignIds: number[] = rawCampaignIds.filter((id) => !privateLinkedIds.has(id));
 
     const groupResult = await pool.query(
-      `SELECT id, name, identifier, owner_id FROM groups WHERE id = $1`,
+      `SELECT id, name, identifier, owner_id, picture_file_name FROM groups WHERE id = $1`,
       [groupId]
     );
     if (groupResult.rows.length === 0) {
@@ -880,6 +880,7 @@ router.put("/update-group-investments", async (req: Request, res: Response) => {
     const newIds = new Set(campaignIds);
 
     const addedIds = campaignIds.filter((id) => !oldIds.has(id));
+    const removedIds: number[] = [...oldIds].filter((id: any) => !newIds.has(id)).map((id: any) => Number(id));
 
     const client = await pool.connect();
     try {
@@ -917,18 +918,36 @@ router.put("/update-group-investments", async (req: Request, res: Response) => {
       updatedBy: currentUserId || null,
     });
 
-    if (addedIds.length > 0) {
+    if (addedIds.length > 0 || removedIds.length > 0) {
       const NON_NOTIFY_STAGES = [3, 7, 9];
 
-      let campaignsToNotify: any[] = [];
-      const placeholders = addedIds.map((_: any, i: number) => `$${i + 1}`).join(", ");
-      const campResult = await pool.query(
-        `SELECT id, name, stage, property, target, description FROM campaigns WHERE id IN (${placeholders})`,
-        addedIds
-      );
-      campaignsToNotify = campResult.rows.filter((c: any) => !NON_NOTIFY_STAGES.includes(c.stage));
+      const requestOrigin = process.env.REQUEST_ORIGIN || process.env.VITE_FRONTEND_URL || "";
+      const groupSlug = (group.identifier && String(group.identifier).trim()) || String(group.id);
+      const groupPageUrl = requestOrigin ? `${requestOrigin}/group/${groupSlug}` : "";
+      const unsubscribeUrl = requestOrigin ? `${requestOrigin}/settings` : "";
 
-      if (campaignsToNotify.length > 0) {
+      const groupPicturePath = extractStoragePath(group.picture_file_name) || null;
+
+      const formatTargetAmount = (val: any): string => {
+        if (val == null || val === "") return "";
+        const num = typeof val === "number" ? val : parseFloat(String(val).replace(/[$,]/g, ""));
+        if (isNaN(num)) return "";
+        return `$${num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      };
+
+      const fetchCampaigns = async (ids: number[]): Promise<any[]> => {
+        if (ids.length === 0) return [];
+        const placeholders = ids.map((_: any, i: number) => `$${i + 1}`).join(", ");
+        const result = await pool.query(
+          `SELECT id, name, stage, property, target, description FROM campaigns WHERE id IN (${placeholders})`,
+          ids
+        );
+        return result.rows.filter((c: any) => !NON_NOTIFY_STAGES.includes(c.stage));
+      };
+
+      let membersRows: any[] | null = null;
+      const fetchMembers = async (): Promise<any[]> => {
+        if (membersRows !== null) return membersRows;
         const membersResult = await pool.query(
           `SELECT DISTINCT r.request_owner_id as user_id, u.email, u.first_name
            FROM requests r
@@ -940,49 +959,86 @@ router.put("/update-group-investments", async (req: Request, res: Response) => {
              AND (u.is_deleted IS NULL OR u.is_deleted = false)`,
           [groupId]
         );
+        membersRows = membersResult.rows;
+        return membersRows;
+      };
 
-        const requestOrigin = process.env.REQUEST_ORIGIN || process.env.VITE_FRONTEND_URL || "";
-        const groupSlug = (group.identifier && String(group.identifier).trim()) || String(group.id);
-        const groupPageUrl = requestOrigin ? `${requestOrigin}/group/${groupSlug}` : "";
-        const unsubscribeUrl = requestOrigin ? `${requestOrigin}/settings` : "";
+      if (addedIds.length > 0) {
+        const campaignsToNotify = await fetchCampaigns(addedIds);
+        if (campaignsToNotify.length > 0) {
+          const members = await fetchMembers();
+          for (const campaign of campaignsToNotify) {
+            for (const member of members) {
+              try {
+                await pool.query(
+                  `INSERT INTO user_notifications (title, description, url_to_redirect, is_read, target_user_id, picture_file_name)
+                   VALUES ($1, $2, $3, false, $4, $5)`,
+                  [
+                    `New Investment in ${group.name}`,
+                    `${campaign.name} has been added to ${group.name}`,
+                    `/investments/${campaign.property || campaign.id}`,
+                    member.user_id,
+                    groupPicturePath,
+                  ]
+                );
+              } catch (notifErr) {
+                console.error(`Failed to create notification for user ${member.user_id}:`, notifErr);
+              }
 
-        const formatTargetAmount = (val: any): string => {
-          if (val == null || val === "") return "";
-          const num = typeof val === "number" ? val : parseFloat(String(val).replace(/[$,]/g, ""));
-          if (isNaN(num)) return "";
-          return `$${num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-        };
-
-        for (const campaign of campaignsToNotify) {
-          for (const member of membersResult.rows) {
-            try {
-              await pool.query(
-                `INSERT INTO user_notifications (title, description, url_to_redirect, is_read, target_user_id)
-                 VALUES ($1, $2, $3, false, $4)`,
-                [
-                  `New Investment in ${group.name}`,
-                  `${campaign.name} has been added to ${group.name}`,
-                  `/investments/${campaign.property || campaign.id}`,
-                  member.user_id,
-                ]
-              );
-            } catch (notifErr) {
-              console.error(`Failed to create notification for user ${member.user_id}:`, notifErr);
+              if (member.email) {
+                sendTemplateEmail(12, member.email, {
+                  groupName: group.name,
+                  investmentName: campaign.name,
+                  investmentLink: `${requestOrigin}/investments/${campaign.property || campaign.id}`,
+                  firstName: member.first_name || "Member",
+                  groupPageUrl,
+                  targetAmount: formatTargetAmount(campaign.target),
+                  investmentDescription: campaign.description || "",
+                  unsubscribeUrl,
+                }).catch((emailErr) => {
+                  console.error(`[EMAIL] Failed to send group investment notification to ${member.email}:`, emailErr);
+                });
+              }
             }
+          }
+        }
+      }
 
-            if (member.email) {
-              sendTemplateEmail(12, member.email, {
-                groupName: group.name,
-                investmentName: campaign.name,
-                investmentLink: `${requestOrigin}/investments/${campaign.property || campaign.id}`,
-                firstName: member.first_name || "Member",
-                groupPageUrl,
-                targetAmount: formatTargetAmount(campaign.target),
-                investmentDescription: campaign.description || "",
-                unsubscribeUrl,
-              }).catch((emailErr) => {
-                console.error(`[EMAIL] Failed to send group investment notification to ${member.email}:`, emailErr);
-              });
+      if (removedIds.length > 0) {
+        const campaignsToNotify = await fetchCampaigns(removedIds);
+        if (campaignsToNotify.length > 0) {
+          const members = await fetchMembers();
+          for (const campaign of campaignsToNotify) {
+            for (const member of members) {
+              try {
+                await pool.query(
+                  `INSERT INTO user_notifications (title, description, url_to_redirect, is_read, target_user_id, picture_file_name)
+                   VALUES ($1, $2, $3, false, $4, $5)`,
+                  [
+                    `Investment Removed from ${group.name}`,
+                    `${campaign.name} has been removed from ${group.name}`,
+                    `/group/${groupSlug}`,
+                    member.user_id,
+                    groupPicturePath,
+                  ]
+                );
+              } catch (notifErr) {
+                console.error(`Failed to create removal notification for user ${member.user_id}:`, notifErr);
+              }
+
+              if (member.email) {
+                sendTemplateEmail(35, member.email, {
+                  groupName: group.name,
+                  investmentName: campaign.name,
+                  firstName: member.first_name || "Member",
+                  groupPageUrl,
+                  targetAmount: formatTargetAmount(campaign.target),
+                  investmentDescription: campaign.description || "",
+                  unsubscribeUrl,
+                }).catch((emailErr) => {
+                  console.error(`[EMAIL] Failed to send group investment removed notification to ${member.email}:`, emailErr);
+                });
+              }
             }
           }
         }

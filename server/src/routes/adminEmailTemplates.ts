@@ -48,7 +48,7 @@ const EmailTemplateCategoryMap: Record<number, { name: string; label: string }> 
   32: { name: "DAFReminderImpactAssetsWeek2", label: "DAF Reminder ImpactAssets (Week 2)" },
   33: { name: "DAFReminderWeek2", label: "DAF Reminder (Week 2)" },
   34: { name: "FoundationReminderDay3", label: "Foundation Reminder (Day 3)" },
-  35: { name: "TwoFactorAuthentication", label: "Login Verification Code" },
+  35: { name: "GroupInvestmentRemovedNotification", label: "Group Investment Removed Notification" },
   36: { name: "WelcomeSeriesEmail1", label: "Welcome Series – Email 1 (Welcome to CataCap)" },
   37: { name: "WelcomeSeriesEmail2", label: "Welcome Series – Email 2 (Capital With Purpose)" },
   38: { name: "WelcomeSeriesEmail3", label: "Welcome Series – Email 3 (Your Capital, Your Cause, Your Community)" },
