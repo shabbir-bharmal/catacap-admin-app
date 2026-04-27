@@ -269,7 +269,7 @@ function buildEmailHtml(stats: WeeklyStats): string {
       </table>
 
       <p style="margin:24px 0 0;font-size:11px;color:#9ca3af;text-align:center;">
-        Internal admin email · Sent automatically every Friday at noon PT.
+        Internal admin email · Sent automatically every Monday at noon PT.
       </p>
     </div>
   </div>

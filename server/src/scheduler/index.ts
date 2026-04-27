@@ -23,7 +23,7 @@ const JOB_RUNNERS: Record<string, () => Promise<void>> = {
 };
 
 const WEEKLY_JOBS: Record<string, number> = {
-  WeeklyKenStats: 5,
+  WeeklyKenStats: 1,
 };
 
 const activeTasks: ScheduledTask[] = [];
