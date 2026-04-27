@@ -59,6 +59,17 @@ export interface GroupChampionsResponse {
     }[];
 }
 
+export interface GroupReportsResponse {
+    cumulativeMembership: { month: string; newGroups: number; cumulativeGroups: number }[];
+    fundingBuckets: { threshold: number; groupCount: number }[];
+    totals: { groupsWithTwoOrMore: number; groupsWithAnyInvestment: number };
+}
+
+export async function fetchGroupReports(): Promise<GroupReportsResponse> {
+    const response = await axiosInstance.get<GroupReportsResponse>("/api/admin/group/reports");
+    return response.data;
+}
+
 export async function fetchAllGroups(): Promise<GroupUpdatePayload[]> {
     const response = await axiosInstance.get<GroupUpdatePayload[]>("/api/Group");
     return response.data;

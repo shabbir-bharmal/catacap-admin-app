@@ -11,7 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { Search, Download, Check, X, Pencil, Eye, History, Crown, Users as UsersIcon, Loader2, Trash2 } from "lucide-react";
+import { Search, Download, Check, X, Pencil, Eye, History, Crown, Users as UsersIcon, Loader2, Trash2, BarChart3 } from "lucide-react";
 import { useSort } from "../hooks/useSort";
 import { useDebounce } from "../hooks/useDebounce";
 import { SortHeader } from "../components/ui/table-sort";
@@ -268,10 +268,22 @@ export default function GroupsPage() {
           <h1 className="text-2xl font-semibold" data-testid="text-page-heading">
             Groups
           </h1>
-          <Button className="bg-[#405189] hover:bg-[#405189]/90 text-white" onClick={handleExport} disabled={isExporting} data-testid="button-export-all">
-            <Download className="h-3.5 w-3.5 mr-1.5" />
-            {isExporting ? "Exporting..." : "Export All"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Link href="/groups/reports">
+              <Button
+                variant="outline"
+                className="text-[#405189] hover:text-[#405189] hover:bg-[#405189]/5"
+                data-testid="button-group-reports"
+              >
+                <BarChart3 className="h-3.5 w-3.5 mr-1.5" />
+                Group Reports
+              </Button>
+            </Link>
+            <Button className="bg-[#405189] hover:bg-[#405189]/90 text-white" onClick={handleExport} disabled={isExporting} data-testid="button-export-all">
+              <Download className="h-3.5 w-3.5 mr-1.5" />
+              {isExporting ? "Exporting..." : "Export All"}
+            </Button>
+          </div>
         </div>
 
         <Card>
