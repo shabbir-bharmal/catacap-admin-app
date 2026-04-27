@@ -245,7 +245,7 @@ function buildEmailHtml(stats: WeeklyStats): string {
           <td style="padding:8px 12px;background:#f9fafb;text-align:right;font-weight:600;">${fmtNumber(stats.newRecommendationsCount)} · ${fmtMoney(stats.newRecommendationsAmount)}</td>
         </tr>
         <tr>
-          <td style="padding:8px 12px;">Approved this week</td>
+          <td style="padding:8px 12px;">New Investments Approved</td>
           <td style="padding:8px 12px;text-align:right;font-weight:600;">${fmtNumber(stats.approvedInvestmentsCount)} · ${fmtMoney(stats.approvedInvestmentsAmount)}</td>
         </tr>
       </table>
