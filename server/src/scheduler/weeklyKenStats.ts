@@ -244,17 +244,17 @@ function buildEmailHtml(stats: WeeklyStats): string {
           <td style="padding:8px 12px;background:#f9fafb;">New recommendations made</td>
           <td style="padding:8px 12px;background:#f9fafb;text-align:right;font-weight:600;">${fmtNumber(stats.newRecommendationsCount)} · ${fmtMoney(stats.newRecommendationsAmount)}</td>
         </tr>
-        <tr>
-          <td style="padding:8px 12px;">New Investments Approved</td>
-          <td style="padding:8px 12px;text-align:right;font-weight:600;">${fmtNumber(stats.approvedInvestmentsCount)} · ${fmtMoney(stats.approvedInvestmentsAmount)}</td>
-        </tr>
       </table>
 
-      <h2 style="font-size:15px;margin:0 0 12px;color:#405189;">Distributions This Week</h2>
+      <h2 style="font-size:15px;margin:0 0 12px;color:#405189;">Investment Activity This Week</h2>
       <table style="width:100%;border-collapse:collapse;margin-bottom:8px;font-size:14px;">
         <tr>
-          <td style="padding:8px 12px;background:#f9fafb;">Total distributions</td>
-          <td style="padding:8px 12px;background:#f9fafb;text-align:right;font-weight:600;">${fmtNumber(stats.distributionsCount)} · ${fmtMoney(stats.distributionsAmount)}</td>
+          <td style="padding:8px 12px;background:#f9fafb;">New Investments Approved</td>
+          <td style="padding:8px 12px;background:#f9fafb;text-align:right;font-weight:600;">${fmtNumber(stats.approvedInvestmentsCount)} · ${fmtMoney(stats.approvedInvestmentsAmount)}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px 12px;">Total distributions</td>
+          <td style="padding:8px 12px;text-align:right;font-weight:600;">${fmtNumber(stats.distributionsCount)} · ${fmtMoney(stats.distributionsAmount)}</td>
         </tr>
       </table>
       <table style="width:100%;border-collapse:collapse;margin-bottom:24px;font-size:13px;border:1px solid #eee;">
