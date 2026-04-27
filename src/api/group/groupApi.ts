@@ -25,6 +25,7 @@ export interface GroupApiItem {
     featuredGroup: boolean;
     leader: string;
     member: number;
+    memberInvestedTotal?: number;
     investment: number;
     groupThemes?: string;
 }

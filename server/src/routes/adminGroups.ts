@@ -101,6 +101,23 @@ router.get("/", async (req: Request, res: Response) => {
       memberCounts[row.group_to_follow_id] = parseInt(row.cnt);
     }
 
+    const memberInvestedResult = await pool.query(
+      `SELECT req.group_to_follow_id, COALESCE(SUM(r.amount), 0) AS total
+       FROM requests req
+       JOIN recommendations r
+         ON r.user_id = req.request_owner_id
+        AND (r.is_deleted IS NULL OR r.is_deleted = false)
+       WHERE req.group_to_follow_id IN (${memberPlaceholders})
+         AND req.status = 'accepted'
+         AND (req.is_deleted IS NULL OR req.is_deleted = false)
+       GROUP BY req.group_to_follow_id`,
+      groupIds
+    );
+    const memberInvestedTotals: Record<number, number> = {};
+    for (const row of memberInvestedResult.rows) {
+      memberInvestedTotals[row.group_to_follow_id] = parseFloat(row.total) || 0;
+    }
+
     const cgPlaceholders = groupIds.map((_: any, i: number) => `$${i + 1}`).join(", ");
     const cgResult = await pool.query(
       `SELECT cg.groups_id, c.id as campaign_id, c.is_active, c.stage
@@ -168,6 +185,7 @@ router.get("/", async (req: Request, res: Response) => {
         featuredGroup: g.featured_group || false,
         leader: leaderNames.join(", "),
         member: memberCounts[g.id] || 0,
+        memberInvestedTotal: memberInvestedTotals[g.id] || 0,
         groupThemes: g.group_themes,
         investment: allCampaignIds.size,
         metaTitle: g.meta_title,

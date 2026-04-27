@@ -18,6 +18,7 @@ import { SortHeader } from "../components/ui/table-sort";
 import { PaginationControls } from "@/components/ui/pagination-controls";
 import { fetchGroups, exportGroupsData, updateGroupSettings, fetchGroupLeaders, fetchGroupChampions, deleteGroup, type GroupApiItem, type GroupLeader, type Champion } from "../api/group/groupApi";
 import { AuditLogModal } from "../components/AuditLogModal";
+import { currency_format } from "@/helpers/format";
 import { ConfirmationDialog } from "../components/ConfirmationDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { GroupLeadersSection } from "@/components/group/GroupLeadersSection";
@@ -31,6 +32,7 @@ interface GroupData {
   identifier: string;
   groupLeaders: string[];
   memberCount: number;
+  memberInvestedTotal: number;
   investmentCount: number;
   status: "Public" | "Private" | string;
   active: boolean;
@@ -38,7 +40,7 @@ interface GroupData {
   featuredGroup: boolean;
 }
 
-type SortField = "groupName" | "memberCount" | "investmentCount" | "status" | "active" | "corporateGroup";
+type SortField = "groupName" | "memberCount" | "memberInvestedTotal" | "investmentCount" | "status" | "active" | "corporateGroup";
 
 export default function GroupsPage() {
   const { user: authUser } = useAuth();
@@ -136,6 +138,7 @@ export default function GroupsPage() {
               .filter(Boolean)
             : [],
           memberCount: item.member ?? 0,
+          memberInvestedTotal: item.memberInvestedTotal ?? 0,
           investmentCount: item.investment ?? 0,
           // isPrivateGroup=false → "Public", isPrivateGroup=true → "Private"
           status: item.isPrivateGroup ? "Private" : "Public",
@@ -298,6 +301,9 @@ export default function GroupsPage() {
                     <SortHeader field="memberCount" sortField={sortField} sortDir={sortDir} handleSort={handleSort} className="text-center">
                       Member Count
                     </SortHeader>
+                    <SortHeader field="memberInvestedTotal" sortField={sortField} sortDir={sortDir} handleSort={handleSort} className="text-right whitespace-nowrap">
+                      Total Invested by Members
+                    </SortHeader>
                     <SortHeader field="investmentCount" sortField={sortField} sortDir={sortDir} handleSort={handleSort} className="text-center">
                       Investment Count
                     </SortHeader>
@@ -317,13 +323,13 @@ export default function GroupsPage() {
                 <tbody>
                   {isLoading ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
+                      <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
                         Loading groups...
                       </td>
                     </tr>
                   ) : groups.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
+                      <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
                         No groups found.
                       </td>
                     </tr>
@@ -343,6 +349,11 @@ export default function GroupsPage() {
                         <td className="px-4 py-3 text-center">
                           <span className="text-sm" data-testid={`text-membercount-${group.id}`}>
                             {group.memberCount}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          <span className="text-sm font-medium" data-testid={`text-memberinvestedtotal-${group.id}`}>
+                            {currency_format(group.memberInvestedTotal, true, 0)}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-center">
