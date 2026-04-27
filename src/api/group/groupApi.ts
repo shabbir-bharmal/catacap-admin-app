@@ -62,6 +62,16 @@ export async function fetchAllGroups(): Promise<GroupUpdatePayload[]> {
     return response.data;
 }
 
+export interface GroupIdName {
+    id: number;
+    name: string;
+}
+
+export async function fetchAllGroupsIdName(): Promise<GroupIdName[]> {
+    const response = await axiosInstance.get<GroupIdName[]>("/api/Group/id-name");
+    return response.data;
+}
+
 export async function fetchGroups(
     params?: GroupParams
 ): Promise<PaginatedGroupResponse> {

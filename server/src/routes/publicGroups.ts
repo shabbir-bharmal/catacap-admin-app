@@ -5,6 +5,27 @@ import { resolveFileUrl } from "../utils/uploadBase64Image.js";
 
 const router = Router();
 
+router.get("/id-name", async (_req: Request, res: Response) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, name
+       FROM groups
+       WHERE (is_deleted IS NULL OR is_deleted = false)
+       ORDER BY LOWER(name) ASC`
+    );
+
+    const data = result.rows.map((g: any) => ({
+      id: g.id,
+      name: g.name,
+    }));
+
+    res.json(data);
+  } catch (err) {
+    console.error("Get groups id/name error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
 router.get("/", async (_req: Request, res: Response) => {
   try {
     const groupsResult = await pool.query(

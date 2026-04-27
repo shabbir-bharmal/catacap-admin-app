@@ -20,7 +20,7 @@ import { useToast } from "@/hooks/use-toast";
 import * as eventApi from "../api/event/eventApi";
 import type { EventLinkTargetType } from "../api/event/eventApi";
 import { fetchAllInvestmentNameList } from "../api/investment/investmentApi";
-import { fetchAllGroups } from "../api/group/groupApi";
+import { fetchAllGroupsIdName } from "../api/group/groupApi";
 import { fetchCustomPages } from "../api/event/customPagesApi";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSort } from "../hooks/useSort";
@@ -182,7 +182,7 @@ export default function EventManagement() {
 
   const groupsListQuery = useQuery({
     queryKey: ["event-link-target", "groups"],
-    queryFn: () => fetchAllGroups(),
+    queryFn: () => fetchAllGroupsIdName(),
     enabled: dialogOpen,
     staleTime: 5 * 60 * 1000,
   });
