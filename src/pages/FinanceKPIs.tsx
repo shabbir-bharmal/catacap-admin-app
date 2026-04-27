@@ -272,12 +272,15 @@ interface DrilldownSelection {
   label: string;
 }
 
+type PerPeriodMetric = "count" | "amount";
+
 function CompletedInvestmentsPerPeriodCard({
   onBarClick,
 }: {
   onBarClick: (sel: DrilldownSelection) => void;
 }) {
   const [range, setRange] = useState<string>("all");
+  const [metric, setMetric] = useState<PerPeriodMetric>("count");
 
   const { data, isLoading, isError } = useQuery<CompletedInvestmentsResponse>({
     queryKey: ["/api/admin/finance/kpis/completed-investments", range],
@@ -311,10 +314,40 @@ function CompletedInvestmentsPerPeriodCard({
             Completed Investments per Period
           </CardTitle>
           <p className="text-xs text-muted-foreground mt-1">
-            Number of investments marked completed, grouped by {granularityLabel(data?.granularity)} period
+            {metric === "count" ? "Number of investments" : "Total dollar amount"} marked completed, grouped by {granularityLabel(data?.granularity)} period
           </p>
         </div>
-        <div className="shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
+          <div
+            className="inline-flex rounded-md border bg-muted/40 p-0.5"
+            role="group"
+            data-testid="toggle-per-period-metric"
+          >
+            <button
+              type="button"
+              onClick={() => setMetric("count")}
+              className={`px-3 py-1 text-xs font-medium rounded-sm transition-colors ${
+                metric === "count"
+                  ? "bg-background shadow-sm text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+              data-testid="toggle-per-period-count"
+            >
+              Number
+            </button>
+            <button
+              type="button"
+              onClick={() => setMetric("amount")}
+              className={`px-3 py-1 text-xs font-medium rounded-sm transition-colors ${
+                metric === "amount"
+                  ? "bg-background shadow-sm text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+              data-testid="toggle-per-period-amount"
+            >
+              Amount
+            </button>
+          </div>
           <RangeSelector value={range} onChange={setRange} testId="select-range-completed-per-period" />
         </div>
       </CardHeader>
@@ -360,12 +393,24 @@ function CompletedInvestmentsPerPeriodCard({
                 <XAxis dataKey="label" tick={{ fontSize: 11 }} minTickGap={24} />
                 <YAxis
                   tick={{ fontSize: 11 }}
-                  allowDecimals={false}
-                  width={50}
+                  allowDecimals={metric === "amount"}
+                  width={metric === "amount" ? 70 : 50}
+                  tickFormatter={
+                    metric === "amount"
+                      ? (v: number) => compactCurrency(v)
+                      : (v: number) => v.toLocaleString()
+                  }
                 />
                 <Tooltip
-                  formatter={(value: number, name: string, props) => {
+                  formatter={(value: number, _name: string, props) => {
+                    const count = props?.payload?.count as number | undefined;
                     const amount = props?.payload?.amount as number | undefined;
+                    if (metric === "amount") {
+                      return [
+                        `${currency_format(value)} (${(count ?? 0).toLocaleString()} investments)`,
+                        "Completed",
+                      ];
+                    }
                     return [
                       `${value.toLocaleString()} (${currency_format(amount ?? 0)})`,
                       "Completed",
@@ -380,7 +425,7 @@ function CompletedInvestmentsPerPeriodCard({
                   }}
                 />
                 <Bar
-                  dataKey="count"
+                  dataKey={metric}
                   fill="#0ab39c"
                   radius={[4, 4, 0, 0]}
                   isAnimationActive={false}
