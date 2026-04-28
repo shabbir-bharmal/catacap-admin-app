@@ -52,25 +52,53 @@ router.get("/summary", async (_req: Request, res: Response) => {
     const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
 
-    const recStats = await pool.query(
-      `SELECT
-         COALESCE(SUM(CASE WHEN LOWER(TRIM(r.status)) = 'approved' THEN r.amount ELSE 0 END), 0) AS total_approved,
-         COUNT(CASE WHEN LOWER(TRIM(r.status)) = 'approved' THEN 1 END) AS approved_count,
-         COALESCE(SUM(CASE WHEN r.date_created >= $1 THEN r.amount ELSE 0 END), 0) AS this_month_amount,
-         COUNT(CASE WHEN r.date_created >= $1 THEN 1 END) AS this_month_count,
-         COALESCE(SUM(CASE WHEN r.date_created >= $2 AND r.date_created < $1 THEN r.amount ELSE 0 END), 0) AS last_month_amount,
-         COUNT(CASE WHEN r.date_created >= $2 AND r.date_created < $1 THEN 1 END) AS last_month_count
-       FROM recommendations r
-       WHERE ${SOFT_DELETE_FILTER("r")}
-         AND LOWER(r.user_email) IN (
-           SELECT LOWER(u.email) FROM users u
-           JOIN user_roles ur ON u.id = ur.user_id
-           JOIN roles role ON ur.role_id = role.id
-           WHERE role.name = $3
-             AND ${SOFT_DELETE_FILTER("u")}
-         )`,
-      [startOfThisMonth.toISOString(), startOfLastMonth.toISOString(), USER_ROLE]
-    );
+    // Fire all four independent aggregations in parallel rather than serially
+    // — each round-trip used to add latency on top of the previous one.
+    const [recStats, groupStats, userStats, lastMonthUserResult] = await Promise.all([
+      pool.query(
+        `SELECT
+           COALESCE(SUM(CASE WHEN LOWER(TRIM(r.status)) = 'approved' THEN r.amount ELSE 0 END), 0) AS total_approved,
+           COUNT(CASE WHEN LOWER(TRIM(r.status)) = 'approved' THEN 1 END) AS approved_count,
+           COALESCE(SUM(CASE WHEN r.date_created >= $1 THEN r.amount ELSE 0 END), 0) AS this_month_amount,
+           COUNT(CASE WHEN r.date_created >= $1 THEN 1 END) AS this_month_count,
+           COALESCE(SUM(CASE WHEN r.date_created >= $2 AND r.date_created < $1 THEN r.amount ELSE 0 END), 0) AS last_month_amount,
+           COUNT(CASE WHEN r.date_created >= $2 AND r.date_created < $1 THEN 1 END) AS last_month_count
+         FROM recommendations r
+         WHERE ${SOFT_DELETE_FILTER("r")}
+           AND LOWER(r.user_email) IN (
+             SELECT LOWER(u.email) FROM users u
+             JOIN user_roles ur ON u.id = ur.user_id
+             JOIN roles role ON ur.role_id = role.id
+             WHERE role.name = $3
+               AND ${SOFT_DELETE_FILTER("u")}
+           )`,
+        [startOfThisMonth.toISOString(), startOfLastMonth.toISOString(), USER_ROLE]
+      ),
+      pool.query(
+        `SELECT
+           COUNT(*) AS total,
+           COUNT(CASE WHEN created_at >= $1 AND created_at < $2 THEN 1 END) AS last_month
+         FROM groups
+         WHERE ${SOFT_DELETE_FILTER("groups")}`,
+        [startOfLastMonth.toISOString(), startOfThisMonth.toISOString()]
+      ),
+      pool.query(
+        `SELECT COUNT(*) AS total
+         FROM users u
+         JOIN user_roles ur ON u.id = ur.user_id
+         JOIN roles role ON ur.role_id = role.id
+         WHERE role.name = $1
+           AND ${SOFT_DELETE_FILTER("u")}`,
+        [USER_ROLE]
+      ),
+      pool.query(
+        `SELECT COUNT(*) AS total
+         FROM users u
+         WHERE u.date_created >= $1 AND u.date_created < $2
+           AND ${SOFT_DELETE_FILTER("u")}`,
+        [startOfLastMonth.toISOString(), startOfThisMonth.toISOString()]
+      ),
+    ]);
 
     const stats = recStats.rows[0];
     const totalDonations = parseFloat(stats.total_approved) || 0;
@@ -80,36 +108,9 @@ router.get("/summary", async (_req: Request, res: Response) => {
     const thisMonthCount = parseInt(stats.this_month_count) || 0;
     const lastMonthCount = parseInt(stats.last_month_count) || 0;
 
-    const groupStats = await pool.query(
-      `SELECT 
-         COUNT(*) AS total,
-         COUNT(CASE WHEN created_at >= $1 AND created_at < $2 THEN 1 END) AS last_month
-       FROM groups
-       WHERE ${SOFT_DELETE_FILTER("groups")}`,
-      [startOfLastMonth.toISOString(), startOfThisMonth.toISOString()]
-    );
     const totalGroups = parseInt(groupStats.rows[0].total) || 0;
     const lastMonthGroups = parseInt(groupStats.rows[0].last_month) || 0;
-
-    const userStats = await pool.query(
-      `SELECT
-         COUNT(*) AS total
-       FROM users u
-       JOIN user_roles ur ON u.id = ur.user_id
-       JOIN roles role ON ur.role_id = role.id
-       WHERE role.name = $1
-         AND ${SOFT_DELETE_FILTER("u")}`,
-      [USER_ROLE]
-    );
     const totalUsers = parseInt(userStats.rows[0].total) || 0;
-
-    const lastMonthUserResult = await pool.query(
-      `SELECT COUNT(*) AS total
-       FROM users u
-       WHERE u.date_created >= $1 AND u.date_created < $2
-         AND ${SOFT_DELETE_FILTER("u")}`,
-      [startOfLastMonth.toISOString(), startOfThisMonth.toISOString()]
-    );
     const lastMonthUsers = parseInt(lastMonthUserResult.rows[0].total) || 0;
 
     const thisMonthDonations = parseFloat(stats.this_month_amount) || 0;

@@ -475,6 +475,108 @@ async function ensureInvestmentInstruments(
   }
 }
 
+async function ensureAdminPerformanceIndexes(
+  client: pg.PoolClient,
+): Promise<void> {
+  // Adds B-tree / expression indexes that back the most frequent admin
+  // queries (Investments list, Users list, Groups list, Pending Grants list,
+  // Dashboard, Consolidated Finances). All statements are
+  // CREATE INDEX IF NOT EXISTS so this is safe to run on every startup.
+  // We only create an index when the underlying table actually exists so a
+  // partial deployment doesn't break startup.
+  const indexes: Array<{ table: string; name: string; ddl: string }> = [
+    // recommendations: aggregated by campaign_id and joined on lower(user_email)
+    { table: "recommendations", name: "idx_recommendations_campaign_id",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_recommendations_campaign_id ON recommendations (campaign_id)` },
+    { table: "recommendations", name: "idx_recommendations_lower_email",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_recommendations_lower_email ON recommendations (LOWER(user_email))` },
+    { table: "recommendations", name: "idx_recommendations_status",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_recommendations_status ON recommendations (status)` },
+
+    // users: joined via lower(email) in dashboard, finance, top-donors etc.
+    { table: "users", name: "idx_users_lower_email",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_users_lower_email ON users (LOWER(email))` },
+
+    // user_roles: joined on both sides in nearly every admin query
+    { table: "user_roles", name: "idx_user_roles_role_id",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_user_roles_role_id ON user_roles (role_id)` },
+    { table: "user_roles", name: "idx_user_roles_user_id",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_user_roles_user_id ON user_roles (user_id)` },
+
+    // requests: lookups by group and by owner (Users list filter, Groups members)
+    { table: "requests", name: "idx_requests_group_status",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_requests_group_status ON requests (group_to_follow_id, status)` },
+    { table: "requests", name: "idx_requests_owner",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_requests_owner ON requests (request_owner_id)` },
+
+    // pending_grants and notes
+    { table: "pending_grants", name: "idx_pending_grants_user_id",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_pending_grants_user_id ON pending_grants (user_id)` },
+    { table: "pending_grants", name: "idx_pending_grants_campaign_id",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_pending_grants_campaign_id ON pending_grants (campaign_id)` },
+    { table: "pending_grant_notes", name: "idx_pending_grant_notes_grant_id",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_pending_grant_notes_grant_id ON pending_grant_notes (pending_grant_id)` },
+
+    // investment_notes
+    { table: "investment_notes", name: "idx_investment_notes_campaign_id",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_investment_notes_campaign_id ON investment_notes (campaign_id)` },
+
+    // account_balance_change_logs and group_account_balances
+    { table: "account_balance_change_logs", name: "idx_acl_user_id",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_acl_user_id ON account_balance_change_logs (user_id)` },
+    { table: "account_balance_change_logs", name: "idx_acl_group_id",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_acl_group_id ON account_balance_change_logs (group_id)` },
+    { table: "group_account_balances", name: "idx_gab_user_id",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_gab_user_id ON group_account_balances (user_id)` },
+    { table: "group_account_balances", name: "idx_gab_group_id",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_gab_group_id ON group_account_balances (group_id)` },
+
+    // campaign_groups (join membership table; PK already covers (campaigns_id, groups_id))
+    { table: "campaign_groups", name: "idx_campaign_groups_groups_id",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_campaign_groups_groups_id ON campaign_groups (groups_id)` },
+
+    // campaigns: deleted_by lookup join, group_for_private_access_id used in groups list UNION
+    { table: "campaigns", name: "idx_campaigns_deleted_by",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_campaigns_deleted_by ON campaigns (deleted_by)` },
+    { table: "campaigns", name: "idx_campaigns_private_access_group",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_campaigns_private_access_group ON campaigns (group_for_private_access_id)` },
+
+    // groups: owner_id IN (...) lookup in finance.ts getFinancesData
+    { table: "groups", name: "idx_groups_owner_id",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_groups_owner_id ON groups (owner_id)` },
+
+    // asset_based_payment_requests: filtered by user_id IN (...) in finance.ts
+    { table: "asset_based_payment_requests", name: "idx_asset_based_payment_requests_user_id",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_asset_based_payment_requests_user_id ON asset_based_payment_requests (user_id)` },
+  ];
+
+  let created = 0;
+  for (const idx of indexes) {
+    const exists = await client.query(
+      `SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = $1`,
+      [idx.table],
+    );
+    if (exists.rows.length === 0) continue;
+    const before = await client.query(
+      `SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname=$1`,
+      [idx.name],
+    );
+    if (before.rows.length > 0) continue;
+    try {
+      await client.query(idx.ddl);
+      created++;
+    } catch (err) {
+      console.warn(
+        `Could not create index ${idx.name}: ${(err as Error).message}`,
+      );
+    }
+  }
+  if (created > 0) {
+    console.log(`Created ${created} admin performance indexes.`);
+  }
+}
+
 async function backfillOrphanedUserRoles(client: pg.PoolClient): Promise<void> {
   const roleCheck = await client.query(
     `SELECT id FROM roles WHERE name = 'User' LIMIT 1`,
@@ -531,6 +633,7 @@ export async function testConnection(): Promise<void> {
     await runSoftDeleteMigration(client);
     await ensureSchedulerTables(client);
     await ensureInvestmentInstruments(client);
+    await ensureAdminPerformanceIndexes(client);
     await backfillSchedulerLogIds(client);
     await backfillSoftDeleteTimestamps(client);
     await fixIncorrectBackfillDates(client);
