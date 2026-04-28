@@ -315,7 +315,7 @@ export default function EventManagement() {
       duration: event.duration || "",
       type: event.type || "",
       pageUrl: event.pageUrl || "",
-      showOnHome: null,
+      showOnHome: event.showOnHome ?? null,
       linkTargetType,
       linkTargetIds,
     });
