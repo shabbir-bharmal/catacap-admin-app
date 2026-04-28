@@ -118,3 +118,156 @@ table — though note that the Node.js routes were already
 referencing the table before this migration (and silently failing
 with 500), so a rollback simply returns the system to that broken
 state.
+
+
+===============================================================================
+
+Migration: 2026_04_28_event_show_on_home.sql
+Release date: 2026-04-28
+Feature: Event form: "Show on Home Page" toggle
+
+Overview
+--------
+Adds a new `show_on_home` boolean column to the `events` table so admins
+can opt out of having a given event appear on the public CataCap home
+page without taking the event down (the existing `status` Active/Draft
+toggle is unchanged and remains the on/off switch for the admin
+listing).
+
+The new column is paired with:
+
+  - A new "Show on Home Page" Yes/No radio group on the admin Event
+    Management create/edit dialog
+    (`src/pages/EventManagement.tsx`), defaulting to Yes for new
+    events and reflecting the saved value when editing.
+  - A new optional `showOnHome: boolean` field on the
+    `EventApiItem` and `EventCreateUpdatePayload` types in
+    `src/api/event/eventApi.ts`.
+  - Read / write support in the Node.js admin route
+    (`server/src/routes/events.ts`) for list, get-by-id, insert,
+    and update.
+  - A new filter (`AND show_on_home = true`) on the public
+    upcoming events route (`server/src/routes/publicEvents.ts`).
+    The admin Event Management list intentionally does NOT apply
+    this filter, so admins can still see and edit events with
+    "Show on Home Page = No".
+
+Schema
+------
+ALTER TABLE events
+    ADD COLUMN IF NOT EXISTS show_on_home BOOLEAN NOT NULL DEFAULT TRUE;
+
+Defaulting to TRUE matters for two reasons:
+  1. Existing rows are backfilled to TRUE on add, so nothing
+     disappears from the public home page after the migration runs.
+  2. New rows inserted by application code that does not specify
+     `show_on_home` (e.g. a future caller, or a partial payload)
+     continue to appear on the home page by default, matching the
+     admin form's default selection.
+
+Idempotency
+-----------
+- `ADD COLUMN IF NOT EXISTS` so re-running the migration is a no-op.
+- Wrapped in a single transaction so a partial failure rolls back
+  cleanly.
+
+Application-side behavior (not in this migration)
+-------------------------------------------------
+- The admin Event Management form
+  (`src/pages/EventManagement.tsx`) also gains a Duration format
+  validator that accepts patterns like `30m`, `1h`, `1h 30m`, and
+  `2h 15m` (case-insensitive, whitespace tolerated, empty still
+  allowed) and shows an inline error / blocks save on invalid
+  entry. That UI change is independent of this migration but is
+  part of the same task / release.
+- The .NET backend under `Back-End/` is reference-only and is NOT
+  updated in this release; the running app uses the Node.js +
+  Postgres stack.
+
+Rollback
+--------
+A commented rollback block at the bottom of the SQL file shows how
+to drop the column. Apply the rollback BEFORE rolling the
+application code back to a build that does not reference the
+column.
+
+
+===============================================================================
+
+Migration: 2026_04_28_event_show_on_home_nullable.sql
+Release date: 2026-04-28
+Feature: Event form: "Show on Home Page" toggle becomes tri-state
+
+Overview
+--------
+Per product decision after the initial rollout, the
+`events.show_on_home` column must be tri-state:
+
+  - TRUE  — admin explicitly chose Yes (event appears on the
+            public home page).
+  - FALSE — admin explicitly chose No (event hidden from the
+            public home page but still visible in the admin list
+            and reachable via its registration link).
+  - NULL  — admin has not made an explicit choice yet
+            (e.g. legacy rows imported from another system, or
+            rows created by a non-form caller that did not set
+            the field). Treated as "do not show on home" by the
+            public endpoint, same as FALSE.
+
+The earlier same-day migration
+(`2026_04_28_event_show_on_home.sql`) added the column as
+`BOOLEAN NOT NULL DEFAULT TRUE`, which forced every row to be
+either TRUE or FALSE and silently coerced unspecified payloads
+to TRUE.
+
+Schema
+------
+ALTER TABLE events ALTER COLUMN show_on_home DROP NOT NULL;
+ALTER TABLE events ALTER COLUMN show_on_home DROP DEFAULT;
+
+Existing TRUE / FALSE values are preserved unchanged. New rows
+inserted without an explicit `show_on_home` value are now
+stored as NULL rather than silently defaulting to TRUE.
+
+Idempotency
+-----------
+- `ALTER COLUMN ... DROP NOT NULL` and `ALTER COLUMN ... DROP
+  DEFAULT` are no-ops if the constraint / default has already
+  been removed, so the migration is safe to re-run.
+- Wrapped in a single transaction so a partial failure rolls
+  back cleanly.
+
+Application-side behavior (not in this migration)
+-------------------------------------------------
+- `server/src/routes/events.ts` save handler now writes
+  `dto.showOnHome === true ? true : dto.showOnHome === false ?
+  false : null` for both INSERT and UPDATE, so a payload that
+  omits the field stores NULL instead of being silently coerced
+  to FALSE (or to the previous TRUE default). The admin Event
+  Management form already requires the admin to pick Yes or No
+  before save, so the legitimate save path always sends a real
+  boolean; the NULL branch is the safety net for non-form
+  callers.
+- `server/src/routes/events.ts` list and get-by-id responses
+  now emit `showOnHome: r.show_on_home ?? null` (instead of
+  `?? false`), so the admin form opens with no Yes/No selected
+  for legacy / NULL rows and the admin must make an explicit
+  choice on the next edit.
+- `server/src/routes/publicEvents.ts` continues to filter on
+  `show_on_home = true` in the WHERE clause, so NULL rows are
+  excluded from the public home page (same end-user behavior
+  as FALSE). The response payload also passes `showOnHome`
+  through as `r.show_on_home ?? null`.
+- `src/api/event/eventApi.ts` widens both `EventApiItem` and
+  `EventCreateUpdatePayload` to `showOnHome?: boolean | null`
+  so the tri-state value is type-correct end-to-end.
+- The .NET backend under `Back-End/` is reference-only and is
+  NOT updated in this release.
+
+Rollback
+--------
+A commented rollback block at the bottom of the SQL file shows
+how to restore the NOT NULL constraint and DEFAULT TRUE (after
+backfilling any NULL rows to TRUE). Apply the rollback BEFORE
+rolling the application code back to a build that does not
+treat `show_on_home` as a tri-state value.

@@ -57,6 +57,7 @@ interface FormState {
   duration: string;
   type: string;
   pageUrl: string;
+  showOnHome: boolean | null;
   linkTargetType: EventLinkTargetType;
   linkTargetIds: Array<number | string>;
 }
@@ -75,8 +76,22 @@ const emptyForm: FormState = {
   duration: "",
   type: "",
   pageUrl: "",
+  showOnHome: null,
   linkTargetType: "investments",
   linkTargetIds: [],
+};
+
+// Accepts patterns like: "30m", "1h", "1h 30m", "2h 15m"
+// Hours and/or minutes; whitespace tolerated; case-insensitive; empty allowed.
+const DURATION_PATTERN = /^\s*(?:(\d+)\s*h(?:\s*(\d+)\s*m)?|(\d+)\s*m)\s*$/i;
+
+const validateDuration = (value: string): string | undefined => {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (!DURATION_PATTERN.test(trimmed)) {
+    return "Use a format like 30m, 1h, or 1h 30m";
+  }
+  return undefined;
 };
 
 export default function EventManagement() {
@@ -300,6 +315,7 @@ export default function EventManagement() {
       duration: event.duration || "",
       type: event.type || "",
       pageUrl: event.pageUrl || "",
+      showOnHome: null,
       linkTargetType,
       linkTargetIds,
     });
@@ -313,32 +329,6 @@ export default function EventManagement() {
     setForm(emptyForm);
     setErrors({});
     if (imageInputRef.current) imageInputRef.current.value = "";
-  };
-
-  const validatePageUrl = (value: string): string | undefined => {
-    const trimmed = value.trim();
-    if (!trimmed) return undefined;
-    let parsed: URL | null = null;
-    try {
-      parsed = new URL(trimmed);
-    } catch {
-      parsed = null;
-    }
-    if (!parsed) {
-      return "Please enter a valid URL (e.g., https://catacap.org/...)";
-    }
-    const hostname = parsed.hostname.toLowerCase();
-    const pathname = parsed.pathname.toLowerCase();
-    if (!hostname.includes("catacap.org")) {
-      return "Page URL must contain catacap.org";
-    }
-    if (pathname.includes("/investments")) {
-      return "Page URL must not contain investments page URL";
-    }
-    if (pathname.includes("/group")) {
-      return "Page URL must not contain group page URL";
-    }
-    return undefined;
   };
 
   const handleSave = () => {
@@ -364,9 +354,12 @@ export default function EventManagement() {
     if (!form.image) {
       newErrors.image = "Event image is required";
     }
-    const pageUrlError = validatePageUrl(form.pageUrl);
-    if (pageUrlError) {
-      newErrors.pageUrl = pageUrlError;
+    const durationError = validateDuration(form.duration);
+    if (durationError) {
+      newErrors.duration = durationError;
+    }
+    if (form.showOnHome === null) {
+      newErrors.showOnHome = "Please select Yes or No";
     }
 
     if (Object.keys(newErrors).length > 0) {
@@ -400,6 +393,7 @@ export default function EventManagement() {
       pageUrl: form.pageUrl.trim() || null,
       eventTime: `${form.timeVal} ${form.timezone}`.trim(),
       image: editingEvent && !form.image?.startsWith("data:") ? null : form.image,
+      showOnHome: form.showOnHome === true,
       linkTargetsByType,
     };
 
@@ -805,29 +799,56 @@ export default function EventManagement() {
                 <Input
                   id="event-duration"
                   placeholder="e.g. 1h 30m"
-                  className="h-12 px-4"
+                  className={cn("h-12 px-4", errors.duration && "border-destructive focus-visible:ring-destructive")}
                   value={form.duration}
-                  onChange={(e) => setForm((f) => ({ ...f, duration: e.target.value }))}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setForm((f) => ({ ...f, duration: value }));
+                    setErrors((prev) => ({ ...prev, duration: validateDuration(value) }));
+                  }}
                   data-testid="input-event-duration"
                 />
+                {errors.duration && (
+                  <p className="text-xs text-destructive mt-1" data-testid="error-event-duration">{errors.duration}</p>
+                )}
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="event-page-url">Page URL</Label>
-              <Input
-                id="event-page-url"
-                placeholder="https://catacap.org/..."
-                className={cn("h-12 px-4", errors.pageUrl && "border-destructive focus-visible:ring-destructive")}
-                value={form.pageUrl}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  setForm((f) => ({ ...f, pageUrl: value }));
-                  setErrors((prev) => ({ ...prev, pageUrl: validatePageUrl(value) }));
+            <div className="space-y-2">
+              <Label>Show on Home Page <span className="text-destructive">*</span></Label>
+              <RadioGroup
+                value={form.showOnHome === true ? "yes" : form.showOnHome === false ? "no" : ""}
+                onValueChange={(v) => {
+                  setForm((f) => ({ ...f, showOnHome: v === "yes" }));
+                  setErrors((prev) => ({ ...prev, showOnHome: undefined }));
                 }}
-                data-testid="input-event-page-url"
-              />
-              {errors.pageUrl && <p className="text-xs text-destructive mt-1">{errors.pageUrl}</p>}
+                className="flex flex-wrap gap-x-6 gap-y-2"
+                data-testid="radio-event-show-on-home"
+              >
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem
+                    value="yes"
+                    id="event-show-on-home-yes"
+                    data-testid="radio-event-show-on-home-yes"
+                  />
+                  <Label htmlFor="event-show-on-home-yes" className="font-normal cursor-pointer">
+                    Yes
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem
+                    value="no"
+                    id="event-show-on-home-no"
+                    data-testid="radio-event-show-on-home-no"
+                  />
+                  <Label htmlFor="event-show-on-home-no" className="font-normal cursor-pointer">
+                    No
+                  </Label>
+                </div>
+              </RadioGroup>
+              {errors.showOnHome && (
+                <p className="text-xs text-destructive mt-1" data-testid="error-event-show-on-home">{errors.showOnHome}</p>
+              )}
             </div>
 
             <div className="space-y-2">

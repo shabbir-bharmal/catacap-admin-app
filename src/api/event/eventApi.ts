@@ -21,6 +21,7 @@ export interface EventApiItem {
     duration?: string | null;
     type?: string | null;
     pageUrl?: string | null;
+    showOnHome?: boolean | null;
     linkTargetsByType?: EventLinkTargetsByType;
     /** @deprecated Use linkTargetsByType. Kept for backwards compatibility. */
     linkTargetType?: EventLinkTargetType | null;
@@ -52,6 +53,7 @@ export interface EventCreateUpdatePayload {
     duration?: string | null;
     type?: string | null;
     pageUrl?: string | null;
+    showOnHome?: boolean | null;
     linkTargetsByType?: EventLinkTargetsByType;
     /** @deprecated Use linkTargetsByType. Kept for backwards compatibility. */
     linkTargetType?: EventLinkTargetType | null;
