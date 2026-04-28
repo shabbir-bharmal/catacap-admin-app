@@ -56,7 +56,7 @@ router.get("/", async (req: Request, res: Response) => {
     const themeMap: Record<number, string> = {};
     for (const t of themes) themeMap[t.id] = t.name;
 
-    const invTypesResult = await pool.query(`SELECT id, name FROM investment_types`);
+    const invTypesResult = await pool.query(`SELECT id, name FROM investment_instruments`);
     const investmentTypes = invTypesResult.rows;
     const invTypeMap: Record<number, string> = {};
     for (const t of investmentTypes) invTypeMap[t.id] = t.name;
@@ -77,7 +77,7 @@ router.get("/", async (req: Request, res: Response) => {
              cid.deleted_at, cid.is_deleted,
              c.name AS campaign_name, c.tile_image_file_name, c.description AS campaign_description,
              c.target, c.stage, c.property, c.themes AS campaign_themes, c.associated_fund_id,
-             c.id AS c_id, c.added_total_admin_raised, c.investment_types AS campaign_investment_types,
+             c.id AS c_id, c.added_total_admin_raised,
              sc.id AS sc_id,
              du.first_name AS deleted_by_first_name, du.last_name AS deleted_by_last_name
       FROM completed_investment_details cid
@@ -378,7 +378,7 @@ router.get("/export", async (_req: Request, res: Response) => {
     const themeMap: Record<number, string> = {};
     for (const t of themesResult.rows) themeMap[t.id] = t.name;
 
-    const invTypesResult = await pool.query(`SELECT id, name FROM investment_types`);
+    const invTypesResult = await pool.query(`SELECT id, name FROM investment_instruments`);
     const invTypeMap: Record<number, string> = {};
     for (const t of invTypesResult.rows) invTypeMap[t.id] = t.name;
 
@@ -478,7 +478,7 @@ router.get("/details", async (req: Request, res: Response) => {
       return;
     }
 
-    const campaignResult = await pool.query(`SELECT id, investment_types FROM campaigns WHERE id = $1`, [investmentId]);
+    const campaignResult = await pool.query(`SELECT id, investment_instruments FROM campaigns WHERE id = $1`, [investmentId]);
     const campaign = campaignResult.rows[0];
 
     const recResult = await pool.query(
@@ -514,7 +514,7 @@ router.get("/details", async (req: Request, res: Response) => {
 
     res.json({
       dateOfLastInvestment: lastInvestmentDate,
-      typeOfInvestmentIds: campaign?.investment_types || null,
+      typeOfInvestmentIds: campaign?.investment_instruments || null,
       approvedRecommendationsAmount: totalApprovedAmount,
       pendingRecommendationsAmount: totalPendingAmount,
       balanceSheet,
@@ -557,7 +557,7 @@ router.post("/", async (req: Request, res: Response) => {
 
     if (typeOfInvestmentIds && typeOfInvestmentName && typeOfInvestmentIds.split(",").some((s: string) => s.trim() === "-1")) {
       const newTypeResult = await pool.query(
-        `INSERT INTO investment_types (name) VALUES ($1) RETURNING id`,
+        `INSERT INTO investment_instruments (name) VALUES ($1) RETURNING id`,
         [typeOfInvestmentName.trim()]
       );
       investmentTypeIdsList.push(String(newTypeResult.rows[0].id));

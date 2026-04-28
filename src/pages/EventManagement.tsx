@@ -8,14 +8,20 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { MoreVertical, Edit, Trash2, ExternalLink, Calendar, Search, Plus, ArrowUpDown, ChevronLeft, ChevronRight, Pencil, Upload, X } from "lucide-react";
 import { formatLongDate, formatTime12h, formatDateISO } from "@/helpers/format";
 import { RichTextEditor } from "../components/RichTextEditor";
+import { MultiSelectPopover, type MultiSelectOption } from "@/components/MultiSelectPopover";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import * as eventApi from "../api/event/eventApi";
+import type { EventLinkTargetType } from "../api/event/eventApi";
+import { fetchAllInvestmentNameList } from "../api/investment/investmentApi";
+import { fetchAllGroupsIdName } from "../api/group/groupApi";
+import { fetchCustomPages } from "../api/event/customPagesApi";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSort } from "../hooks/useSort";
 import { SortHeader } from "../components/ui/table-sort";
@@ -31,22 +37,51 @@ import catacapLogo from "@assets/CataCap-Logo.png";
 
 type Event = eventApi.EventApiItem;
 
-const emptyForm = {
+const LINK_TARGET_OPTIONS: { value: EventLinkTargetType; label: string }[] = [
+  { value: "investments", label: "Investments" },
+  { value: "groups", label: "Groups" },
+  { value: "custom-pages", label: "Custom Pages" },
+];
+
+interface FormState {
+  title: string;
+  description: string;
+  eventDate: string;
+  eventTime: string;
+  timeVal: string;
+  timezone: string;
+  registrationLink: string;
+  status: boolean;
+  image: string;
+  imageFileName: string;
+  duration: string;
+  type: string;
+  pageUrl: string;
+  linkTargetType: EventLinkTargetType;
+  linkTargetIdsByType: Record<EventLinkTargetType, Array<number | string>>;
+}
+
+const emptyForm: FormState = {
   title: "",
   description: "",
   eventDate: "",
   eventTime: "",
-  timeVal: "", // HH:mm
+  timeVal: "",
   timezone: "IST",
   registrationLink: "",
   status: true,
   image: "",
   imageFileName: "",
   duration: "",
-  type: ""
+  type: "",
+  pageUrl: "",
+  linkTargetType: "investments",
+  linkTargetIdsByType: {
+    investments: [],
+    groups: [],
+    "custom-pages": [],
+  },
 };
-
-type FormState = typeof emptyForm;
 
 export default function EventManagement() {
   const { toast } = useToast();
@@ -138,6 +173,65 @@ export default function EventManagement() {
     }
   });
 
+  const investmentsListQuery = useQuery({
+    queryKey: ["event-link-target", "investments"],
+    queryFn: () => fetchAllInvestmentNameList(0, 0),
+    enabled: dialogOpen,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const groupsListQuery = useQuery({
+    queryKey: ["event-link-target", "groups"],
+    queryFn: () => fetchAllGroupsIdName(),
+    enabled: dialogOpen,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const customPagesListQuery = useQuery({
+    queryKey: ["event-link-target", "custom-pages"],
+    queryFn: () => fetchCustomPages(),
+    enabled: dialogOpen,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const linkTargetOptionsByType: Record<EventLinkTargetType, MultiSelectOption<number | string>[]> = useMemo(() => {
+    const investments: MultiSelectOption<number | string>[] = (investmentsListQuery.data || [])
+      .map((it: any) => ({ id: Number(it?.id), name: String(it?.name ?? "").trim() }))
+      .filter((o) => Number.isFinite(o.id as number) && (o.id as number) > 0 && o.name.length > 0);
+
+    const groups: MultiSelectOption<number | string>[] = (groupsListQuery.data || [])
+      .map((g: any) => ({ id: Number(g?.id), name: String(g?.name ?? "").trim() }))
+      .filter((o) => Number.isFinite(o.id as number) && (o.id as number) > 0 && o.name.length > 0);
+
+    const customPages: MultiSelectOption<number | string>[] = (customPagesListQuery.data || [])
+      .map((p: any) => ({
+        id: String(p?.slug ?? "").trim(),
+        name: String(p?.title ?? p?.slug ?? "").trim(),
+      }))
+      .filter((o) => (o.id as string).length > 0 && o.name.length > 0);
+
+    return { investments, groups, "custom-pages": customPages };
+  }, [investmentsListQuery.data, groupsListQuery.data, customPagesListQuery.data]);
+
+  const isLoadingLinkOptions =
+    (form.linkTargetType === "investments" && investmentsListQuery.isLoading) ||
+    (form.linkTargetType === "groups" && groupsListQuery.isLoading) ||
+    (form.linkTargetType === "custom-pages" && customPagesListQuery.isLoading);
+
+  const toggleLinkTargetId = (id: number | string) => {
+    setForm((f) => {
+      const current = f.linkTargetIdsByType[f.linkTargetType] ?? [];
+      const next = current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
+      return {
+        ...f,
+        linkTargetIdsByType: {
+          ...f.linkTargetIdsByType,
+          [f.linkTargetType]: next,
+        },
+      };
+    });
+  };
+
   const openCreate = () => {
     setEditingEvent(null);
     setForm(emptyForm);
@@ -156,6 +250,25 @@ export default function EventManagement() {
     }
 
     setEditingEvent(event);
+    const linkTargetIdsByType: Record<EventLinkTargetType, Array<number | string>> = {
+      investments: [],
+      groups: [],
+      "custom-pages": [],
+    };
+    const grouped = event.linkTargetsByType;
+    if (grouped && typeof grouped === "object") {
+      if (Array.isArray(grouped.investments)) linkTargetIdsByType.investments = [...grouped.investments];
+      if (Array.isArray(grouped.groups)) linkTargetIdsByType.groups = [...grouped.groups];
+      if (Array.isArray(grouped["custom-pages"])) linkTargetIdsByType["custom-pages"] = [...grouped["custom-pages"]];
+    } else if (event.linkTargetType && Array.isArray(event.linkTargetIds)) {
+      const legacyType = LINK_TARGET_OPTIONS.some((o) => o.value === event.linkTargetType)
+        ? (event.linkTargetType as EventLinkTargetType)
+        : null;
+      if (legacyType) linkTargetIdsByType[legacyType] = [...event.linkTargetIds];
+    }
+    const linkTargetType: EventLinkTargetType =
+      LINK_TARGET_OPTIONS.find((o) => linkTargetIdsByType[o.value].length > 0)?.value ?? "investments";
+
     setForm({
       title: event.title,
       description: event.description,
@@ -168,7 +281,10 @@ export default function EventManagement() {
       image: event.image,
       imageFileName: event.imageFileName || "",
       duration: event.duration || "",
-      type: event.type || ""
+      type: event.type || "",
+      pageUrl: event.pageUrl || "",
+      linkTargetType,
+      linkTargetIdsByType,
     });
     setErrors({});
     setDialogOpen(true);
@@ -180,6 +296,32 @@ export default function EventManagement() {
     setForm(emptyForm);
     setErrors({});
     if (imageInputRef.current) imageInputRef.current.value = "";
+  };
+
+  const validatePageUrl = (value: string): string | undefined => {
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    let parsed: URL | null = null;
+    try {
+      parsed = new URL(trimmed);
+    } catch {
+      parsed = null;
+    }
+    if (!parsed) {
+      return "Please enter a valid URL (e.g., https://catacap.org/...)";
+    }
+    const hostname = parsed.hostname.toLowerCase();
+    const pathname = parsed.pathname.toLowerCase();
+    if (!hostname.includes("catacap.org")) {
+      return "Page URL must contain catacap.org";
+    }
+    if (pathname.includes("/investments")) {
+      return "Page URL must not contain investments page URL";
+    }
+    if (pathname.includes("/group")) {
+      return "Page URL must not contain group page URL";
+    }
+    return undefined;
   };
 
   const handleSave = () => {
@@ -205,19 +347,40 @@ export default function EventManagement() {
     if (!form.image) {
       newErrors.image = "Event image is required";
     }
+    const pageUrlError = validatePageUrl(form.pageUrl);
+    if (pageUrlError) {
+      newErrors.pageUrl = pageUrlError;
+    }
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
       return;
     }
 
-    const payload = {
-      ...form,
+    const investmentsIds = (form.linkTargetIdsByType.investments ?? [])
+      .map((v) => Number(v))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    const groupsIds = (form.linkTargetIdsByType.groups ?? [])
+      .map((v) => Number(v))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    const customPagesSlugs = (form.linkTargetIdsByType["custom-pages"] ?? [])
+      .map((v) => String(v).trim())
+      .filter((s) => s.length > 0);
+    const linkTargetsByType: eventApi.EventLinkTargetsByType = {
+      investments: investmentsIds,
+      groups: groupsIds,
+      "custom-pages": customPagesSlugs,
+    };
+    const { linkTargetIdsByType: _unusedIds, linkTargetType: _unusedType, ...formRest } = form;
+    const payload: eventApi.EventCreateUpdatePayload = {
+      ...formRest,
       title: form.title.trim(),
       description: form.description.trim(),
       registrationLink: form.registrationLink.trim(),
+      pageUrl: form.pageUrl.trim() || null,
       eventTime: `${form.timeVal} ${form.timezone}`.trim(),
-      image: editingEvent && !form.image?.startsWith("data:") ? null : form.image
+      image: editingEvent && !form.image?.startsWith("data:") ? null : form.image,
+      linkTargetsByType,
     };
 
     if (editingEvent) {
@@ -445,7 +608,7 @@ export default function EventManagement() {
             <DialogTitle data-testid="text-dialog-title">{editingEvent ? "Edit Event" : "Create Event"}</DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-5 py-2">
+          <div className="space-y-5 py-2 min-w-0">
             <div className="space-y-1.5">
               <Label htmlFor="event-title">
                 Event Title <span className="text-destructive">*</span>
@@ -628,6 +791,66 @@ export default function EventManagement() {
                   data-testid="input-event-duration"
                 />
               </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="event-page-url">Page URL</Label>
+              <Input
+                id="event-page-url"
+                placeholder="https://catacap.org/..."
+                className={cn("h-12 px-4", errors.pageUrl && "border-destructive focus-visible:ring-destructive")}
+                value={form.pageUrl}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setForm((f) => ({ ...f, pageUrl: value }));
+                  setErrors((prev) => ({ ...prev, pageUrl: validatePageUrl(value) }));
+                }}
+                data-testid="input-event-page-url"
+              />
+              {errors.pageUrl && <p className="text-xs text-destructive mt-1">{errors.pageUrl}</p>}
+            </div>
+
+            <div className="space-y-2">
+              <Label>Link Event To</Label>
+              <RadioGroup
+                value={form.linkTargetType}
+                onValueChange={(v) => setForm((f) => ({ ...f, linkTargetType: v as EventLinkTargetType }))}
+                className="flex flex-wrap gap-x-6 gap-y-2"
+                data-testid="radio-event-link-target"
+              >
+                {LINK_TARGET_OPTIONS.map((opt) => (
+                  <div key={opt.value} className="flex items-center gap-2">
+                    <RadioGroupItem
+                      value={opt.value}
+                      id={`event-link-target-${opt.value}`}
+                      data-testid={`radio-event-link-target-${opt.value}`}
+                    />
+                    <Label
+                      htmlFor={`event-link-target-${opt.value}`}
+                      className="font-normal cursor-pointer"
+                    >
+                      {opt.label}
+                    </Label>
+                  </div>
+                ))}
+              </RadioGroup>
+
+              <MultiSelectPopover<number | string>
+                options={linkTargetOptionsByType[form.linkTargetType] || []}
+                selected={form.linkTargetIdsByType[form.linkTargetType] || []}
+                onToggle={toggleLinkTargetId}
+                placeholder={
+                  isLoadingLinkOptions
+                    ? "Loading..."
+                    : `Select ${LINK_TARGET_OPTIONS.find((o) => o.value === form.linkTargetType)?.label || ""}`
+                }
+                searchPlaceholder={`Search ${LINK_TARGET_OPTIONS.find((o) => o.value === form.linkTargetType)?.label.toLowerCase() || ""}…`}
+                emptyMessage={isLoadingLinkOptions ? "Loading…" : "No results"}
+                showChips
+                disabled={isLoadingLinkOptions}
+                triggerClassName="h-12 px-4"
+                testId="multiselect-event-link-target"
+              />
             </div>
 
             <div className="space-y-1.5">

@@ -34,21 +34,33 @@ import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import BannerCropper from "@/components/BannerCropper";
-import { CalendarIcon, ArrowLeft, Download, ChevronDown, Copy, QrCode, Mail, User, Briefcase, ImageIcon, Settings, ArrowRight, CheckCircle2, Check } from "lucide-react";
+import { MultiSelectPopover } from "@/components/MultiSelectPopover";
+import { CalendarIcon, ArrowLeft, Download, ChevronDown, Copy, QrCode, Mail, User, Briefcase, ImageIcon, Settings, ArrowRight, CheckCircle2, Check, Pencil, Trash2, HelpCircle, FileText } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { QRCodeCanvas } from "qrcode.react";
 
-const STEPS = [
+const isUpdatesTabEnabled = import.meta.env.VITE_APP_ENVIRONMENT === "QA";
+
+const ALL_STEPS = [
   { id: 0, label: "About You", icon: User },
   { id: 1, label: "About the Investment", icon: Briefcase },
   { id: 2, label: "Media", icon: ImageIcon },
   { id: 3, label: "Admin Settings", icon: Settings },
   { id: 4, label: "Admin Details", icon: Settings },
+  { id: 5, label: "Updates", icon: Mail },
 ];
-import { fetchCountries, fetchInvestmentById, fetchInvestmentData, updateInvestment, exportInvestmentRecommendations, fetchAllInvestmentNameList, sendInvestmentQrCodeEmail, fetchInvestmentNotes, exportInvestmentNotesApi, downloadInvestmentDocument } from "@/api/investment/investmentApi";
+
+const STEPS = isUpdatesTabEnabled
+  ? ALL_STEPS
+  : ALL_STEPS.filter((s) => s.id !== 5);
+
+import { fetchCountries, fetchInvestmentById, fetchInvestmentData, updateInvestment, exportInvestmentRecommendations, fetchAllInvestmentNameList, sendInvestmentQrCodeEmail, fetchInvestmentNotes, exportInvestmentNotesApi, downloadInvestmentDocument, fetchCampaignUpdates, createCampaignUpdate, updateCampaignUpdate, deleteCampaignUpdate, sendCampaignUpdateEmail, getCampaignUpdateEmailPreview, type CampaignUpdateItem } from "@/api/investment/investmentApi";
 import { fetchAllGroups, GroupUpdatePayload } from "@/api/group/groupApi";
 import { fetchAllAdminUsers, AdminUserItem } from "@/api/user/userApi";
 import { fetchStaticValues, StaticValueItem } from "@/api/site-configuration/siteConfigurationApi";
 import { defaultImage, getUrlBlobContainerImage } from "@/lib/image-utils";
+
+const CLOSED_NOT_INVESTED_STAGE = "4";
 
 
 const US_STATES = [
@@ -63,10 +75,8 @@ const US_STATES = [
 ];
 
 const INVESTMENT_TYPE_CATEGORY_OPTIONS = [
-  { value: "fund", label: "Fund" },
-  { value: "debt", label: "Debt" },
-  { value: "equity", label: "Equity" },
-  { value: "hybrid", label: "Hybrid" },
+  { value: "funds", label: "Funds" },
+  { value: "direct_investments", label: "Direct Investments" },
 ];
 
 const DEBT_FREQUENCY_OPTIONS = [
@@ -304,59 +314,6 @@ const compressImage = (file: File, imageType: string) => {
   });
 };
 
-function MultiSelectPopover({
-  label,
-  options,
-  selected,
-  onToggle,
-  placeholder,
-  testId,
-}: {
-  label?: string;
-  options: { id: number; name: string }[];
-  selected: number[];
-  onToggle: (id: number) => void;
-  placeholder: string;
-  testId?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const selectedNames = options.filter((o) => selected.includes(o.id)).map((o) => o.name).join(", ");
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring"
-          data-testid={testId}
-        >
-          <span className={cn("truncate", !selectedNames && "text-muted-foreground")}>
-            {selectedNames || placeholder}
-          </span>
-          <ChevronDown className="h-4 w-4 shrink-0 opacity-50 ml-2" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent className="w-72 p-2 max-h-60 overflow-y-auto" align="start">
-        {options.map((opt) => (
-          <div
-            key={opt.id}
-            className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer"
-            onClick={() => onToggle(opt.id)}
-          >
-            <Checkbox
-              checked={selected.includes(opt.id)}
-              onCheckedChange={() => onToggle(opt.id)}
-              className="pointer-events-none"
-            />
-            <span className="text-sm">{opt.name}</span>
-          </div>
-        ))}
-        {options.length === 0 && <p className="text-sm text-muted-foreground px-2 py-1">No options available</p>}
-      </PopoverContent>
-    </Popover>
-  );
-}
-
 function TagSelectPopover({
   options,
   selected,
@@ -518,6 +475,37 @@ export default function AdminInvestmentEdit() {
   const [noteText, setNoteText] = useState("");
   const [savedStage, setSavedStage] = useState("");
   const [adminUsers, setAdminUsers] = useState<AdminUserItem[]>([]);
+  const [campaignUpdates, setCampaignUpdates] = useState<CampaignUpdateItem[]>([]);
+  const [updatesLoading, setUpdatesLoading] = useState(false);
+  const [updatesSubmitting, setUpdatesSubmitting] = useState(false);
+  const [sendingEmailUpdateId, setSendingEmailUpdateId] = useState<number | null>(null);
+  const [deletingUpdateId, setDeletingUpdateId] = useState<number | null>(null);
+  const [emailUpdateTarget, setEmailUpdateTarget] = useState<CampaignUpdateItem | null>(null);
+  const [emailPreview, setEmailPreview] = useState<{
+    subject: string;
+    bodyHtml: string;
+    from: string;
+    cc: string[];
+    recipientCount: number;
+  } | null>(null);
+  const [emailPreviewLoading, setEmailPreviewLoading] = useState(false);
+  const [deleteUpdateTarget, setDeleteUpdateTarget] = useState<CampaignUpdateItem | null>(null);
+  const [updateFormOpen, setUpdateFormOpen] = useState(false);
+  const [editingUpdateId, setEditingUpdateId] = useState<number | null>(null);
+  const [updateForm, setUpdateForm] = useState<{
+    subject: string;
+    description: string;
+    shortSubject: string;
+    shortDescription: string;
+    startDate: string;
+    endDate: string;
+    attachFile: string | null;
+    attachFilePreview: string | null;
+    attachFileName: string | null;
+  }>({ subject: "", description: "", shortSubject: "", shortDescription: "", startDate: "", endDate: "", attachFile: null, attachFilePreview: null, attachFileName: null });
+  const [updateFormErrors, setUpdateFormErrors] = useState<Record<string, string>>({});
+  const [updateStartOpen, setUpdateStartOpen] = useState(false);
+  const [updateEndOpen, setUpdateEndOpen] = useState(false);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionStartIndex, setMentionStartIndex] = useState<number | null>(null);
@@ -551,6 +539,212 @@ export default function AdminInvestmentEdit() {
   const isStageDirty = useMemo(() => {
     return formData.stage !== savedStage;
   }, [formData.stage, savedStage]);
+
+  const updatesDisabled = formData.stage === CLOSED_NOT_INVESTED_STAGE;
+  const lastNavigableStepIdx = isUpdatesTabEnabled && updatesDisabled
+    ? STEPS.length - 2
+    : STEPS.length - 1;
+
+  useEffect(() => {
+    if (isUpdatesTabEnabled && updatesDisabled && currentStep === 5) {
+      setCurrentStep(4);
+    }
+  }, [updatesDisabled, currentStep]);
+
+  const loadCampaignUpdates = useCallback(async () => {
+    if (!resolvedNumericId) return;
+    setUpdatesLoading(true);
+    try {
+      const items = await fetchCampaignUpdates(resolvedNumericId);
+      setCampaignUpdates(items);
+    } catch (err: any) {
+      console.error("Failed to load campaign updates:", err);
+      toast({ title: "Error", description: err?.message || "Failed to load updates.", variant: "destructive" });
+    } finally {
+      setUpdatesLoading(false);
+    }
+  }, [resolvedNumericId, toast]);
+
+  useEffect(() => {
+    if (isUpdatesTabEnabled && currentStep === 5 && resolvedNumericId && !updatesDisabled) {
+      loadCampaignUpdates();
+    }
+  }, [currentStep, resolvedNumericId, updatesDisabled, loadCampaignUpdates]);
+
+  const resetUpdateForm = () => {
+    setUpdateForm({ subject: "", description: "", shortSubject: "", shortDescription: "", startDate: "", endDate: "", attachFile: null, attachFilePreview: null, attachFileName: null });
+    setUpdateFormErrors({});
+    setEditingUpdateId(null);
+  };
+
+  const openNewUpdateForm = () => {
+    resetUpdateForm();
+    setUpdateFormOpen(true);
+  };
+
+  const openEditUpdateForm = (item: CampaignUpdateItem) => {
+    setEditingUpdateId(item.id);
+    setUpdateForm({
+      subject: item.subject || "",
+      description: item.description || "",
+      shortSubject: item.shortSubject || "",
+      shortDescription: item.shortDescription || "",
+      startDate: item.startDate || "",
+      endDate: item.endDate || "",
+      attachFile: item.attachFile || null,
+      attachFilePreview: (item.attachFileUrl && /\.(png|jpe?g|gif|webp)(\?|$)/i.test(item.attachFileUrl)) ? item.attachFileUrl : null,
+      attachFileName: (item as any).attachFileName || (item.attachFile ? String(item.attachFile).split("/").pop() || null : null),
+    });
+    setUpdateFormErrors({});
+    setUpdateFormOpen(true);
+  };
+
+  const ALLOWED_ATTACH_MIME = new Set([
+    "image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp",
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "text/plain",
+    "text/csv",
+  ]);
+
+  const handleUpdateAttachFileChange = async (file: File | null) => {
+    if (!file) {
+      setUpdateForm((prev) => ({ ...prev, attachFile: null, attachFilePreview: null, attachFileName: null }));
+      return;
+    }
+    if (!ALLOWED_ATTACH_MIME.has(file.type)) {
+      setUpdateFormErrors((prev) => ({ ...prev, attachFile: "Allowed file types: images, PDF, Word, Excel, PowerPoint, TXT, CSV." }));
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setUpdateFormErrors((prev) => ({ ...prev, attachFile: "File exceeds the 10MB limit." }));
+      return;
+    }
+    try {
+      // Images can still be compressed to keep upload sizes reasonable; other
+      // file types are sent as-is.
+      const isImage = file.type.startsWith("image/");
+      const fileForUpload: File = isImage
+        ? await compressImage(file, file.type || "image/jpeg")
+        : file;
+      const base64 = await toBase64(fileForUpload);
+      setUpdateForm((prev) => ({
+        ...prev,
+        attachFile: base64,
+        attachFilePreview: isImage ? base64 : null,
+        attachFileName: file.name,
+      }));
+      setUpdateFormErrors((prev) => {
+        const { attachFile: _ignore, ...rest } = prev;
+        return rest;
+      });
+    } catch (err) {
+      console.error("Failed to read attachment:", err);
+      setUpdateFormErrors((prev) => ({ ...prev, attachFile: "Failed to read attachment." }));
+    }
+  };
+
+  const validateUpdateForm = (): boolean => {
+    const errs: Record<string, string> = {};
+    if (!updateForm.subject.trim()) errs.subject = "Subject is required.";
+    if (!updateForm.description || !updateForm.description.replace(/<[^>]+>/g, "").trim()) {
+      errs.description = "Description is required.";
+    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (updateForm.startDate) {
+      const s = new Date(updateForm.startDate);
+      s.setHours(0, 0, 0, 0);
+      if (!isNaN(s.getTime()) && s < today) {
+        errs.startDate = "Start date cannot be in the past.";
+      }
+    }
+    if (updateForm.startDate && updateForm.endDate) {
+      const s = new Date(updateForm.startDate).getTime();
+      const e = new Date(updateForm.endDate).getTime();
+      if (!isNaN(s) && !isNaN(e) && e <= s) {
+        errs.endDate = "End date must be after the start date.";
+      }
+    }
+    setUpdateFormErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
+  const submitUpdateForm = async () => {
+    if (!resolvedNumericId) return;
+    if (!validateUpdateForm()) return;
+    setUpdatesSubmitting(true);
+    try {
+      const payload = {
+        subject: updateForm.subject.trim(),
+        description: updateForm.description || null,
+        shortSubject: updateForm.shortSubject.trim() || null,
+        shortDescription: updateForm.shortDescription.trim() || null,
+        startDate: updateForm.startDate || null,
+        endDate: updateForm.endDate || null,
+        attachFile: updateForm.attachFile
+          ? { data: updateForm.attachFile, name: updateForm.attachFileName || "attachment" }
+          : null,
+      };
+      if (editingUpdateId) {
+        const result = await updateCampaignUpdate(resolvedNumericId, editingUpdateId, payload);
+        if (result.success === false) throw new Error(result.message || "Failed to save update.");
+        toast({ title: "Saved", description: "Update saved successfully." });
+      } else {
+        const result = await createCampaignUpdate(resolvedNumericId, payload);
+        if (result.success === false) throw new Error(result.message || "Failed to create update.");
+        toast({ title: "Created", description: "Update created and investors notified." });
+      }
+      setUpdateFormOpen(false);
+      resetUpdateForm();
+      await loadCampaignUpdates();
+    } catch (err: any) {
+      console.error("Failed to submit update:", err);
+      toast({ title: "Error", description: err?.message || "Failed to save update.", variant: "destructive" });
+    } finally {
+      setUpdatesSubmitting(false);
+    }
+  };
+
+  const confirmSendUpdateEmail = async () => {
+    if (!resolvedNumericId || !emailUpdateTarget) return;
+    const item = emailUpdateTarget;
+    setSendingEmailUpdateId(item.id);
+    try {
+      const result = await sendCampaignUpdateEmail(resolvedNumericId, item.id);
+      if (result.success === false) throw new Error(result.message || "Failed to send email.");
+      toast({ title: "Email sent", description: result.message || "Email sent to investors." });
+      setEmailUpdateTarget(null);
+    } catch (err: any) {
+      console.error("Failed to send update email:", err);
+      toast({ title: "Error", description: err?.response?.data?.message || err?.message || "Failed to send email.", variant: "destructive" });
+    } finally {
+      setSendingEmailUpdateId(null);
+    }
+  };
+
+  const confirmDeleteUpdate = async () => {
+    if (!resolvedNumericId || !deleteUpdateTarget) return;
+    const item = deleteUpdateTarget;
+    setDeletingUpdateId(item.id);
+    try {
+      const result = await deleteCampaignUpdate(resolvedNumericId, item.id);
+      if (result.success === false) throw new Error(result.message || "Failed to delete update.");
+      toast({ title: "Deleted", description: "Update deleted successfully." });
+      setDeleteUpdateTarget(null);
+      await loadCampaignUpdates();
+    } catch (err: any) {
+      console.error("Failed to delete update:", err);
+      toast({ title: "Error", description: err?.message || "Failed to delete update.", variant: "destructive" });
+    } finally {
+      setDeletingUpdateId(null);
+    }
+  };
 
   const getStageLabel = (val: string | null | undefined) => {
     if (!val) return "None";
@@ -1260,15 +1454,20 @@ export default function AdminInvestmentEdit() {
                 {STEPS.map((step, idx) => {
                   const isActive = idx === currentStep;
                   const isDone = idx < currentStep;
+                  const isUpdatesStep = step.id === 5;
+                  const isDisabled = isUpdatesStep && updatesDisabled;
                   return (
                     <button
                       key={step.id}
                       type="button"
+                      disabled={isDisabled}
+                      title={isDisabled ? "Updates are not available for investments that are Closed - Not Invested." : undefined}
                       className={`flex-1 flex items-center justify-center gap-2 py-3.5 text-sm font-medium transition-colors relative
                         ${isActive ? "text-[#405189] bg-[#405189]/5" : isDone ? "text-[#0ab39c]" : "text-muted-foreground"}
                         ${idx > 0 ? "border-l" : ""}
+                        ${isDisabled ? "opacity-40 cursor-not-allowed" : ""}
                       `}
-                      onClick={() => setCurrentStep(idx)}
+                      onClick={() => { if (!isDisabled) setCurrentStep(idx); }}
                       data-testid={`step-tab-${idx}`}
                     >
                       <div
@@ -1995,14 +2194,14 @@ export default function AdminInvestmentEdit() {
                     />
                   </div>
 
-                  {/* Type of Investment — multi-select dropdown */}
+                  {/* Investment Instruments — multi-select dropdown */}
                   <div className="space-y-1.5">
-                    <Label className="text-sm">Type of Investment (Select all that apply)</Label>
+                    <Label className="text-sm">Investment Instruments (Select all that apply)</Label>
                     <MultiSelectPopover
                       options={investmentTypes}
                       selected={formData.investmentTypeIds}
                       onToggle={(id) => toggleId("investmentTypeIds", id)}
-                      placeholder="Select Investment Type"
+                      placeholder="Select Investment Instruments"
                       testId="multiselect-investment-type"
                     />
                   </div>
@@ -2474,6 +2673,459 @@ export default function AdminInvestmentEdit() {
           </Card>
         )}
 
+        {/* ── STEP 5: UPDATES ── */}
+        {isUpdatesTabEnabled && currentStep === 5 && !updatesDisabled && (
+          <Card className="rounded-t-none rounded-b-xl">
+            <CardContent className="p-6 space-y-6">
+              <div className="flex items-center justify-between border-b pb-2 mb-4">
+                <h5 className="text-base font-semibold">Investment Updates</h5>
+                <Button
+                  className="bg-[#405189] hover:bg-[#364574] text-white h-9"
+                  onClick={openNewUpdateForm}
+                  data-testid="button-new-update"
+                >
+                  New Update
+                </Button>
+              </div>
+
+              {updatesLoading ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-12 w-full" />
+                  <Skeleton className="h-12 w-full" />
+                </div>
+              ) : campaignUpdates.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4" data-testid="text-no-updates">
+                  No updates yet. Click "New Update" to post the first one.
+                </p>
+              ) : (
+                <div className="overflow-x-auto rounded-md border">
+                  <table className="w-full" data-testid="table-updates">
+                    <thead>
+                      <tr className="border-b bg-[#405189] text-white">
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Image</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Subject</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Description</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Start Date</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap">End Date</th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {campaignUpdates.map((item) => {
+                        const plainDesc = (item.description || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+                        const shortDesc = plainDesc.length > 90 ? plainDesc.slice(0, 89) + "…" : plainDesc;
+                        return (
+                          <tr key={item.id} className="border-b last:border-b-0 odd:bg-card even:bg-muted/30 hover:bg-muted/20 transition-colors" data-testid={`row-update-${item.id}`}>
+                            <td className="px-4 py-3">
+                              {(() => {
+                                const url = item.attachFileUrl;
+                                const name = (item as any).attachFileName || (item.attachFile ? String(item.attachFile).split("/").pop() : "");
+                                const isImg = !!url && /\.(png|jpe?g|gif|webp)(\?|$)/i.test(url);
+                                if (url && isImg) {
+                                  return <img src={url} alt={item.subject} className="h-12 w-12 object-cover rounded" />;
+                                }
+                                if (url) {
+                                  return (
+                                    <a
+                                      href={url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="flex items-center gap-2 text-sm text-primary hover:underline"
+                                      title={name || "Download attachment"}
+                                    >
+                                      <FileText className="h-4 w-4" />
+                                      <span className="truncate max-w-[140px]">{name || "Attachment"}</span>
+                                    </a>
+                                  );
+                                }
+                                return (
+                                  <div className="h-12 w-12 flex items-center justify-center rounded bg-muted text-muted-foreground">
+                                    <ImageIcon className="h-4 w-4" />
+                                  </div>
+                                );
+                              })()}
+                            </td>
+                            <td className="px-4 py-3 text-sm font-medium">{item.subject}</td>
+                            <td className="px-4 py-3 text-sm text-muted-foreground max-w-xs">
+                              <span className="line-clamp-1" title={plainDesc}>
+                                {shortDesc || "—"}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-sm whitespace-nowrap">
+                              {item.startDate ? formatDate(item.startDate, "") : "—"}
+                            </td>
+                            <td className="px-4 py-3 text-sm whitespace-nowrap">
+                              {item.endDate ? formatDate(item.endDate, "") : "—"}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center justify-end">
+                                <Button
+                                  size="icon"
+                                  variant="outline"
+                                  className="h-8 w-8 rounded-r-none border-r-0 text-[#0ab39c] hover:text-[#0ab39c] hover:bg-[#0ab39c]/5"
+                                  onClick={async () => {
+                                    setEmailUpdateTarget(item);
+                                    setEmailPreview(null);
+                                    if (!resolvedNumericId) return;
+                                    setEmailPreviewLoading(true);
+                                    try {
+                                      const res = await getCampaignUpdateEmailPreview(resolvedNumericId, item.id);
+                                      if (res.success === false) throw new Error(res.message || "Could not load preview.");
+                                      setEmailPreview({
+                                        subject: res.subject || "",
+                                        bodyHtml: res.bodyHtml || "",
+                                        from: res.from || "",
+                                        cc: res.cc || [],
+                                        recipientCount: res.recipientCount || 0,
+                                      });
+                                    } catch (err: any) {
+                                      toast({ title: "Preview failed", description: err?.message || "Could not load email preview.", variant: "destructive" });
+                                    } finally {
+                                      setEmailPreviewLoading(false);
+                                    }
+                                  }}
+                                  disabled={sendingEmailUpdateId === item.id}
+                                  data-testid={`button-send-update-email-${item.id}`}
+                                  title="Send email to all investors"
+                                >
+                                  <Mail className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="outline"
+                                  className="h-8 w-8 rounded-none border-r-0 text-[#f7b84b] hover:text-[#f7b84b] hover:bg-[#f7b84b]/5"
+                                  onClick={() => openEditUpdateForm(item)}
+                                  data-testid={`button-edit-update-${item.id}`}
+                                  title="Edit update"
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="outline"
+                                  className="h-8 w-8 rounded-l-none text-[#f06548] hover:text-[#f06548] hover:bg-[#f06548]/5"
+                                  onClick={() => setDeleteUpdateTarget(item)}
+                                  data-testid={`button-delete-update-${item.id}`}
+                                  title="Delete update"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {isUpdatesTabEnabled && currentStep === 5 && updatesDisabled && (
+          <Card className="rounded-t-none rounded-b-xl">
+            <CardContent className="p-6">
+              <p className="text-sm text-muted-foreground">
+                Updates are not available for investments that are Closed - Not Invested.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        <Dialog open={updateFormOpen} onOpenChange={(open) => { setUpdateFormOpen(open); if (!open) resetUpdateForm(); }}>
+          <DialogContent className="w-[95vw] sm:w-full max-w-5xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
+            <DialogHeader>
+              <DialogTitle>{editingUpdateId ? "Edit Update" : "New Update"}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="update-subject" className="text-sm">Subject <span className="text-[#f06548]">*</span></Label>
+                <Input
+                  id="update-subject"
+                  value={updateForm.subject}
+                  onChange={(e) => setUpdateForm((p) => ({ ...p, subject: e.target.value }))}
+                  data-testid="input-update-subject"
+                />
+                {updateFormErrors.subject && <p className="text-[#f06548] text-xs">{updateFormErrors.subject}</p>}
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="update-description" className="text-sm">Description <span className="text-[#f06548]">*</span></Label>
+                <RichTextEditor
+                  value={updateForm.description}
+                  onChange={(val) => setUpdateForm((p) => ({ ...p, description: val }))}
+                  placeholder="Update description"
+                  data-testid="input-update-description"
+                  maxLength={3000}
+                />
+                {updateFormErrors.description && <p className="text-[#f06548] text-xs">{updateFormErrors.description}</p>}
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="update-short-subject" className="text-sm">Short Subject</Label>
+                <Input
+                  id="update-short-subject"
+                  maxLength={120}
+                  placeholder="Notification title (defaults to Subject)"
+                  value={updateForm.shortSubject}
+                  onChange={(e) => setUpdateForm((p) => ({ ...p, shortSubject: e.target.value }))}
+                  data-testid="input-update-short-subject"
+                />
+                <p className="text-[11px] text-muted-foreground">Used as the in-app notification title.</p>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="update-short-description" className="text-sm">Short Description</Label>
+                <Textarea
+                  id="update-short-description"
+                  rows={2}
+                  maxLength={240}
+                  placeholder="Notification body (defaults to truncated Description)"
+                  value={updateForm.shortDescription}
+                  onChange={(e) => setUpdateForm((p) => ({ ...p, shortDescription: e.target.value }))}
+                  data-testid="input-update-short-description"
+                />
+                <p className="text-[11px] text-muted-foreground">Used as the in-app notification body.</p>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-sm">Attach File</Label>
+                <Input
+                  type="file"
+                  accept="image/png,image/jpeg,image/jpg,image/gif,image/webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv"
+                  onChange={(e) => handleUpdateAttachFileChange(e.target.files?.[0] || null)}
+                  data-testid="input-update-attach-file"
+                  className="cursor-pointer file:cursor-pointer"
+                />
+                <p className="text-[11px] text-muted-foreground">Images, PDF, Word, Excel, PowerPoint, TXT or CSV (max 10MB). Sent to investors as an email attachment.</p>
+                {(updateForm.attachFilePreview || updateForm.attachFileName) && (
+                  <div className="mt-2 flex items-center gap-3">
+                    {updateForm.attachFilePreview ? (
+                      <img
+                        src={updateForm.attachFilePreview}
+                        alt="Attachment preview"
+                        className="h-20 w-20 object-cover rounded border"
+                      />
+                    ) : (
+                      <div className="flex items-center gap-2 px-3 py-2 rounded border bg-muted/30 text-sm">
+                        <FileText className="h-4 w-4 text-muted-foreground" />
+                        <span className="truncate max-w-[220px]" title={updateForm.attachFileName || ""}>
+                          {updateForm.attachFileName || "Attachment"}
+                        </span>
+                      </div>
+                    )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setUpdateForm((p) => ({ ...p, attachFile: null, attachFilePreview: null, attachFileName: null }))}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                )}
+                {updateFormErrors.attachFile && <p className="text-[#f06548] text-xs">{updateFormErrors.attachFile}</p>}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label className="text-sm flex items-center gap-1.5">
+                    Start Date
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button type="button" className="text-muted-foreground hover:text-foreground" data-testid="tooltip-update-start-date">
+                          <HelpCircle className="h-3.5 w-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" align="start" className="max-w-xs">
+                        The date this update starts being shown to investors. In-app notifications are sent on this date.
+                      </TooltipContent>
+                    </Tooltip>
+                  </Label>
+                  <Popover open={updateStartOpen} onOpenChange={setUpdateStartOpen}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !updateForm.startDate && "text-muted-foreground")} data-testid="button-update-start-date">
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {updateForm.startDate ? formatDate(updateForm.startDate, "") : "MM/DD/YYYY"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={updateForm.startDate ? new Date(updateForm.startDate) : undefined}
+                        onSelect={(date) => {
+                          setUpdateForm((p) => {
+                            const next = { ...p, startDate: date ? date.toISOString() : "" };
+                            if (date && p.endDate && new Date(p.endDate) <= date) {
+                              next.endDate = "";
+                            }
+                            return next;
+                          });
+                          setUpdateStartOpen(false);
+                        }}
+                        disabled={(date) => {
+                          const today = new Date();
+                          today.setHours(0, 0, 0, 0);
+                          return date < today;
+                        }}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  {updateFormErrors.startDate && <p className="text-[#f06548] text-xs">{updateFormErrors.startDate}</p>}
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm flex items-center gap-1.5">
+                    End Date
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button type="button" className="text-muted-foreground hover:text-foreground" data-testid="tooltip-update-end-date">
+                          <HelpCircle className="h-3.5 w-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" align="start" className="max-w-xs">
+                        The date this update stops being shown to investors. After this date the update is no longer visible.
+                      </TooltipContent>
+                    </Tooltip>
+                  </Label>
+                  <Popover open={updateEndOpen} onOpenChange={setUpdateEndOpen}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !updateForm.endDate && "text-muted-foreground")} data-testid="button-update-end-date">
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {updateForm.endDate ? formatDate(updateForm.endDate, "") : "MM/DD/YYYY"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={updateForm.endDate ? new Date(updateForm.endDate) : undefined}
+                        onSelect={(date) => { setUpdateForm((p) => ({ ...p, endDate: date ? date.toISOString() : "" })); setUpdateEndOpen(false); }}
+                        disabled={(date) => {
+                          const minDate = new Date();
+                          minDate.setHours(0, 0, 0, 0);
+                          if (updateForm.startDate) {
+                            const start = new Date(updateForm.startDate);
+                            start.setHours(0, 0, 0, 0);
+                            if (start > minDate) minDate.setTime(start.getTime());
+                          }
+                          return date <= minDate;
+                        }}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  {updateFormErrors.endDate && <p className="text-[#f06548] text-xs">{updateFormErrors.endDate}</p>}
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => { setUpdateFormOpen(false); resetUpdateForm(); }} disabled={updatesSubmitting}>
+                Cancel
+              </Button>
+              <Button
+                onClick={submitUpdateForm}
+                disabled={updatesSubmitting}
+                className="bg-[#405189] hover:bg-[#364574] text-white"
+                data-testid="button-submit-update"
+              >
+                {updatesSubmitting ? "Saving…" : editingUpdateId ? "Save" : "Create"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={emailUpdateTarget !== null}
+          onOpenChange={(open) => {
+            if (!open && sendingEmailUpdateId === null) {
+              setEmailUpdateTarget(null);
+              setEmailPreview(null);
+            }
+          }}
+        >
+          <DialogContent className="w-[95vw] sm:w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col p-0">
+            <DialogHeader className="p-4 sm:p-6 pb-3 border-b space-y-2">
+              <DialogTitle>Send email to investors?</DialogTitle>
+              <p className="text-sm text-muted-foreground">
+                This will email all investors of this investment about the update
+                {emailUpdateTarget?.subject ? <> &ldquo;<strong className="text-foreground">{emailUpdateTarget.subject}</strong>&rdquo;</> : null},
+                with the Investment Owner CC&rsquo;d. Below is the email preview that will be sent to the investors.
+              </p>
+            </DialogHeader>
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-3">
+              {emailPreviewLoading || !emailPreview ? (
+                <div className="text-sm text-muted-foreground py-12 text-center">Loading preview…</div>
+              ) : (
+                <>
+                  <div className="rounded-md border overflow-hidden bg-white">
+                    <iframe
+                      title="Email preview"
+                      srcDoc={emailPreview.bodyHtml}
+                      sandbox=""
+                      className="w-full"
+                      style={{ height: "55vh", border: 0 }}
+                      data-testid="iframe-email-preview"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+            <DialogFooter className="p-4 sm:p-6 pt-3 border-t bg-background">
+              <Button
+                variant="outline"
+                onClick={() => { setEmailUpdateTarget(null); setEmailPreview(null); }}
+                disabled={sendingEmailUpdateId !== null}
+                data-testid="button-cancel-send-update-email"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={confirmSendUpdateEmail}
+                disabled={sendingEmailUpdateId !== null || emailPreviewLoading || !emailPreview}
+                className="bg-[#405189] hover:bg-[#364574] text-white"
+                data-testid="button-confirm-send-update-email"
+              >
+                {sendingEmailUpdateId !== null ? "Sending…" : "Send email"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={deleteUpdateTarget !== null}
+          onOpenChange={(open) => { if (!open && deletingUpdateId === null) setDeleteUpdateTarget(null); }}
+        >
+          <DialogContent className="w-[95vw] sm:w-full max-w-md p-4 sm:p-6">
+            <DialogHeader>
+              <DialogTitle>Delete update?</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground">
+              Delete the update
+              {deleteUpdateTarget?.subject ? <> &ldquo;<strong className="text-foreground">{deleteUpdateTarget.subject}</strong>&rdquo;</> : null}?
+              This action cannot be undone from the UI.
+            </p>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setDeleteUpdateTarget(null)}
+                disabled={deletingUpdateId !== null}
+                data-testid="button-cancel-delete-update"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={confirmDeleteUpdate}
+                disabled={deletingUpdateId !== null}
+                className="bg-[#f06548] hover:bg-[#d4543a] text-white"
+                data-testid="button-confirm-delete-update"
+              >
+                {deletingUpdateId !== null ? "Deleting…" : "Delete"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         <div className="flex items-center justify-between gap-3 mt-8 pt-5 border-t">
           {currentStep > 0 ? (
             <Button variant="outline" onClick={() => setCurrentStep(currentStep - 1)} data-testid="button-previous">
@@ -2484,8 +3136,16 @@ export default function AdminInvestmentEdit() {
             <div />
           )}
 
-          {currentStep < STEPS.length - 1 ? (
-            <Button onClick={() => setCurrentStep(currentStep + 1)} className="bg-[#405189] hover:bg-[#364574] text-white" data-testid="button-next">
+          {currentStep < lastNavigableStepIdx ? (
+            <Button
+              onClick={() => {
+                let next = currentStep + 1;
+                if (isUpdatesTabEnabled && updatesDisabled && next === 5) next = 4;
+                setCurrentStep(next);
+              }}
+              className="bg-[#405189] hover:bg-[#364574] text-white"
+              data-testid="button-next"
+            >
               Next
               <ArrowRight className="h-4 w-4 ml-1.5" />
             </Button>

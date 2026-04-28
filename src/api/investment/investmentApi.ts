@@ -269,6 +269,91 @@ export async function sendInvestmentQrCodeEmail(investmentId: number, investment
     return response.data;
 }
 
+export interface CampaignUpdateItem {
+    id: number;
+    campaignId: number;
+    subject: string;
+    description: string | null;
+    shortSubject: string | null;
+    shortDescription: string | null;
+    attachFile: string | null;
+    attachFileUrl: string | null;
+    startDate: string | null;
+    endDate: string | null;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface CampaignUpdatePayload {
+    subject: string;
+    description?: string | null;
+    shortSubject?: string | null;
+    shortDescription?: string | null;
+    attachFile?: string | { data: string; name: string } | null;
+    startDate?: string | null;
+    endDate?: string | null;
+}
+
+export async function fetchCampaignUpdates(investmentId: number): Promise<CampaignUpdateItem[]> {
+    const response = await axiosInstance.get<{ success: boolean; items: CampaignUpdateItem[] }>(
+        `/api/admin/investment/${investmentId}/updates`
+    );
+    return response.data.items || [];
+}
+
+export async function createCampaignUpdate(
+    investmentId: number,
+    data: CampaignUpdatePayload
+): Promise<{ success: boolean; message?: string; item?: CampaignUpdateItem }> {
+    const response = await axiosInstance.post(
+        `/api/admin/investment/${investmentId}/updates`,
+        data
+    );
+    return response.data;
+}
+
+export async function updateCampaignUpdate(
+    investmentId: number,
+    updateId: number,
+    data: CampaignUpdatePayload
+): Promise<{ success: boolean; message?: string; item?: CampaignUpdateItem }> {
+    const response = await axiosInstance.put(
+        `/api/admin/investment/${investmentId}/updates/${updateId}`,
+        data
+    );
+    return response.data;
+}
+
+export async function sendCampaignUpdateEmail(
+    investmentId: number,
+    updateId: number
+): Promise<{ success: boolean; message?: string; sent?: number; failed?: number; ccCount?: number }> {
+    const response = await axiosInstance.post(
+        `/api/admin/investment/${investmentId}/updates/${updateId}/send-email`
+    );
+    return response.data;
+}
+
+export async function getCampaignUpdateEmailPreview(
+    investmentId: number,
+    updateId: number
+): Promise<{ success: boolean; message?: string; subject?: string; bodyHtml?: string; from?: string; cc?: string[]; recipientCount?: number }> {
+    const response = await axiosInstance.get(
+        `/api/admin/investment/${investmentId}/updates/${updateId}/email-preview`
+    );
+    return response.data;
+}
+
+export async function deleteCampaignUpdate(
+    investmentId: number,
+    updateId: number
+): Promise<{ success: boolean; message?: string }> {
+    const response = await axiosInstance.delete(
+        `/api/admin/investment/${investmentId}/updates/${updateId}`
+    );
+    return response.data;
+}
+
 export async function exportInvestmentNotesApi(campaignId: number, campaignName?: string): Promise<void> {
     const response = await axiosInstance.get("/api/Campaign/export-investment-notes", {
         params: { campaignId },

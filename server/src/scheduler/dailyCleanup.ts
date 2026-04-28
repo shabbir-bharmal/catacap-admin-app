@@ -646,6 +646,38 @@ export async function runDailyCleanup(): Promise<void> {
       await runStep("Level2: Campaigns", () =>
         archiveAndDelete(client, "Campaigns", "Id", "UserId", cutoffDate));
 
+      await runStep("Level2: event_links investment orphans", async () => {
+        if (!(await tableExists(client, "event_links"))) {
+          console.log(`  SKIP (table not found): event_links`);
+          return;
+        }
+        const result = await client.query(
+          `DELETE FROM event_links el
+           WHERE el.target_type = 'investments'
+             AND el.target_id IS NOT NULL
+             AND NOT EXISTS (
+               SELECT 1 FROM campaigns c WHERE c.id = el.target_id
+             )`
+        );
+        console.log(`  event_links (investment orphan): deleted ${result.rowCount} row(s)`);
+      });
+
+      await runStep("Level2: event_links group orphans", async () => {
+        if (!(await tableExists(client, "event_links"))) {
+          console.log(`  SKIP (table not found): event_links`);
+          return;
+        }
+        const result = await client.query(
+          `DELETE FROM event_links el
+           WHERE el.target_type = 'groups'
+             AND el.target_id IS NOT NULL
+             AND NOT EXISTS (
+               SELECT 1 FROM groups g WHERE g.id = el.target_id
+             )`
+        );
+        console.log(`  event_links (group orphan): deleted ${result.rowCount} row(s)`);
+      });
+
       console.log("-- NULLIFY: Audit FK columns referencing deleted users --");
       await runStep("Nullify: AspNetUsers.DeletedBy", () =>
         nullifyFkColumn(client, "AspNetUsers", "DeletedBy", cutoffDate));

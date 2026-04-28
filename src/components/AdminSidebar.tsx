@@ -186,10 +186,10 @@ export function AdminSidebar() {
             <PanelLeft className="h-4 w-4" />
           </Button>
         </div>
-        {import.meta.env.VITE_APP_ENVIRONMENT && (
+        {import.meta.env.VITE_APP_ENVIRONMENT === 'QA' && (
           <div className="group-data-[collapsible=icon]:hidden mt-2 text-center">
             <span className="bg-destructive text-destructive-foreground text-[11px] font-bold uppercase tracking-wider px-3 py-1 rounded">
-              {import.meta.env.VITE_APP_ENVIRONMENT} Environment
+              QA Environment
             </span>
           </div>
         )}

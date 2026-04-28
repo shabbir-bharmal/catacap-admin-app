@@ -297,7 +297,7 @@ router.get("/by-token", async (req: Request, res: Response) => {
     }
 
     const userResult = await pool.query(
-      `SELECT id, email, first_name, last_name, picture_file_name, user_name
+      `SELECT id, email, first_name, last_name, picture_file_name, user_name, two_factor_enabled
        FROM users WHERE id = $1`,
       [decoded.id]
     );
@@ -358,6 +358,7 @@ router.get("/by-token", async (req: Request, res: Response) => {
       lastName: user.last_name || "",
       pictureFileName: resolveFileUrl(user.picture_file_name, "users") || "",
       userName: user.user_name,
+      twoFactorEnabled: user.two_factor_enabled === true,
       roleName: userRoles.length > 0 ? (userRoles[0].name || "") : "",
       roles: userRoles.map((r: { name: string }) => r.name || ""),
       isSuperAdmin,
@@ -872,7 +873,7 @@ router.get("/admin-users", async (req: Request, res: Response) => {
     const dataResult = await pool.query(
       `SELECT u.id, u.first_name, u.last_name,
               COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '') as full_name,
-              u.user_name, u.email, u.is_active, u.date_created,
+              u.user_name, u.email, u.is_active, u.two_factor_enabled, u.date_created,
               ur.role_id, r.name as role_name
        ${baseQuery}
        ${orderClause}
@@ -880,7 +881,7 @@ router.get("/admin-users", async (req: Request, res: Response) => {
       dataParams
     );
 
-    const items = dataResult.rows.map((row: { id: string; first_name: string; last_name: string; full_name: string; user_name: string; email: string; is_active: boolean; date_created: string; role_id: string; role_name: string }) => ({
+    const items = dataResult.rows.map((row: { id: string; first_name: string; last_name: string; full_name: string; user_name: string; email: string; is_active: boolean; two_factor_enabled: boolean; date_created: string; role_id: string; role_name: string }) => ({
       id: row.id,
       firstName: row.first_name,
       lastName: row.last_name,
@@ -888,6 +889,7 @@ router.get("/admin-users", async (req: Request, res: Response) => {
       userName: row.user_name,
       email: row.email,
       isActive: row.is_active,
+      twoFactorEnabled: row.two_factor_enabled === true,
       dateCreated: row.date_created,
       roleId: row.role_id,
       roleName: row.role_name,
@@ -901,7 +903,7 @@ router.get("/admin-users", async (req: Request, res: Response) => {
 
 router.post("/admin-users", async (req: Request, res: Response) => {
   try {
-    const { id, email, firstName, lastName, userName, password, isActive, roleId } = req.body;
+    const { id, email, firstName, lastName, userName, password, isActive, twoFactorEnabled, roleId } = req.body;
 
     if (!email || !email.trim()) {
       res.json({ success: false, message: "Email is required." });
@@ -941,6 +943,7 @@ router.post("/admin-users", async (req: Request, res: Response) => {
         email: user.email,
         user_name: user.user_name,
         is_active: user.is_active,
+        two_factor_enabled: user.two_factor_enabled === true,
       };
 
       const emailDup = await pool.query(
@@ -970,8 +973,9 @@ router.post("/admin-users", async (req: Request, res: Response) => {
 
       await pool.query(
         `UPDATE users SET first_name = $1, last_name = $2, email = $3, user_name = $4,
-         is_active = $5, password_hash = $6, normalized_email = $7, normalized_user_name = $8
-         WHERE id = $9`,
+         is_active = $5, password_hash = $6, normalized_email = $7, normalized_user_name = $8,
+         two_factor_enabled = $9
+         WHERE id = $10`,
         [
           firstName,
           lastName,
@@ -981,6 +985,7 @@ router.post("/admin-users", async (req: Request, res: Response) => {
           passwordHash,
           email.toUpperCase().trim(),
           userName ? userName.toUpperCase() : null,
+          twoFactorEnabled ?? user.two_factor_enabled === true,
           id,
         ]
       );
@@ -1016,6 +1021,7 @@ router.post("/admin-users", async (req: Request, res: Response) => {
           email,
           user_name: userName,
           is_active: isActive ?? false,
+          two_factor_enabled: twoFactorEnabled ?? user.two_factor_enabled === true,
         },
         updatedBy: req.user?.id || null,
       });
@@ -1057,7 +1063,7 @@ router.post("/admin-users", async (req: Request, res: Response) => {
          concurrency_stamp, is_active, date_created, email_confirmed,
          phone_number_confirmed, two_factor_enabled, lockout_enabled,
          access_failed_count)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), false, false, false, true, 0)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), false, false, $12, true, 0)`,
         [
           userId,
           firstName,
@@ -1070,6 +1076,7 @@ router.post("/admin-users", async (req: Request, res: Response) => {
           securityStamp,
           concurrencyStamp,
           isActive ?? false,
+          twoFactorEnabled ?? false,
         ]
       );
 
@@ -1088,6 +1095,7 @@ router.post("/admin-users", async (req: Request, res: Response) => {
           email: email.toLowerCase().trim(),
           user_name: userName,
           is_active: isActive ?? false,
+          two_factor_enabled: twoFactorEnabled ?? false,
         },
         updatedBy: req.user?.id || null,
       });
@@ -1195,18 +1203,81 @@ router.put("/", async (req: Request, res: Response) => {
   }
 });
 
+router.patch("/two-factor", async (req: Request, res: Response) => {
+  try {
+    const jwtUser = req.user;
+    if (!jwtUser?.id) {
+      res.status(401).json({ success: false, message: "Unauthorized" });
+      return;
+    }
+
+    const { twoFactorEnabled } = req.body ?? {};
+    if (typeof twoFactorEnabled !== "boolean") {
+      res.status(400).json({ success: false, message: "twoFactorEnabled must be a boolean." });
+      return;
+    }
+
+    const userResult = await pool.query(
+      `SELECT id, two_factor_enabled FROM users WHERE id = $1`,
+      [jwtUser.id]
+    );
+
+    if (userResult.rows.length === 0) {
+      res.status(404).json({ success: false, message: "User not found." });
+      return;
+    }
+
+    const existingUser = userResult.rows[0];
+    const previousValue = existingUser.two_factor_enabled === true;
+
+    if (previousValue === twoFactorEnabled) {
+      res.json({ success: true, message: "No change.", twoFactorEnabled });
+      return;
+    }
+
+    await pool.query(
+      `UPDATE users SET two_factor_enabled = $1 WHERE id = $2`,
+      [twoFactorEnabled, existingUser.id]
+    );
+
+    await logAudit({
+      tableName: "users",
+      recordId: existingUser.id,
+      actionType: "Modified",
+      oldValues: { two_factor_enabled: previousValue },
+      newValues: { two_factor_enabled: twoFactorEnabled },
+      updatedBy: jwtUser.id,
+    });
+
+    res.json({
+      success: true,
+      message: twoFactorEnabled
+        ? "Two-factor authentication enabled."
+        : "Two-factor authentication disabled.",
+      twoFactorEnabled,
+    });
+  } catch (err) {
+    console.error("Update two-factor error:", err);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+});
+
 router.patch("/:id/settings", async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const isActive = req.query.isActive as string | undefined;
     const isExcludeUserBalance = req.query.isExcludeUserBalance as string | undefined;
+    const twoFactorEnabled = req.query.twoFactorEnabled as string | undefined;
 
     if (!id || !(id as string).trim()) {
       res.status(400).json({ message: "User id is required." });
       return;
     }
 
-    const userResult = await pool.query("SELECT id, is_active, is_exclude_user_balance FROM users WHERE id = $1", [id]);
+    const userResult = await pool.query(
+      "SELECT id, is_active, is_exclude_user_balance, two_factor_enabled FROM users WHERE id = $1",
+      [id]
+    );
     if (userResult.rows.length === 0) {
       res.status(404).json({ message: "User not found." });
       return;
@@ -1232,6 +1303,13 @@ router.patch("/:id/settings", async (req: Request, res: Response) => {
       values.push(isExcludeUserBalance === "true");
       oldValues.is_exclude_user_balance = currentUser.is_exclude_user_balance;
       newValues.is_exclude_user_balance = isExcludeUserBalance === "true";
+    }
+
+    if (twoFactorEnabled !== undefined) {
+      updates.push(`two_factor_enabled = $${paramIdx++}`);
+      values.push(twoFactorEnabled === "true");
+      oldValues.two_factor_enabled = currentUser.two_factor_enabled === true;
+      newValues.two_factor_enabled = twoFactorEnabled === "true";
     }
 
     if (updates.length === 0) {

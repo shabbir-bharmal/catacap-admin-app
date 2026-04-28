@@ -29,6 +29,7 @@ export interface SaveAdminUserParams {
   userName: string;
   password?: string;
   isActive: boolean;
+  twoFactorEnabled?: boolean;
   roleId: string;
 }
 
@@ -81,6 +82,7 @@ export interface AdminUserEntry {
   email?: string;
   alternateEmail?: string | null;
   isActive?: boolean;
+  twoFactorEnabled?: boolean;
   dateCreated?: string | null;
   roleId?: string;
   roleName?: string;
@@ -187,7 +189,7 @@ export async function updateAccountBalance(params: {
 
 export async function updateUserSettings(
   id: string,
-  params: { isActive?: boolean; isExcludeUserBalance?: boolean }
+  params: { isActive?: boolean; isExcludeUserBalance?: boolean; twoFactorEnabled?: boolean }
 ): Promise<void> {
   await axiosInstance.patch(`/api/admin/user/${id}/settings`, null, {
     params,
@@ -248,6 +250,17 @@ export async function assignRole(userId: string, roleId: string): Promise<{ succ
 
 export async function updateUserProfile(params: UpdateUserProfileParams): Promise<any> {
   const response = await axiosInstance.put("/api/admin/user", params);
+  return response.data;
+}
+
+export async function updateTwoFactorEnabled(
+  twoFactorEnabled: boolean
+): Promise<{ success: boolean; message: string; twoFactorEnabled: boolean }> {
+  const response = await axiosInstance.patch<{
+    success: boolean;
+    message: string;
+    twoFactorEnabled: boolean;
+  }>("/api/admin/user/two-factor", { twoFactorEnabled });
   return response.data;
 }
 

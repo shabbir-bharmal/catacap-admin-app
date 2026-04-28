@@ -1056,19 +1056,6 @@ export default function AdminGroupEdit() {
                 </div>
                 <Switch checked={formData.makePrivate} onCheckedChange={(v) => updateField("makePrivate", v)} data-testid="switch-make-private" />
               </div>
-
-              <div className="pt-2 flex justify-end">
-                <Button onClick={handleSave} disabled={isSubmitting} className="bg-[#405189] hover:bg-[#405189]/90" data-testid="button-save-group-details">
-                  {isSubmitting ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      Saving...
-                    </>
-                  ) : (
-                    "Save Group Details"
-                  )}
-                </Button>
-              </div>
             </CardContent>
           </Card>
         )}
@@ -1090,14 +1077,27 @@ export default function AdminGroupEdit() {
             <div />
           )}
 
-          {currentStep < STEPS.length - 1 ? (
-            <Button onClick={() => setCurrentStep(currentStep + 1)} className="bg-[#405189] hover:bg-[#405189]/90" data-testid="button-next">
-              Next
-              <ArrowRight className="h-4 w-4 ml-1.5" />
-            </Button>
-          ) : (
-            <div />
-          )}
+          <div className="flex items-center gap-3">
+            {currentStep === 2 && (
+              <Button onClick={handleSave} disabled={isSubmitting} className="bg-[#405189] hover:bg-[#405189]/90" data-testid="button-save-group-details">
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Saving...
+                  </>
+                ) : (
+                  "Save Group Details"
+                )}
+              </Button>
+            )}
+
+            {currentStep < STEPS.length - 1 && (
+              <Button onClick={() => setCurrentStep(currentStep + 1)} className="bg-[#405189] hover:bg-[#405189]/90" data-testid="button-next">
+                Next
+                <ArrowRight className="h-4 w-4 ml-1.5" />
+              </Button>
+            )}
+          </div>
         </div>
       </div>
     </AdminLayout>

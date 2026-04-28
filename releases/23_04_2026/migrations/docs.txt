@@ -1,0 +1,74 @@
+Migration: 2026_04_23_campaign_updates.sql
+Release date: 2026-04-23
+Feature: Investment Updates (Task #266)
+
+Overview
+--------
+This migration provisions everything the new Investment "Updates" tab needs on
+the database side. It is idempotent and safe to re-run: every CREATE / ALTER /
+INSERT statement is guarded so deployments that already have part of the
+schema in place will not error out.
+
+What it does
+------------
+1. Creates the `campaign_updates` table.
+   This table holds every admin-authored update for a given Investment
+   (campaign). Columns:
+     - id                 : surrogate primary key
+     - campaign_id        : FK to campaigns(id) — the investment being updated
+     - subject            : full update title shown in the admin UI / email
+     - description        : rich-text HTML body
+     - short_subject      : title used for the in-app notification
+     - short_description  : body used for the in-app notification
+     - attach_file        : storage path of an optional file attachment
+                            (PDF, DOC, XLS, PPT, TXT, CSV, image, ...)
+     - start_date / end_date : visibility window for the update
+     - is_deleted         : soft-delete flag
+     - created_at / updated_at : audit timestamps
+
+2. Backfills columns added in later iterations of the feature so existing
+   deployments stay in sync:
+     - short_subject, short_description (notification copy fields)
+     - notifications_sent_at  (tracks when the in-app notification fan-out
+                               for this update has run; the
+                               CampaignUpdateNotifications scheduler job
+                               picks up rows where this is still NULL and
+                               start_date has been reached)
+     - attach_file_name       (original filename of the uploaded attachment,
+                               so emails can send the file under a friendly
+                               name even though storage uses a UUID)
+
+   Pre-existing rows are marked as already notified
+   (notifications_sent_at = created_at) so we never re-notify investors for
+   historical updates.
+
+3. Adds an index on campaign_id so the admin "Updates" tab and the scheduler
+   can efficiently look up updates per investment.
+
+4. Inserts the `Investment Update Notification` email template
+   (category 39, status = active) used by the manual "Send email" action on
+   each update. The template renders the campaign name, update subject, the
+   sanitized HTML description, and a CTA back to the investment page. It is
+   inserted only when no template with this name already exists, and a
+   follow-up UPDATE backfills the receiver / trigger_action metadata for
+   any prior installs that were missing those fields.
+
+Application-side behavior (not in this migration)
+-------------------------------------------------
+- In-app notification fan-out (one row per investor in `user_notifications`)
+  is performed by the Node/Express scheduler
+  (`server/src/scheduler/campaignUpdateNotifications.ts`) based on the
+  `start_date` and `notifications_sent_at` columns.
+- The manual email send (admin "Send email" button) is handled by
+  `server/src/routes/adminInvestment.ts`. It reads the attached file from
+  Supabase storage and delivers it as a real Resend email attachment using
+  `attach_file_name` for the filename. The Investment Owner is added as the
+  single CC recipient; From is built from the `defaultEmailSenderName` /
+  `defaultFromAddress` site configurations.
+
+Rollback
+--------
+A commented rollback block at the bottom of the SQL file shows how to revert
+the migration (drops the email template, the campaign_id index, and the
+`campaign_updates` table). Running rollback is destructive — all update
+history for every investment will be lost.

@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter, buildSortClause, handleMissingTableError } from "../utils/softDelete.js";
 import { sendTemplateEmail } from "../utils/emailService.js";
+import { Resend } from "resend";
 import ExcelJS from "exceljs";
 import { uploadBase64Image, resolveFileUrl, extractStoragePath, getSupabaseConfig } from "../utils/uploadBase64Image.js";
 import { logAudit } from "../utils/auditLog.js";
@@ -89,7 +90,7 @@ function normalizeMentionFormat(html: string): string {
 
 router.get("/types", async (_req: Request, res: Response) => {
   try {
-    const result = await pool.query(`SELECT id, name FROM investment_types ORDER BY name ASC`);
+    const result = await pool.query(`SELECT id, name FROM investment_instruments ORDER BY name ASC`);
     const types = result.rows.map((r: any) => ({ id: Number(r.id), name: r.name }));
     types.push({ id: -1, name: "Other" });
     res.json(types);
@@ -106,21 +107,21 @@ router.get("/names", async (req: Request, res: Response) => {
 
     if (stage === 4) {
       const result = await pool.query(
-        `SELECT id, name, investment_types FROM campaigns
+        `SELECT id, name, investment_instruments FROM campaigns
          WHERE stage != $1 AND TRIM(COALESCE(name, '')) != ''
          AND (is_deleted IS NULL OR is_deleted = false)
          ORDER BY name ASC`,
         [InvestmentStageEnum.ClosedNotInvested]
       );
 
-      const invTypesResult = await pool.query(`SELECT id, name FROM investment_types`);
+      const invTypesResult = await pool.query(`SELECT id, name FROM investment_instruments`);
       const invTypeMap: Record<number, string> = {};
       for (const t of invTypesResult.rows) invTypeMap[t.id] = t.name;
 
       const campaigns = result.rows.map((r: any) => {
         let isPrivateDebt = false;
-        if (r.investment_types) {
-          const ids = r.investment_types
+        if (r.investment_instruments) {
+          const ids = r.investment_instruments
             .split(",")
             .map((s: string) => parseInt(s.trim(), 10))
             .filter((n: number) => !isNaN(n));
@@ -181,7 +182,7 @@ router.get("/data", async (_req: Request, res: Response) => {
     const [sdgsResult, themesResult, typesResult, approvedByResult, tagsResult] = await Promise.all([
       pool.query(`SELECT id, name FROM sdgs ORDER BY id`),
       pool.query(`SELECT id, name FROM themes WHERE (is_deleted IS NULL OR is_deleted = false) ORDER BY id`),
-      pool.query(`SELECT id, name FROM investment_types ORDER BY id`),
+      pool.query(`SELECT id, name FROM investment_instruments ORDER BY id`),
       pool.query(`SELECT id, name FROM approvers WHERE (is_deleted IS NULL OR is_deleted = false) ORDER BY id`),
       pool.query(`SELECT id, tag FROM investment_tags WHERE (is_deleted IS NULL OR is_deleted = false) ORDER BY id`),
     ]);
@@ -409,7 +410,7 @@ router.get("/export", async (_req: Request, res: Response) => {
         c.themes,
         c.approved_by,
         c.sdgs,
-        c.investment_types,
+        c.investment_instruments,
         c.terms,
         parseCurrency(c.minimum_investment),
         c.website,
@@ -947,7 +948,7 @@ router.get("/:id", async (req: Request, res: Response) => {
       themes: c.themes,
       approvedBy: c.approved_by,
       sdGs: c.sdgs,
-      investmentTypes: c.investment_types,
+      investmentTypes: c.investment_instruments,
       terms,
       minimumInvestment: c.minimum_investment,
       website: c.website,
@@ -1207,7 +1208,7 @@ router.post("/", async (req: Request, res: Response) => {
 
     const insertResult = await pool.query(
       `INSERT INTO campaigns (
-        name, description, themes, approved_by, sdgs, investment_types, terms,
+        name, description, themes, approved_by, sdgs, investment_instruments, terms,
         minimum_investment, website, network_description, contact_info_full_name,
         contact_info_address, contact_info_address_2, contact_info_email_address,
         investment_informational_email, contact_info_phone_number, country,
@@ -1652,7 +1653,7 @@ router.put("/:id", async (req: Request, res: Response) => {
     await pool.query(
       `UPDATE campaigns SET
         name = $1, description = $2, themes = $3, approved_by = $4, sdgs = $5,
-        investment_types = $6, terms = $7, minimum_investment = $8, website = $9,
+        investment_instruments = $6, terms = $7, minimum_investment = $8, website = $9,
         network_description = $10, contact_info_full_name = $11, contact_info_address = $12,
         contact_info_address_2 = $13, contact_info_email_address = $14,
         investment_informational_email = $15, contact_info_phone_number = $16,
@@ -1681,7 +1682,7 @@ router.put("/:id", async (req: Request, res: Response) => {
         campaign.themes ?? existing.themes,
         finalApprovedBy ?? existing.approved_by,
         campaign.sdGs || campaign.sdgs || existing.sdgs,
-        campaign.investmentTypes ?? existing.investment_types,
+        campaign.investmentTypes ?? existing.investment_instruments,
         campaign.terms ?? existing.terms,
         finalMinimumInvestment ?? existing.minimum_investment,
         campaign.website ?? existing.website,
@@ -2056,7 +2057,7 @@ router.post("/:id/clone", async (req: Request, res: Response) => {
 
     const cloneResult = await pool.query(
       `INSERT INTO campaigns (
-        name, description, themes, approved_by, sdgs, investment_types, terms,
+        name, description, themes, approved_by, sdgs, investment_instruments, terms,
         minimum_investment, website, network_description, contact_info_full_name,
         contact_info_address, contact_info_address_2, contact_info_phone_number,
         country, other_country_address, city, state, zip_code,
@@ -2076,7 +2077,7 @@ router.post("/:id/clone", async (req: Request, res: Response) => {
         c.themes,
         c.approved_by,
         c.sdgs,
-        c.investment_types,
+        c.investment_instruments,
         c.terms,
         c.minimum_investment,
         c.website,
@@ -2138,7 +2139,7 @@ function mapCampaignRow(c: any): any {
     themes: c.themes,
     approvedBy: c.approved_by,
     sdGs: c.sdgs,
-    investmentTypes: c.investment_types,
+    investmentTypes: c.investment_instruments,
     terms: c.terms,
     minimumInvestment: c.minimum_investment,
     website: c.website,
@@ -2235,5 +2236,612 @@ async function handleTagMappings(campaignId: number, investmentTags: any[]): Pro
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Investment Updates ("Updates" tab on the Investment edit page)
+// Schema lives in releases/23_04_2026/migrations/2026_04_23_campaign_updates.sql
+// ─────────────────────────────────────────────────────────────────────────────
+
+function truncate(text: string | null | undefined, max = 240): string {
+  if (!text) return "";
+  const plain = String(text).replace(/<[^>]+>/g, "").trim();
+  if (plain.length <= max) return plain;
+  return plain.slice(0, max - 1) + "…";
+}
+
+async function getCampaignForUpdates(campaignId: number): Promise<any | null> {
+  const result = await pool.query(
+    `SELECT id, name, stage, property, image_file_name, tile_image_file_name,
+            user_id, contact_info_email_address, investment_informational_email
+     FROM campaigns WHERE id = $1 LIMIT 1`,
+    [campaignId]
+  );
+  return result.rows[0] || null;
+}
+
+router.get("/:id/updates", async (req: Request, res: Response) => {
+  try {
+    const campaignId = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(campaignId)) {
+      res.status(400).json({ success: false, message: "Invalid investment id." });
+      return;
+    }
+
+    const result = await pool.query(
+      `SELECT id, campaign_id AS "campaignId", subject, description,
+              short_subject AS "shortSubject", short_description AS "shortDescription",
+              attach_file AS "attachFile", attach_file_name AS "attachFileName",
+              start_date AS "startDate",
+              end_date AS "endDate", created_at AS "createdAt", updated_at AS "updatedAt"
+       FROM campaign_updates
+       WHERE campaign_id = $1 AND (is_deleted IS NULL OR is_deleted = false)
+       ORDER BY id DESC`,
+      [campaignId]
+    );
+
+    const items = result.rows.map((r: any) => ({
+      ...r,
+      attachFileUrl: r.attachFile ? resolveFileUrl(r.attachFile, "campaigns") : null,
+    }));
+
+    res.json({ success: true, items });
+  } catch (err: any) {
+    console.error("Error fetching campaign updates:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.post("/:id/updates", async (req: Request, res: Response) => {
+  try {
+    const campaignId = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(campaignId)) {
+      res.status(400).json({ success: false, message: "Invalid investment id." });
+      return;
+    }
+
+    const campaign = await getCampaignForUpdates(campaignId);
+    if (!campaign) {
+      res.status(404).json({ success: false, message: "Investment not found." });
+      return;
+    }
+    if (Number(campaign.stage) === InvestmentStageEnum.ClosedNotInvested) {
+      res
+        .status(400)
+        .json({
+          success: false,
+          message: "Updates are not available for investments that are Closed - Not Invested.",
+        });
+      return;
+    }
+
+    const { subject, description, shortSubject, shortDescription, startDate, endDate, attachFile, attachFileName } =
+      req.body || {};
+    if (!subject || !String(subject).trim()) {
+      res.status(400).json({ success: false, message: "Subject is required." });
+      return;
+    }
+    if (!description || !String(description).replace(/<[^>]+>/g, "").trim()) {
+      res.status(400).json({ success: false, message: "Description is required." });
+      return;
+    }
+
+    // attachFile may be a data URL (new upload), an existing storage path, an
+    // object { data, name } when the client sends the original filename, or
+    // null/empty to clear the attachment.
+    let attachFilePath: string | null = null;
+    let storedAttachFileName: string | null = null;
+    let attachPayload: any = attachFile;
+    if (attachPayload && typeof attachPayload === "object" && !Array.isArray(attachPayload)) {
+      storedAttachFileName = attachPayload.name ? String(attachPayload.name).trim() : null;
+      attachPayload = attachPayload.data;
+    }
+    if (attachPayload && typeof attachPayload === "string") {
+      if (attachPayload.startsWith("data:")) {
+        const uploaded = await uploadBase64Image(attachPayload, "campaigns");
+        attachFilePath = uploaded.filePath;
+      } else if (attachPayload.trim() !== "") {
+        attachFilePath = attachPayload.trim();
+      }
+    }
+    if (!storedAttachFileName && attachFileName) {
+      storedAttachFileName = String(attachFileName).trim() || null;
+    }
+
+    const finalShortSubject = (shortSubject && String(shortSubject).trim()) || String(subject).trim();
+    const finalShortDescription =
+      (shortDescription && String(shortDescription).trim()) || truncate(description, 240);
+
+    const insertResult = await pool.query(
+      `INSERT INTO campaign_updates (campaign_id, subject, description, short_subject, short_description, attach_file, attach_file_name, start_date, end_date)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id, campaign_id AS "campaignId", subject, description,
+                 short_subject AS "shortSubject", short_description AS "shortDescription",
+                 attach_file AS "attachFile", attach_file_name AS "attachFileName",
+                 start_date AS "startDate",
+                 end_date AS "endDate", created_at AS "createdAt", updated_at AS "updatedAt"`,
+      [
+        campaignId,
+        String(subject).trim(),
+        description || null,
+        finalShortSubject,
+        finalShortDescription,
+        attachFilePath,
+        storedAttachFileName,
+        startDate || null,
+        endDate || null,
+      ]
+    );
+    const created = insertResult.rows[0];
+
+    // Defer notification fan-out until the start_date is reached. If start_date
+    // is null or in the past/today, fire immediately; otherwise the daily
+    // CampaignUpdateNotifications scheduler job will fire on/after start_date.
+    const startDateValue = created.startDate ? new Date(created.startDate) : null;
+    const shouldFireNow = !startDateValue || startDateValue <= new Date();
+    if (shouldFireNow) try {
+      const investorsResult = await pool.query(
+        `SELECT DISTINCT ui.user_id
+         FROM user_investments ui
+         WHERE ui.campaign_id = $1
+           AND ui.user_id IS NOT NULL
+           AND (ui.is_deleted IS NULL OR ui.is_deleted = false)`,
+        [campaignId]
+      );
+
+      const redirectUrl = `/investments/${campaign.property || campaign.id}`;
+      const notifTitle = created.shortSubject || created.subject;
+      const notifDescription = created.shortDescription || truncate(created.description, 240);
+      const notifPicture =
+        campaign.image_file_name || campaign.tile_image_file_name || null;
+
+      for (const row of investorsResult.rows) {
+        try {
+          await pool.query(
+            `INSERT INTO user_notifications (title, description, url_to_redirect, is_read, target_user_id, picture_file_name)
+             VALUES ($1, $2, $3, false, $4, $5)`,
+            [notifTitle, notifDescription, redirectUrl, row.user_id, notifPicture]
+          );
+        } catch (notifErr) {
+          console.error(
+            `Failed to create campaign-update notification for user ${row.user_id}:`,
+            notifErr
+          );
+        }
+      }
+      await pool.query(
+        `UPDATE campaign_updates SET notifications_sent_at = NOW() WHERE id = $1`,
+        [created.id]
+      );
+    } catch (fanOutErr) {
+      console.error("Campaign update notification fan-out failed:", fanOutErr);
+    }
+
+    res.json({
+      success: true,
+      message: "Update created successfully.",
+      item: {
+        ...created,
+        attachFileUrl: created.attachFile
+          ? resolveFileUrl(created.attachFile, "campaigns")
+          : null,
+      },
+    });
+  } catch (err: any) {
+    console.error("Error creating campaign update:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.put("/:id/updates/:updateId", async (req: Request, res: Response) => {
+  try {
+    const campaignId = parseInt(String(req.params.id), 10);
+    const updateId = parseInt(String(req.params.updateId), 10);
+    if (!Number.isFinite(campaignId) || !Number.isFinite(updateId)) {
+      res.status(400).json({ success: false, message: "Invalid id." });
+      return;
+    }
+
+    const existingResult = await pool.query(
+      `SELECT id, attach_file, attach_file_name FROM campaign_updates
+       WHERE id = $1 AND campaign_id = $2 AND (is_deleted IS NULL OR is_deleted = false)`,
+      [updateId, campaignId]
+    );
+    if (existingResult.rows.length === 0) {
+      res.status(404).json({ success: false, message: "Update not found." });
+      return;
+    }
+    const existing = existingResult.rows[0];
+
+    const { subject, description, shortSubject, shortDescription, startDate, endDate, attachFile, attachFileName } =
+      req.body || {};
+    if (!subject || !String(subject).trim()) {
+      res.status(400).json({ success: false, message: "Subject is required." });
+      return;
+    }
+    if (!description || !String(description).replace(/<[^>]+>/g, "").trim()) {
+      res.status(400).json({ success: false, message: "Description is required." });
+      return;
+    }
+
+    let attachFilePath: string | null = existing.attach_file || null;
+    let storedAttachFileName: string | null = existing.attach_file_name || null;
+    let attachPayload: any = attachFile;
+    let providedFileName: string | null = null;
+    if (attachPayload && typeof attachPayload === "object" && !Array.isArray(attachPayload)) {
+      providedFileName = attachPayload.name ? String(attachPayload.name).trim() : null;
+      attachPayload = attachPayload.data;
+    }
+    if (attachPayload === null || attachPayload === "") {
+      attachFilePath = null;
+      storedAttachFileName = null;
+    } else if (typeof attachPayload === "string" && attachPayload.startsWith("data:")) {
+      const uploaded = await uploadBase64Image(attachPayload, "campaigns");
+      attachFilePath = uploaded.filePath;
+      storedAttachFileName = providedFileName || (attachFileName ? String(attachFileName).trim() : null);
+    } else if (typeof attachPayload === "string" && attachPayload.trim() !== "") {
+      attachFilePath = attachPayload.trim();
+      if (providedFileName || attachFileName) {
+        storedAttachFileName = providedFileName || String(attachFileName).trim();
+      }
+    }
+
+    const finalShortSubject = (shortSubject && String(shortSubject).trim()) || String(subject).trim();
+    const finalShortDescription =
+      (shortDescription && String(shortDescription).trim()) || truncate(description, 240);
+
+    const updateResult = await pool.query(
+      `UPDATE campaign_updates
+         SET subject = $1, description = $2, short_subject = $3, short_description = $4,
+             attach_file = $5, attach_file_name = $6, start_date = $7, end_date = $8, updated_at = NOW()
+       WHERE id = $9 AND campaign_id = $10
+       RETURNING id, campaign_id AS "campaignId", subject, description,
+                 short_subject AS "shortSubject", short_description AS "shortDescription",
+                 attach_file AS "attachFile", attach_file_name AS "attachFileName",
+                 start_date AS "startDate",
+                 end_date AS "endDate", created_at AS "createdAt", updated_at AS "updatedAt"`,
+      [
+        String(subject).trim(),
+        description || null,
+        finalShortSubject,
+        finalShortDescription,
+        attachFilePath,
+        storedAttachFileName,
+        startDate || null,
+        endDate || null,
+        updateId,
+        campaignId,
+      ]
+    );
+    const updated = updateResult.rows[0];
+
+    res.json({
+      success: true,
+      message: "Update saved successfully.",
+      item: {
+        ...updated,
+        attachFileUrl: updated.attachFile
+          ? resolveFileUrl(updated.attachFile, "campaigns")
+          : null,
+      },
+    });
+  } catch (err: any) {
+    console.error("Error updating campaign update:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Cleans up rich-text description HTML from the contentEditable editor so it
+// renders consistently in email clients (Gmail/Outlook strip Tailwind CSS
+// custom properties like `--tw-*` and frequently drop relative font-weight
+// values such as `bolder`, which is why only the first bold span shows up).
+function sanitizeDescriptionForEmail(html: string): string {
+  if (!html) return "";
+  return String(html).replace(/style\s*=\s*"([^"]*)"/gi, (_m, styleBody) => {
+    const cleaned = styleBody
+      .split(";")
+      .map((decl: string) => decl.trim())
+      .filter((decl: string) => decl.length > 0 && !decl.startsWith("--tw-"))
+      .map((decl: string) => decl.replace(/font-weight\s*:\s*bolder/i, "font-weight: 700"))
+      .join("; ");
+    return cleaned ? `style="${cleaned}"` : "";
+  });
+}
+
+// Build the rendered email HTML + subject for an Investment Update. Used by
+// both the preview and send endpoints so what the admin sees matches what
+// investors receive (per-investor `firstName` is filled in at send time).
+async function buildInvestmentUpdateEmail(
+  campaign: any,
+  update: any
+): Promise<{ subject: string; bodyHtml: string; campaignUrl: string; ccList: string[] } | null> {
+  const tplResult = await pool.query(
+    `SELECT subject, body_html
+     FROM email_templates
+     WHERE name = 'Investment Update Notification'
+       AND status = 2 AND (is_deleted IS NULL OR is_deleted = false)
+     LIMIT 1`
+  );
+  if (tplResult.rows.length === 0) return null;
+  const template = tplResult.rows[0];
+
+  const frontendBase = (process.env.VITE_FRONTEND_URL || process.env.FRONTEND_URL || "https://catacap.org").replace(/\/+$/, "");
+  const campaignUrl = `${frontendBase}/investments/${campaign.property || campaign.id}`;
+
+  const subject = String(template.subject || "")
+    .replace(/\{\{campaignName\}\}/g, campaign.name || "")
+    .replace(/\{\{updateSubject\}\}/g, update.subject || "");
+  // The previous template embedded an inline image at the top of the email
+  // body. We now send the file as a real email attachment instead, so the
+  // {{updateImageHtml}} placeholder is always replaced with an empty string.
+  const bodyHtml = String(template.body_html || "")
+    .replace(/\{\{campaignName\}\}/g, campaign.name || "")
+    .replace(/\{\{updateSubject\}\}/g, update.subject || "")
+    .replace(/\{\{updateDescription\}\}/g, sanitizeDescriptionForEmail(update.description || ""))
+    .replace(/\{\{updateImageHtml\}\}/g, "");
+
+  // Spec: CC is the single Investment Owner email. Prefer the owning user's
+  // account email; fall back to the contact_info / informational email only
+  // when no owner user is set, so we never CC more than one address.
+  let ownerEmail: string | null = null;
+  if (campaign.user_id) {
+    try {
+      const ownerResult = await pool.query(
+        `SELECT email FROM users WHERE id = $1 LIMIT 1`,
+        [campaign.user_id]
+      );
+      const candidate = ownerResult.rows[0]?.email;
+      if (candidate && String(candidate).includes("@")) {
+        ownerEmail = String(candidate).trim();
+      }
+    } catch (ownerErr) {
+      console.error("Failed to fetch investment owner email for CC:", ownerErr);
+    }
+  }
+  if (!ownerEmail && campaign.contact_info_email_address && String(campaign.contact_info_email_address).includes("@")) {
+    ownerEmail = String(campaign.contact_info_email_address).trim();
+  }
+  if (!ownerEmail && campaign.investment_informational_email && String(campaign.investment_informational_email).includes("@")) {
+    ownerEmail = String(campaign.investment_informational_email).trim();
+  }
+  return { subject, bodyHtml, campaignUrl, ccList: ownerEmail ? [ownerEmail] : [] };
+}
+
+// Returns a rendered preview of the "Investment Update Notification" email so
+// the admin can review it before clicking Send.
+router.get("/:id/updates/:updateId/email-preview", async (req: Request, res: Response) => {
+  try {
+    const campaignId = parseInt(String(req.params.id), 10);
+    const updateId = parseInt(String(req.params.updateId), 10);
+    if (!Number.isFinite(campaignId) || !Number.isFinite(updateId)) {
+      res.status(400).json({ success: false, message: "Invalid id." });
+      return;
+    }
+    const campaign = await getCampaignForUpdates(campaignId);
+    if (!campaign) {
+      res.status(404).json({ success: false, message: "Investment not found." });
+      return;
+    }
+    const updateRow = await pool.query(
+      `SELECT id, subject, description, attach_file
+       FROM campaign_updates
+       WHERE id = $1 AND campaign_id = $2 AND (is_deleted IS NULL OR is_deleted = false)
+       LIMIT 1`,
+      [updateId, campaignId]
+    );
+    if (updateRow.rows.length === 0) {
+      res.status(404).json({ success: false, message: "Update not found." });
+      return;
+    }
+
+    const built = await buildInvestmentUpdateEmail(campaign, updateRow.rows[0]);
+    if (!built) {
+      res.status(500).json({ success: false, message: "Email template 'Investment Update Notification' is missing." });
+      return;
+    }
+
+    const investorsCount = await pool.query(
+      `SELECT COUNT(DISTINCT ui.user_id)::int AS count
+         FROM user_investments ui
+         JOIN users u ON u.id = ui.user_id
+        WHERE ui.campaign_id = $1
+          AND ui.user_id IS NOT NULL
+          AND (ui.is_deleted IS NULL OR ui.is_deleted = false)
+          AND u.email IS NOT NULL AND u.email <> ''
+          AND (u.opt_out_email_notifications IS NULL OR u.opt_out_email_notifications = false)`,
+      [campaignId]
+    );
+
+    const cfgResult = await pool.query(
+      `SELECT key, value FROM site_configurations WHERE key IN ('defaultFromAddress', 'defaultEmailSenderName')`
+    );
+    const cfg: Record<string, string> = {};
+    for (const r of cfgResult.rows) cfg[r.key] = (r.value || "").trim();
+    const fromHeader = `${cfg.defaultEmailSenderName || "CataCap Support"} <${cfg.defaultFromAddress || "support@catacap.org"}>`;
+
+    res.json({
+      success: true,
+      subject: built.subject.replace(/\{\{firstName\}\}/g, "{first name}"),
+      bodyHtml: built.bodyHtml.replace(/\{\{firstName\}\}/g, "there"),
+      from: fromHeader,
+      cc: built.ccList,
+      recipientCount: investorsCount.rows[0]?.count || 0,
+    });
+  } catch (err: any) {
+    console.error("Error building campaign update email preview:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Send the "Investment Update Notification" email to all investors of this
+// campaign with the Investment Owner CC'd. Uses the Resend client directly
+// (not sendTemplateEmail) so we can override sender + add CC for this flow.
+router.post("/:id/updates/:updateId/send-email", async (req: Request, res: Response) => {
+  try {
+    const campaignId = parseInt(String(req.params.id), 10);
+    const updateId = parseInt(String(req.params.updateId), 10);
+    if (!Number.isFinite(campaignId) || !Number.isFinite(updateId)) {
+      res.status(400).json({ success: false, message: "Invalid id." });
+      return;
+    }
+
+    const campaign = await getCampaignForUpdates(campaignId);
+    if (!campaign) {
+      res.status(404).json({ success: false, message: "Investment not found." });
+      return;
+    }
+
+    const updateRow = await pool.query(
+      `SELECT id, subject, description, attach_file
+       FROM campaign_updates
+       WHERE id = $1 AND campaign_id = $2 AND (is_deleted IS NULL OR is_deleted = false)
+       LIMIT 1`,
+      [updateId, campaignId]
+    );
+    if (updateRow.rows.length === 0) {
+      res.status(404).json({ success: false, message: "Update not found." });
+      return;
+    }
+    const update = updateRow.rows[0];
+
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) {
+      res.status(500).json({
+        success: false,
+        message: "Email service is not configured (RESEND_API_KEY missing).",
+      });
+      return;
+    }
+
+    const built = await buildInvestmentUpdateEmail(campaign, update);
+    if (!built) {
+      res.status(500).json({
+        success: false,
+        message: "Email template 'Investment Update Notification' is missing.",
+      });
+      return;
+    }
+
+    const cfgResult = await pool.query(
+      `SELECT key, value FROM site_configurations
+       WHERE key IN ('defaultFromAddress', 'defaultEmailSenderName')`
+    );
+    const cfg: Record<string, string> = {};
+    for (const r of cfgResult.rows) cfg[r.key] = (r.value || "").trim();
+    const fromAddress = cfg.defaultFromAddress || "support@catacap.org";
+    const senderName = cfg.defaultEmailSenderName || "CataCap Support";
+    const fromHeader = `${senderName} <${fromAddress}>`;
+    const ccList = built.ccList;
+
+    const investorsResult = await pool.query(
+      `SELECT DISTINCT u.id, u.email, COALESCE(u.first_name, '') AS first_name
+       FROM user_investments ui
+       JOIN users u ON u.id = ui.user_id
+       WHERE ui.campaign_id = $1
+         AND ui.user_id IS NOT NULL
+         AND (ui.is_deleted IS NULL OR ui.is_deleted = false)
+         AND u.email IS NOT NULL
+         AND u.email <> ''
+         AND (u.opt_out_email_notifications IS NULL OR u.opt_out_email_notifications = false)`,
+      [campaignId]
+    );
+
+    const resend = new Resend(apiKey);
+    const baseSubject = built.subject;
+    const baseBody = built.bodyHtml.replace(/\{\{campaignUrl\}\}/g, built.campaignUrl);
+
+    // Fetch the attached file (PDF/DOC/image/etc.) once so it can be sent as a
+    // real email attachment to every recipient, instead of being inlined in
+    // the HTML body.
+    let attachments: { filename: string; content: string }[] | undefined;
+    if (update.attach_file) {
+      try {
+        const fileUrl = resolveFileUrl(update.attach_file, "campaigns");
+        if (fileUrl) {
+          const fetchRes = await fetch(fileUrl);
+          if (fetchRes.ok) {
+            const buf = Buffer.from(await fetchRes.arrayBuffer());
+            const fallbackName = String(update.attach_file).split("/").pop() || "attachment";
+            const filename = (update.attach_file_name && String(update.attach_file_name).trim()) || fallbackName;
+            attachments = [{ filename, content: buf.toString("base64") }];
+          } else {
+            console.error(`[EMAIL] Failed to fetch attachment ${fileUrl}: HTTP ${fetchRes.status}`);
+          }
+        }
+      } catch (attachErr) {
+        console.error("[EMAIL] Failed to load attachment for campaign update email:", attachErr);
+      }
+    }
+
+    const testOverride = process.env.TEST_EMAIL_OVERRIDE;
+    let sent = 0;
+    let failed = 0;
+
+    for (const inv of investorsResult.rows) {
+      const recipient = testOverride || inv.email;
+      const subject = testOverride
+        ? `[TEST] ${baseSubject} (Original recipient: ${inv.email})`
+        : baseSubject;
+      const body = baseBody.replace(/\{\{firstName\}\}/g, inv.first_name || "there");
+      try {
+        const { error } = await resend.emails.send({
+          from: fromHeader,
+          to: [recipient],
+          cc: ccList.length > 0 ? ccList : undefined,
+          subject,
+          html: body,
+          attachments,
+        });
+        if (error) {
+          failed++;
+          console.error(`[EMAIL] Resend error for investor ${inv.id}:`, error);
+        } else {
+          sent++;
+        }
+      } catch (sendErr) {
+        failed++;
+        console.error(`[EMAIL] Failed sending update email to ${recipient}:`, sendErr);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Email sent to ${sent} investor(s)${failed ? `, ${failed} failed` : ""}.`,
+      sent,
+      failed,
+      ccCount: ccList.length,
+    });
+  } catch (err: any) {
+    console.error("Error sending campaign update email:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.delete("/:id/updates/:updateId", async (req: Request, res: Response) => {
+  try {
+    const campaignId = parseInt(String(req.params.id), 10);
+    const updateId = parseInt(String(req.params.updateId), 10);
+    if (!Number.isFinite(campaignId) || !Number.isFinite(updateId)) {
+      res.status(400).json({ success: false, message: "Invalid id." });
+      return;
+    }
+
+    const result = await pool.query(
+      `UPDATE campaign_updates
+         SET is_deleted = true, updated_at = NOW()
+       WHERE id = $1 AND campaign_id = $2 AND (is_deleted IS NULL OR is_deleted = false)
+       RETURNING id`,
+      [updateId, campaignId]
+    );
+    if (result.rowCount === 0) {
+      res.status(404).json({ success: false, message: "Update not found." });
+      return;
+    }
+
+    res.json({ success: true, message: "Update deleted successfully." });
+  } catch (err: any) {
+    console.error("Error deleting campaign update:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
 
 export default router;

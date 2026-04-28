@@ -1,0 +1,112 @@
+Migration: 2026_04_27_event_link_targets.sql
+Release date: 2026-04-27
+Feature: Event link target (Investments / Groups / Custom Pages) multi-select
+
+Overview
+--------
+Adds a new junction table `event_links` so an admin can link a single
+event to one or more Investments, Groups, or Custom Pages from the
+Event create/edit dialog. One row per (event, target_type, target).
+
+The target is polymorphic:
+  - Investments and Groups are referenced by integer entity id
+    (`target_id`).
+  - Custom Pages come from a static page list keyed by slug
+    (`target_slug`) — they have no database id, only a stable URL
+    slug like `home`, `about`, `faqs`.
+
+A CHECK constraint enforces that each row populates exactly one of
+`target_id` / `target_slug` and that the choice matches `target_type`.
+
+Schema
+------
+CREATE TABLE event_links (
+    id          BIGSERIAL PRIMARY KEY,
+    event_id    INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    target_type TEXT    NOT NULL,            -- investments | groups | custom-pages
+    target_id   INTEGER NULL,                -- used by investments / groups
+    target_slug TEXT    NULL,                -- used by custom-pages
+    created_at  TIMESTAMP NOT NULL DEFAULT NOW(),
+    CHECK (target_type IN ('investments','groups','custom-pages')),
+    CHECK (
+        (target_type IN ('investments','groups')
+            AND target_id IS NOT NULL AND target_slug IS NULL)
+        OR
+        (target_type = 'custom-pages'
+            AND target_slug IS NOT NULL AND target_id IS NULL)
+    )
+);
+
+CREATE UNIQUE INDEX uq_event_links_id_target
+    ON event_links (event_id, target_type, target_id)
+    WHERE target_id IS NOT NULL;
+CREATE UNIQUE INDEX uq_event_links_slug_target
+    ON event_links (event_id, target_type, target_slug)
+    WHERE target_slug IS NOT NULL;
+CREATE INDEX idx_event_links_event_id    ON event_links (event_id);
+CREATE INDEX idx_event_links_target_id   ON event_links (target_type, target_id)   WHERE target_id   IS NOT NULL;
+CREATE INDEX idx_event_links_target_slug ON event_links (target_type, target_slug) WHERE target_slug IS NOT NULL;
+
+Why partial unique indexes (vs a single composite PK)
+-----------------------------------------------------
+Postgres treats NULL as distinct in plain UNIQUE constraints, so a
+composite PK on (event_id, target_type, target_id, target_slug) would
+not prevent duplicates when one column is NULL. Two partial unique
+indexes (one per populated column) enforce the right uniqueness on
+every Postgres version without depending on `NULLS NOT DISTINCT`
+(PG 15+).
+
+What it does
+------------
+- Creates `event_links` with the polymorphic schema above and the
+  five supporting indexes (two partial UNIQUE for correctness, three
+  for lookups). Wrapped in a single transaction.
+- Idempotent on re-run via `CREATE TABLE IF NOT EXISTS` and
+  `CREATE INDEX IF NOT EXISTS`.
+
+What it deliberately does NOT do
+--------------------------------
+- It does NOT add a foreign key from `event_links.target_id` /
+  `target_slug` to the underlying entity tables — the referenced
+  table varies by `target_type` (and Custom Pages have no table at
+  all). Application code is responsible for only writing valid
+  references.
+- It does NOT change the existing `events.page_url` column.
+- It does NOT change the public-facing event endpoint shape.
+
+Application-side behavior (not in this migration)
+-------------------------------------------------
+- The admin events route (`server/src/routes/events.ts`) reads via
+  subqueries against `event_links` (using
+  `COALESCE(target_id::TEXT, target_slug)` so the result is a single
+  text array on the wire) and writes via a single transaction that
+  DELETEs all existing rows for the event and then INSERTs the new
+  selection. The route normalizes `linkTargetIds` to integers for
+  investments/groups and to trimmed non-empty strings for
+  custom-pages.
+- The wire format on the client is
+  `{ linkTargetType, linkTargetIds: Array<number | string> }` —
+  numbers for investments/groups, slug strings for custom-pages.
+- The Event create/edit dialog (`src/pages/EventManagement.tsx`)
+  shows a labelled radio group (Investments / Groups / Custom Pages)
+  immediately below the Page URL field, with a searchable multi-
+  select dropdown that swaps its option list to match the selected
+  radio. Selected items are shown as removable chips beneath the
+  dropdown.
+- The shared `MultiSelectPopover` component
+  (`src/components/MultiSelectPopover.tsx`) is now generic over
+  `Id extends string | number` so it can handle both numeric ids
+  (investments / groups, AdminInvestmentEdit) and slug strings
+  (custom-pages).
+- The Custom Pages dropdown is sourced from the public site's
+  `${VITE_FRONTEND_URL}/api/public/pages` endpoint, which returns
+  `{ pages: [{ title, slug, type }] }`. The slug is what gets
+  written to `event_links.target_slug`, and the title is what the
+  user sees in the dropdown / chips. The fetch lives in
+  `src/api/event/customPagesApi.ts`.
+
+Rollback
+--------
+A commented rollback block at the bottom of the SQL file shows how to
+drop `event_links`. Apply the rollback BEFORE rolling the application
+code back to a build that does not reference the new table.

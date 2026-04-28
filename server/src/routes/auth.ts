@@ -116,7 +116,7 @@ router.post("/admin/login", async (req: Request, res: Response) => {
     }
 
     if (user.two_factor_enabled) {
-      generateTwoFactorCode(user.email);
+      await generateTwoFactorCode(user.email);
       res.json({ requires2FA: true, email: user.email });
       return;
     }

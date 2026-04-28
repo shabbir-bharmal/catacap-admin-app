@@ -1363,7 +1363,7 @@ export default function AdminRaiseMoney() {
 
                 <div className="space-y-1.5">
                   <Label className="text-sm">
-                    Type of Investment (Select all that apply) <span className="text-[#f06548]">*</span>
+                    Investment Instruments (Select all that apply) <span className="text-[#f06548]">*</span>
                   </Label>
                   <Popover open={investmentTypeOpen} onOpenChange={setInvestmentTypeOpen}>
                     <PopoverTrigger asChild>
@@ -1384,14 +1384,14 @@ export default function AdminRaiseMoney() {
                               .filter((t) => formData.investmentType.includes(t.id))
                               .map((t) => t.name)
                               .join(", ")
-                            : "Select Investment Type"}
+                            : "Select Investment Instruments"}
                         </span>
                         <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="p-0 w-[var(--radix-popover-trigger-width)] bg-popover" align="start">
                       <Command className="bg-transparent">
-                        <CommandInput placeholder="Search investment type..." />
+                        <CommandInput placeholder="Search investment instruments..." />
                         <CommandList className="max-h-[280px]">
                           <CommandEmpty>No results found.</CommandEmpty>
                           <CommandGroup>

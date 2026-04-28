@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Search, MoreVertical, ChevronLeft, ChevronRight, UserX, UserCheck, ShieldCheck, Pencil } from "lucide-react";
+import { Search, MoreVertical, ChevronLeft, ChevronRight, UserX, UserCheck, ShieldCheck, ShieldOff, Pencil } from "lucide-react";
 import { useSort } from "../hooks/useSort";
 import { useDebounce } from "../hooks/useDebounce";
 import { SortHeader } from "../components/ui/table-sort";
@@ -51,11 +51,12 @@ export default function AdminUsersPage() {
     userName: "",
     password: "",
     isActive: true,
+    twoFactorEnabled: false,
     roleId: ""
   });
   const [formErrors, setFormErrors] = useState<Record<string, boolean>>({});
 
-  const handleUserSettings = async (user: AdminUserEntry, settings: { isActive?: boolean }) => {
+  const handleUserSettings = async (user: AdminUserEntry, settings: { isActive?: boolean; twoFactorEnabled?: boolean }) => {
     if (window.location.href.includes("qa") && user.userName === "admin1") {
       toast({
         title: "Safety Constraint",
@@ -190,6 +191,7 @@ export default function AdminUsersPage() {
         userName: user.userName || "",
         password: "", // Keep password empty by default on edit
         isActive: user.isActive ?? true,
+        twoFactorEnabled: user.twoFactorEnabled ?? false,
         roleId: "" // Will be set in useEffect common logic
       });
     } else {
@@ -201,6 +203,7 @@ export default function AdminUsersPage() {
         userName: "",
         password: "",
         isActive: true,
+        twoFactorEnabled: false,
         roleId: ""
       });
     }
@@ -322,6 +325,7 @@ export default function AdminUsersPage() {
                       Role
                     </th>
                     <th className="px-4 py-3 text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">Status</th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">2FA</th>
                     <th className="px-4 py-3 text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap" style={{ width: "1%" }}>
                       Actions
                     </th>
@@ -330,21 +334,21 @@ export default function AdminUsersPage() {
                 <tbody>
                   {isLoading && (
                     <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      <td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground">
                         Loading...
                       </td>
                     </tr>
                   )}
                   {!isLoading && error && (
                     <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-sm text-destructive">
+                      <td colSpan={7} className="px-4 py-8 text-center text-sm text-destructive">
                         {(error as Error)?.message || "Failed to load data"}
                       </td>
                     </tr>
                   )}
                   {!isLoading && !error && paginatedUsers.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      <td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground">
                         No records found.
                       </td>
                     </tr>
@@ -381,6 +385,14 @@ export default function AdminUsersPage() {
                             {user.isActive === false ? "Inactive" : "Active"}
                           </span>
                         </td>
+                        <td className="px-4 py-3 text-center">
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${user.twoFactorEnabled ? "bg-green-100 text-green-800" : "bg-muted text-muted-foreground"}`}
+                            data-testid={`text-two-factor-${user.id}`}
+                          >
+                            {user.twoFactorEnabled ? "Enabled" : "Disabled"}
+                          </span>
+                        </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center justify-end">
                             <div className="inline-flex rounded-md shadow-sm">
@@ -412,6 +424,21 @@ export default function AdminUsersPage() {
                                   </Button>
                                 </TooltipTrigger>
                                 <TooltipContent>{user.isActive ? "Deactivate User" : "Activate User"}</TooltipContent>
+                              </Tooltip>
+
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="icon"
+                                    variant="outline"
+                                    className={`h-8 w-8 rounded-none border-r-0 ${user.twoFactorEnabled ? "text-[#f06548] hover:text-[#f06548]" : "text-[#45CB85] hover:text-[#45CB85]"} hover:bg-muted/50`}
+                                    onClick={() => handleUserSettings(user, { twoFactorEnabled: !user.twoFactorEnabled })}
+                                    data-testid={`action-toggle-two-factor-${user.id}`}
+                                  >
+                                    {user.twoFactorEnabled ? <ShieldOff className="h-4 w-4" /> : <ShieldCheck className="h-4 w-4" />}
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>{user.twoFactorEnabled ? "Disable Two-Factor Authentication" : "Enable Two-Factor Authentication"}</TooltipContent>
                               </Tooltip>
 
                               <Tooltip>
@@ -565,6 +592,17 @@ export default function AdminUsersPage() {
               />
               <Label htmlFor="isActive" className="text-sm font-medium leading-none cursor-pointer">
                 Active
+              </Label>
+            </div>
+            <div className="flex items-center space-x-2 col-span-2">
+              <Checkbox
+                id="twoFactorEnabled"
+                checked={userFormData.twoFactorEnabled === true}
+                onCheckedChange={(checked) => setUserFormData({ ...userFormData, twoFactorEnabled: checked === true })}
+                data-testid="checkbox-user-two-factor"
+              />
+              <Label htmlFor="twoFactorEnabled" className="text-sm font-medium leading-none cursor-pointer">
+                Two-Factor Authentication Enabled
               </Label>
             </div>
           </div>

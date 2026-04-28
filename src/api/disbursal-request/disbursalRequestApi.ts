@@ -22,6 +22,11 @@ export interface NoteEntry {
   createdAt: string;
 }
 
+export interface MetricsPair {
+  key: string;
+  value: string;
+}
+
 export interface DisbursalRequestEntry {
   id: number;
   name: string;
@@ -36,6 +41,10 @@ export interface DisbursalRequestEntry {
   pitchDeckName: string | null;
   investmentDocument: string | null;
   investmentDocumentName: string | null;
+  tracksMetrics?: boolean | null;
+  metricsReport?: string | null;
+  metricsReportName?: string | null;
+  metricsPairs?: MetricsPair[] | null;
   hasNotes: boolean;
   noteEntries?: NoteEntry[];
   firstName?: string;

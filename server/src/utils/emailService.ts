@@ -1,7 +1,7 @@
 import { Resend } from "resend";
 import pool from "../db.js";
 
-const DEFAULT_SENDER_NAME = "CataCap";
+const DEFAULT_SENDER_NAME = "CataCap Support";
 const DEFAULT_FROM_ADDRESS = "support@catacap.org";
 
 const CACHE_TTL_MS = Math.max(1000, parseInt(process.env.EMAIL_CONFIG_CACHE_TTL_MS || "", 10) || 5 * 60 * 1000);
@@ -129,6 +129,73 @@ function applyTestOverride(recipient: string, subject: string, bodyHtml: string)
   return { recipient: testEmail, subject: overriddenSubject, bodyHtml: overriddenBody };
 }
 
+interface DispatchOptions {
+  toEmail: string;
+  subject: string;
+  bodyHtml: string;
+  attachments?: Array<{ filename: string; content: Buffer }>;
+  context: string;
+  extraSkipLog?: () => void;
+}
+
+async function dispatchEmail(opts: DispatchOptions): Promise<boolean> {
+  if (!opts.toEmail) {
+    console.warn(`[EMAIL] ${opts.context} — empty recipient, skipping send.`);
+    return false;
+  }
+
+  const overridden = applyTestOverride(opts.toEmail, opts.subject, opts.bodyHtml);
+  const recipient = overridden.recipient;
+  const finalSubject = overridden.subject;
+  const finalBody = overridden.bodyHtml;
+
+  const resend = getResendClient();
+  if (!resend) {
+    console.warn(`[EMAIL] Resend API not configured (RESEND_API_KEY missing) — ${opts.context} NOT sent. Would send to: ${recipient}`);
+    console.warn(`  Subject: ${finalSubject}`);
+    opts.extraSkipLog?.();
+    return false;
+  }
+
+  const fromEmail = await buildFromEmail();
+
+  try {
+    const { data, error } = await resend.emails.send({
+      from: fromEmail,
+      to: [recipient],
+      subject: finalSubject,
+      html: finalBody,
+      ...(opts.attachments && opts.attachments.length > 0
+        ? { attachments: opts.attachments }
+        : {}),
+    });
+
+    if (error) {
+      console.error(`[EMAIL] Resend error for ${opts.context}:`, error);
+      return false;
+    }
+
+    console.log(`[EMAIL] Sent ${opts.context} to: ${recipient}${recipient !== opts.toEmail ? ` (original: ${opts.toEmail})` : ''} (id: ${data?.id})`);
+    return true;
+  } catch (err: any) {
+    console.error(`[EMAIL] Error sending ${opts.context}:`, err?.message || err);
+    return false;
+  }
+}
+
+export async function sendDirectEmail(
+  toEmail: string,
+  subject: string,
+  bodyHtml: string
+): Promise<boolean> {
+  return dispatchEmail({
+    toEmail,
+    subject,
+    bodyHtml,
+    context: "direct email",
+  });
+}
+
 export async function sendTemplateEmail(
   category: number,
   toEmail: string,
@@ -152,36 +219,15 @@ export async function sendTemplateEmail(
     let subject = replaceTemplateVariables(template.subject || "", variables);
     let bodyHtml = replaceTemplateVariables(template.body_html || "", variables, true);
 
-    const originalRecipient = toEmail || template.receiver;
-    const overridden = applyTestOverride(originalRecipient, subject, bodyHtml);
-    const recipient = overridden.recipient;
-    subject = overridden.subject;
-    bodyHtml = overridden.bodyHtml;
-
-    const resend = getResendClient();
-    if (!resend) {
-      console.warn(`[EMAIL] Resend API not configured (RESEND_API_KEY missing) — email NOT sent. Template category ${category} would be sent to: ${recipient}`);
-      console.warn(`  Subject: ${subject}`);
-      console.warn(`  Variables: ${JSON.stringify(variables)}`);
-      return false;
-    }
-
-    const fromEmail = await buildFromEmail();
-
-    const { data, error } = await resend.emails.send({
-      from: fromEmail,
-      to: [recipient],
+    return dispatchEmail({
+      toEmail: toEmail || template.receiver,
       subject,
-      html: bodyHtml,
+      bodyHtml,
+      context: `template category ${category}`,
+      extraSkipLog: () => {
+        console.warn(`  Variables: ${JSON.stringify(variables)}`);
+      },
     });
-
-    if (error) {
-      console.error(`[EMAIL] Resend error for category ${category}:`, error);
-      return false;
-    }
-
-    console.log(`[EMAIL] Template email sent for category ${category} to: ${recipient}${recipient !== originalRecipient ? ` (original: ${originalRecipient})` : ''} (id: ${data?.id})`);
-    return true;
   } catch (err: any) {
     console.error(`[EMAIL] Error sending template email for category ${category}:`, err.message);
     return false;
@@ -218,40 +264,19 @@ export async function sendTemplateEmailWithAttachments(
     let subject = replaceTemplateVariables(template.subject || "", variables);
     let bodyHtml = replaceTemplateVariables(template.body_html || "", variables, true);
 
-    const originalRecipient = toEmail || template.receiver;
-    const overridden = applyTestOverride(originalRecipient, subject, bodyHtml);
-    const recipient = overridden.recipient;
-    subject = overridden.subject;
-    bodyHtml = overridden.bodyHtml;
-
-    const resend = getResendClient();
-    if (!resend) {
-      console.warn(`[EMAIL] Resend API not configured (RESEND_API_KEY missing) — email NOT sent. Template category ${category} would be sent to: ${recipient}`);
-      console.warn(`  Subject: ${subject}`);
-      console.warn(`  Attachments: ${attachments.map(a => a.filename).join(", ")}`);
-      return false;
-    }
-
-    const fromEmail = await buildFromEmail();
-
-    const { data, error } = await resend.emails.send({
-      from: fromEmail,
-      to: [recipient],
+    return dispatchEmail({
+      toEmail: toEmail || template.receiver,
       subject,
-      html: bodyHtml,
+      bodyHtml,
       attachments: attachments.map(a => ({
         filename: a.filename,
         content: a.content,
       })),
+      context: `template category ${category} with attachments`,
+      extraSkipLog: () => {
+        console.warn(`  Attachments: ${attachments.map(a => a.filename).join(", ")}`);
+      },
     });
-
-    if (error) {
-      console.error(`[EMAIL] Resend error for category ${category} with attachments:`, error);
-      return false;
-    }
-
-    console.log(`[EMAIL] Template email with attachments sent for category ${category} to: ${recipient}${recipient !== originalRecipient ? ` (original: ${originalRecipient})` : ''} (id: ${data?.id})`);
-    return true;
   } catch (err: any) {
     console.error(`[EMAIL] Error sending template email with attachments for category ${category}:`, err.message);
     return false;

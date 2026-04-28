@@ -717,7 +717,7 @@ router.get("/user-full-data", async (req: Request, res: Response) => {
     }
 
     const themesResult = await pool.query<IdNameRow>(`SELECT id, name FROM themes`);
-    const investmentTypesResult = await pool.query<IdNameRow>(`SELECT id, name FROM investment_types`);
+    const investmentTypesResult = await pool.query<IdNameRow>(`SELECT id, name FROM investment_instruments`);
     const themes = themesResult.rows;
     const investmentTypes = investmentTypesResult.rows;
 

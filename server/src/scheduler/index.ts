@@ -5,6 +5,7 @@ import { runDailyCleanup } from "./dailyCleanup.js";
 import { runDeleteTestUsers } from "./deleteTestUsers.js";
 import { runWelcomeSeries } from "./welcomeSeries.js";
 import { runWeeklyKenStats } from "./weeklyKenStats.js";
+import { runCampaignUpdateNotifications } from "./campaignUpdateNotifications.js";
 
 const LOCK_KEYS: Record<string, number> = {
   SendReminderEmail: 900001,
@@ -12,6 +13,7 @@ const LOCK_KEYS: Record<string, number> = {
   DeleteTestUsers: 900003,
   WelcomeSeries: 900004,
   WeeklyKenStats: 900005,
+  CampaignUpdateNotifications: 900005,
 };
 
 const JOB_RUNNERS: Record<string, () => Promise<void>> = {
@@ -24,6 +26,7 @@ const JOB_RUNNERS: Record<string, () => Promise<void>> = {
 
 const WEEKLY_JOBS: Record<string, number> = {
   WeeklyKenStats: 1,
+  CampaignUpdateNotifications: runCampaignUpdateNotifications,
 };
 
 const activeTasks: ScheduledTask[] = [];
@@ -139,6 +142,7 @@ function getDefaultConfigs(): SchedulerConfigRow[] {
     { job_name: "DeleteTestUsers", hour: 18, minute: 0, timezone: "Asia/Kolkata", is_enabled: true },
     { job_name: "WelcomeSeries", hour: 9, minute: 0, timezone: "America/New_York", is_enabled: true },
     { job_name: "WeeklyKenStats", hour: 12, minute: 0, timezone: "America/Los_Angeles", is_enabled: true },
+    { job_name: "CampaignUpdateNotifications", hour: 6, minute: 0, timezone: "America/New_York", is_enabled: true },
   ];
 }
 

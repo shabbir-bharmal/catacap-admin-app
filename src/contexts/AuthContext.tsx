@@ -25,6 +25,7 @@ export interface AuthUser {
   unsubscribeNotifications: boolean;
   anonymousDonations: boolean;
   displayPhoto: boolean;
+  twoFactorEnabled: boolean;
   token: string;
   role: string;
   hasInvestments: boolean;
@@ -43,6 +44,7 @@ interface AuthContextType {
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   updateUser: (data: any) => void;
+  patchUser: (partial: Partial<AuthUser>) => void;
   hasActionPermission: (moduleName: string, action: "manage" | "delete" | "view") => boolean;
 }
 
@@ -57,6 +59,7 @@ const AuthContext = createContext<AuthContextType>({
   logout: async () => { },
   refreshUser: async () => { },
   updateUser: () => { },
+  patchUser: () => { },
   hasActionPermission: () => false,
 });
 
@@ -92,6 +95,7 @@ function mapApiUser(data: any, token: string): AuthUser {
     unsubscribeNotifications: data.optOutEmailNotifications ?? data.unsubscribeNotifications ?? false,
     anonymousDonations: data.isAnonymousInvestment ?? data.anonymousDonations ?? false,
     displayPhoto: data.consentToShowAvatar ?? data.displayPhoto ?? true,
+    twoFactorEnabled: data.twoFactorEnabled ?? data.two_factor_enabled ?? false,
     token,
     role: data.roleName || data.role || "User",
     hasInvestments: data.hasInvestments ?? false,
@@ -194,6 +198,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         notifyFollowInvestments: false, notifyGroupInvestments: false,
         unsubscribeNotifications: false, anonymousDonations: false, hasInvestments: false,
         displayPhoto: true,
+        twoFactorEnabled: false,
         token: stored.token,
         role: stored.role,
         isSuperAdmin: false,
@@ -264,6 +269,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       notifyFollowInvestments: false, notifyGroupInvestments: false,
       unsubscribeNotifications: false, anonymousDonations: false, hasInvestments: false,
       displayPhoto: true,
+      twoFactorEnabled: false,
       token,
       role: resolvedRole,
       isSuperAdmin: false,
@@ -290,6 +296,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           notifyFollowInvestments: false, notifyGroupInvestments: false,
           unsubscribeNotifications: false, anonymousDonations: false, hasInvestments: false,
           displayPhoto: true,
+          twoFactorEnabled: false,
           token,
           role: resolvedRole,
           isSuperAdmin: false,
@@ -312,6 +319,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     mapped.role = currentRole;
     setUser(mapped);
   }, [user]);
+
+  const patchUser = useCallback((partial: Partial<AuthUser>) => {
+    setUser((prev) => (prev ? { ...prev, ...partial } : prev));
+  }, []);
 
   const refreshUser = useCallback(async () => {
     setIsLoadingUser(true);
@@ -361,7 +372,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, isLoggedIn, token, role, isLoadingUser, loginWithToken, login, logout, refreshUser, updateUser, hasActionPermission }}>
+    <AuthContext.Provider value={{ user, isLoggedIn, token, role, isLoadingUser, loginWithToken, login, logout, refreshUser, updateUser, patchUser, hasActionPermission }}>
       <PreviousRouteTracker />
       {children}
     </AuthContext.Provider>

@@ -24,7 +24,8 @@ import {
   Shield,
   ClipboardList,
   FileText,
-  Archive
+  Archive,
+  BarChart3
 } from "lucide-react";
 
 export const sidebarConfig = [
@@ -181,6 +182,12 @@ export const sidebarConfig = [
             icon: Archive,
             permission: { module: "site-configuration", action: "view" }
           }
+          // {
+          //   title: "Analytics",
+          //   url: "/analytics",
+          //   icon: BarChart3,
+          //   permission: { module: "site-configuration", action: "view" }
+          // }
         ]
       }
     ]

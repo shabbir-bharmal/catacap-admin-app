@@ -30,7 +30,7 @@ async function resolveInvestmentTypeNames(investmentTypes: string | null | undef
 
   const placeholders = ids.map((_, i) => `$${i + 1}`).join(", ");
   const result = await pool.query(
-    `SELECT id, name FROM investment_types WHERE id IN (${placeholders})`,
+    `SELECT id, name FROM investment_instruments WHERE id IN (${placeholders})`,
     ids
   );
   const map: Record<number, string> = {};
@@ -46,8 +46,8 @@ async function resolveInvestmentTypeNames(investmentTypes: string | null | undef
 async function buildInvestmentTypeMap(rows: any[]): Promise<Record<number, string>> {
   const allIds = new Set<number>();
   for (const row of rows) {
-    if (row.investment_types) {
-      const ids = row.investment_types
+    if (row.investment_instruments) {
+      const ids = row.investment_instruments
         .split(",")
         .map((s: string) => parseInt(s.trim(), 10))
         .filter((n: number) => !isNaN(n));
@@ -59,7 +59,7 @@ async function buildInvestmentTypeMap(rows: any[]): Promise<Record<number, strin
   const idArr = Array.from(allIds);
   const placeholders = idArr.map((_, i) => `$${i + 1}`).join(", ");
   const result = await pool.query(
-    `SELECT id, name FROM investment_types WHERE id IN (${placeholders})`,
+    `SELECT id, name FROM investment_instruments WHERE id IN (${placeholders})`,
     idArr
   );
   const map: Record<number, string> = {};
@@ -85,6 +85,29 @@ function formatDate(dateVal: any): string {
   const d = dayjs.utc(dateVal);
   if (!d.isValid()) return "";
   return d.format("MM-DD-YYYY");
+}
+
+function parseMetricsPairs(raw: any): Array<{ key: string; value: string }> | null {
+  if (raw === null || raw === undefined) return null;
+  let parsed: any = raw;
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      return null;
+    }
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) return null;
+  const out: Array<{ key: string; value: string }> = [];
+  for (const item of parsed) {
+    if (item == null || typeof item !== "object") continue;
+    const key = (item as any).key ?? (item as any).Key ?? "";
+    const value = (item as any).value ?? (item as any).Value ?? "";
+    out.push({ key: String(key ?? ""), value: String(value ?? "") });
+  }
+  return out.length > 0 ? out : null;
 }
 
 function formatDateSlash(dateVal: any): string {
@@ -117,7 +140,8 @@ router.get("/", async (req: Request, res: Response) => {
       SELECT d.id, d.receive_date, u.email, d.mobile, d.distributed_amount,
              c.name, c.id AS investment_id, c.property, d.quote, d.status,
              d.pitch_deck, d.pitch_deck_name, d.investment_document, d.investment_document_name,
-             c.investment_types, d.deleted_at,
+             d.tracks_metrics, d.metrics_report, d.metrics_report_name, d.metrics_pairs,
+             c.investment_instruments, d.deleted_at,
              du.first_name AS deleted_by_first_name, du.last_name AS deleted_by_last_name
       FROM disbursal_requests d
       LEFT JOIN campaigns c ON d.campaign_id = c.id
@@ -195,11 +219,15 @@ router.get("/", async (req: Request, res: Response) => {
       statusName: getStatusName(x.status),
       receiveDate: formatDate(x.receive_date),
       distributedAmount: parseFloat(x.distributed_amount) || 0,
-      investmentType: resolveInvestmentTypeString(x.investment_types, typeMap),
+      investmentType: resolveInvestmentTypeString(x.investment_instruments, typeMap),
       pitchDeck: resolveFileUrl(x.pitch_deck, "disbursal-requests"),
       pitchDeckName: x.pitch_deck_name,
       investmentDocument: resolveFileUrl(x.investment_document, "disbursal-requests"),
       investmentDocumentName: x.investment_document_name,
+      tracksMetrics: x.tracks_metrics,
+      metricsReport: resolveFileUrl(x.metrics_report, "disbursal-requests"),
+      metricsReportName: x.metrics_report_name,
+      metricsPairs: parseMetricsPairs(x.metrics_pairs),
       hasNotes: notesSet.has(x.id),
       deletedAt: x.deleted_at,
       deletedBy: x.deleted_by_first_name
@@ -225,7 +253,7 @@ router.get("/export", async (_req: Request, res: Response) => {
   try {
     const queryText = `
       SELECT d.id, d.receive_date, u.email, d.distributed_amount,
-             c.name, d.quote, d.status, c.investment_types
+             c.name, d.quote, d.status, c.investment_instruments
       FROM disbursal_requests d
       JOIN campaigns c ON d.campaign_id = c.id
       LEFT JOIN users u ON d.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
@@ -251,7 +279,7 @@ router.get("/export", async (_req: Request, res: Response) => {
         row.email || "",
         row.receive_date ? row.receive_date : "",
         parseFloat(row.distributed_amount) || 0,
-        resolveInvestmentTypeString(row.investment_types, typeMap),
+        resolveInvestmentTypeString(row.investment_instruments, typeMap),
         getStatusName(row.status),
         row.quote || "",
       ]);
@@ -332,7 +360,8 @@ router.get("/:id", async (req: Request, res: Response) => {
               d.status, d.quote, c.name, d.distributed_amount, c.property,
               d.investment_remain_open, d.receive_date, d.pitch_deck, d.pitch_deck_name,
               d.investment_document, d.investment_document_name,
-              d.impact_assets_funding_previously, c.investment_types
+              d.tracks_metrics, d.metrics_report, d.metrics_report_name, d.metrics_pairs,
+              d.impact_assets_funding_previously, c.investment_instruments
        FROM disbursal_requests d
        JOIN campaigns c ON d.campaign_id = c.id
        LEFT JOIN users u ON d.user_id = u.id AND (u.is_deleted IS NULL OR u.is_deleted = false)
@@ -346,7 +375,7 @@ router.get("/:id", async (req: Request, res: Response) => {
     }
 
     const row = result.rows[0];
-    const investmentTypeNames = await resolveInvestmentTypeNames(row.investment_types);
+    const investmentTypeNames = await resolveInvestmentTypeNames(row.investment_instruments);
 
     res.json({
       id: row.id,
@@ -367,6 +396,10 @@ router.get("/:id", async (req: Request, res: Response) => {
       pitchDeckName: row.pitch_deck_name,
       investmentDocument: resolveFileUrl(row.investment_document, "disbursal-requests"),
       investmentDocumentName: row.investment_document_name,
+      tracksMetrics: row.tracks_metrics,
+      metricsReport: resolveFileUrl(row.metrics_report, "disbursal-requests"),
+      metricsReportName: row.metrics_report_name,
+      metricsPairs: parseMetricsPairs(row.metrics_pairs),
       impactAssetsFundingPreviously: row.impact_assets_funding_previously,
       investmentTypeNames,
     });

@@ -9,6 +9,7 @@ using Invest.Repo.Data;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
+using System.Text.Json;
 
 namespace Invest.Controllers.Admin
 {
@@ -52,6 +53,10 @@ namespace Invest.Controllers.Admin
                                    d.PitchDeckName,
                                    d.InvestmentDocument,
                                    d.InvestmentDocumentName,
+                                   d.TracksMetrics,
+                                   d.MetricsReport,
+                                   d.MetricsReportName,
+                                   d.MetricsPairs,
                                    c.InvestmentTypes,
                                    d.DeletedAt,
                                    d.DeletedByUser
@@ -117,6 +122,10 @@ namespace Invest.Controllers.Admin
                 PitchDeckName = x.PitchDeckName,
                 InvestmentDocument = x.InvestmentDocument,
                 InvestmentDocumentName = x.InvestmentDocumentName,
+                TracksMetrics = x.TracksMetrics,
+                MetricsReport = x.MetricsReport,
+                MetricsReportName = x.MetricsReportName,
+                MetricsPairs = ParseMetricsPairs(x.MetricsPairs),
                 HasNotes = _context.DisbursalRequestNotes.Any(d => d.DisbursalRequestId == x.Id),
                 DeletedAt = x.DeletedAt,
                 DeletedBy = x.DeletedByUser != null
@@ -164,6 +173,10 @@ namespace Invest.Controllers.Admin
                                             x.PitchDeckName,
                                             x.InvestmentDocument,
                                             x.InvestmentDocumentName,
+                                            x.TracksMetrics,
+                                            x.MetricsReport,
+                                            x.MetricsReportName,
+                                            x.MetricsPairs,
                                             x.ImpactAssetsFundingPreviously,
                                             x.Campaign.InvestmentTypes
                                         })
@@ -215,11 +228,38 @@ namespace Invest.Controllers.Admin
                 query.PitchDeckName,
                 query.InvestmentDocument,
                 query.InvestmentDocumentName,
+                query.TracksMetrics,
+                query.MetricsReport,
+                query.MetricsReportName,
+                MetricsPairs = ParseMetricsPairs(query.MetricsPairs),
                 query.ImpactAssetsFundingPreviously,
                 investmentTypeNames
             };
 
             return Ok(data);
+        }
+
+        private static List<DisbursalMetricPairDto>? ParseMetricsPairs(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return null;
+            try
+            {
+                var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var parsed = JsonSerializer.Deserialize<List<DisbursalMetricPairDto>>(raw, opts);
+                if (parsed == null || parsed.Count == 0) return null;
+                return parsed
+                    .Where(p => p != null)
+                    .Select(p => new DisbursalMetricPairDto
+                    {
+                        Key = p.Key ?? string.Empty,
+                        Value = p.Value ?? string.Empty
+                    })
+                    .ToList();
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         [HttpGet("export")]
