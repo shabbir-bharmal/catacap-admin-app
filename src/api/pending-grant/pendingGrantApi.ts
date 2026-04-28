@@ -9,6 +9,7 @@ export interface PendingGrantParams {
   status?: string;
   isDeleted?: boolean;
   dafProvider?: string;
+  foundationGrantsOnly?: boolean;
 }
 
 export interface NoteEntry {
@@ -61,6 +62,7 @@ export async function fetchPendingGrants(
     if (params.status && params.status !== "All") queryParams.Status = params.status;
     if (params.isDeleted !== undefined) queryParams.IsDeleted = params.isDeleted.toString();
     if (params.dafProvider && params.dafProvider !== "All") queryParams.DafProvider = params.dafProvider;
+    if (params.foundationGrantsOnly) queryParams.foundationGrantsOnly = "true";
   }
 
   const response = await axiosInstance.get<PaginatedPendingGrantResponse>(

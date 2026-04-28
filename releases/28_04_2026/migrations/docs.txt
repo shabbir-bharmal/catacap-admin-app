@@ -1,0 +1,120 @@
+Migration: 2026_04_28_daf_providers.sql
+Release date: 2026-04-28
+Feature: DAF Providers master table + seed (Pending Grants filter fix)
+
+Overview
+--------
+The Node.js Postgres-backed admin Site Configuration and Pending
+Grants routes already read from / write to a `daf_providers` table:
+
+  - `server/src/routes/siteConfiguration.ts` (`SELECT id,
+    provider_name, provider_url, is_active FROM daf_providers
+    ORDER BY provider_name`, plus `INSERT` / `UPDATE` /
+    toggle-active by id).
+  - `server/src/routes/adminPendingGrants.ts` (`SELECT
+    LOWER(TRIM(provider_name)) FROM daf_providers` to compute the
+    "Other" branch of the DAF provider filter).
+
+That table never existed in Postgres — the canonical seed lived
+only in the .NET backend at
+`Back-End/Invest.Repo/Data/DAFProviderData.cs`. As a result:
+
+  - `GET /api/admin/site-configuration/daf-providers` returned
+    HTTP 500.
+  - The Pending Grants admin page DAF Provider filter dropdown
+    showed only "All Providers" (and the synthetic "Other" entry
+    the frontend appends), no real providers.
+  - The Site Configuration → DAF Providers tab showed an empty
+    list with no way to add the canonical providers.
+
+This migration creates the table and seeds it from the .NET source
+of truth so the existing route code starts working without any
+backend route changes.
+
+Schema
+------
+CREATE TABLE daf_providers (
+    id            SERIAL PRIMARY KEY,
+    provider_name TEXT    NOT NULL,
+    provider_url  TEXT,
+    is_active     BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+Columns and types are chosen to match exactly what the existing
+Node.js routes already reference (no rename / cast needed in the
+route layer).
+
+Seed data
+---------
+Mirrors `Back-End/Invest.Repo/Data/DAFProviderData.cs`, including
+the integer `id` value for each row so the two backends stay
+aligned:
+
+  1  Fidelity Charitable
+  2  Jewish Foundation
+  3  ImpactAssets
+  4  National Philanthropic Trust
+  5  DAFgiving360: Charles Schwab
+  6  Silicon Valley Community Foundation
+  7  Vanguard Charitable
+  8  Bay Area Jewish Federation
+
+All rows seeded with `is_active = TRUE`.
+
+Idempotency
+-----------
+- `CREATE TABLE IF NOT EXISTS` so the table-create step is safe to
+  re-run.
+- The seed `INSERT` is gated by a `NOT EXISTS` check that compares
+  `LOWER(TRIM(provider_name))` against the incoming row, so:
+    * Re-running won't duplicate any of the 8 seeded rows.
+    * If an admin has already created one of the seeded providers
+      manually through the Site Configuration UI under a slightly
+      different casing or with surrounding whitespace, the seed
+      will treat it as already present and leave it alone.
+- After seeding, `daf_providers_id_seq` is reset (via `setval`
+  with `is_called = TRUE`) to `MAX(id)`, so the next `INSERT` from
+  the Site Configuration "Add DAF Provider" form gets a fresh id
+  that will not collide with the seeded ids 1–8.
+- Wrapped in a single transaction so a partial failure rolls back
+  cleanly.
+
+What it deliberately does NOT do
+--------------------------------
+- It does NOT backfill or normalize the `daf_provider` text column
+  on `pending_grants`. Existing grant rows keep whatever provider
+  name string they were written with; the filter logic in
+  `adminPendingGrants.ts` already does case-insensitive / trimmed
+  matching against this seed list.
+- It does NOT change the .NET backend or its `DAFProviders` seed
+  data — those remain the source of truth for the .NET side.
+- It does NOT add a foreign key from `pending_grants.daf_provider`
+  (a free-text column) to `daf_providers.provider_name`.
+
+Application-side behavior (not in this migration)
+-------------------------------------------------
+- The Pending Grants frontend (`src/pages/PendingGrants.tsx`) no
+  longer appends a synthetic "Other" entry to the DAF Provider
+  dropdown. The dropdown now shows just "All Providers" plus the
+  rows returned by the API, sorted alphabetically.
+- A new "Foundation Grants" checkbox on the Pending Grants filter
+  row, when checked, disables the DAF Provider dropdown and tells
+  the API to return only foundation grants. The frontend sends
+  `foundationGrantsOnly=true`; the Node.js
+  `GET /api/admin/pending-grant` route adds
+  `LOWER(TRIM(pg.daf_provider)) = 'foundation grant'` to the
+  WHERE clause and ignores any incoming `dafProvider` value.
+- The "Other" branch of `adminPendingGrants.ts` is intentionally
+  left in place. It is no longer reachable from the Pending Grants
+  dropdown after this change (the synthetic "Other" entry is gone)
+  but is preserved so other / future callers are unaffected.
+
+Rollback
+--------
+A commented rollback block at the bottom of the SQL file shows how
+to drop `daf_providers`. Apply the rollback BEFORE rolling the
+application code back to a build that does not reference the
+table — though note that the Node.js routes were already
+referencing the table before this migration (and silently failing
+with 500), so a rollback simply returns the system to that broken
+state.

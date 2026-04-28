@@ -124,6 +124,11 @@ export default function AdminPendingGrants() {
   const [tempSelectedDafProviders, setTempSelectedDafProviders] = useState<(string | "All")[]>(["All"]);
   const [selectedDafProviders, setSelectedDafProviders] = useState<string[]>([]);
   const [dafProviderPopoverOpen, setDafProviderPopoverOpen] = useState(false);
+  const [foundationGrantsOnly, setFoundationGrantsOnly] = useState(false);
+  const [savedDafProviderSelection, setSavedDafProviderSelection] = useState<{
+    temp: (string | "All")[];
+    selected: string[];
+  } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const { data: dafProviders = [] } = useQuery({
     queryKey: ["daf-providers"],
@@ -226,16 +231,7 @@ export default function AdminPendingGrants() {
   };
 
   const sortedDafProviders = useMemo(() => {
-    const filtered = [...dafProviders].filter((p) => p.value.toLowerCase() !== "other");
-    const sorted = filtered.sort((a, b) => a.value.localeCompare(b.value));
-    
-    const otherProvider = dafProviders.find((p) => p.value.toLowerCase() === "other") || {
-      id: -1,
-      value: "Other",
-      link: "",
-    };
-
-    return [...sorted, otherProvider];
+    return [...dafProviders].sort((a, b) => a.value.localeCompare(b.value));
   }, [dafProviders]);
 
   const dafProviderFilterValue = selectedDafProviders.length === sortedDafProviders.length || selectedDafProviders.length === 0 ? "All" : selectedDafProviders.join(",");
@@ -273,7 +269,7 @@ export default function AdminPendingGrants() {
     isLoading,
     error
   } = useQuery({
-    queryKey: ["pendingGrants", currentPage, rowsPerPage, sortField, sortDir, statusFilterValue, dafProviderFilterValue, effectiveSearch],
+    queryKey: ["pendingGrants", currentPage, rowsPerPage, sortField, sortDir, statusFilterValue, dafProviderFilterValue, effectiveSearch, foundationGrantsOnly],
     queryFn: () =>
       fetchPendingGrants({
         currentPage,
@@ -281,8 +277,9 @@ export default function AdminPendingGrants() {
         sortField: sortField ?? undefined,
         sortDirection: sortDir ?? undefined,
         status: statusFilterValue,
-        dafProvider: dafProviderFilterValue,
-        searchValue: effectiveSearch.trim() || undefined
+        dafProvider: foundationGrantsOnly ? "All" : dafProviderFilterValue,
+        searchValue: effectiveSearch.trim() || undefined,
+        foundationGrantsOnly: foundationGrantsOnly || undefined,
       }),
     staleTime: 0,
     gcTime: 0
@@ -383,12 +380,19 @@ export default function AdminPendingGrants() {
 
               <div className="flex flex-col gap-0.5">
                 <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">DAF Provider</Label>
-                <Popover open={dafProviderPopoverOpen} onOpenChange={setDafProviderPopoverOpen}>
+                <Popover
+                  open={dafProviderPopoverOpen && !foundationGrantsOnly}
+                  onOpenChange={(open) => {
+                    if (foundationGrantsOnly) return;
+                    setDafProviderPopoverOpen(open);
+                  }}
+                >
                   <PopoverTrigger asChild>
                     <Button
                       variant="outline"
                       role="combobox"
-                      aria-expanded={dafProviderPopoverOpen}
+                      aria-expanded={dafProviderPopoverOpen && !foundationGrantsOnly}
+                      disabled={foundationGrantsOnly}
                       className={cn(
                         "flex h-9 w-[300px] items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-normal",
                         tempSelectedDafProviders.includes("All") && "text-muted-foreground"
@@ -437,6 +441,41 @@ export default function AdminPendingGrants() {
                     </Command>
                   </PopoverContent>
                 </Popover>
+              </div>
+
+              <div className="flex flex-col gap-0.5">
+                <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">&nbsp;</Label>
+                <div className="flex h-9 items-center gap-2">
+                  <Checkbox
+                    id="foundation-grants-only"
+                    checked={foundationGrantsOnly}
+                    onCheckedChange={(checked) => {
+                      const next = checked === true;
+                      if (next) {
+                        setSavedDafProviderSelection({
+                          temp: tempSelectedDafProviders,
+                          selected: selectedDafProviders,
+                        });
+                        setTempSelectedDafProviders(["All"]);
+                        setSelectedDafProviders([]);
+                        setDafProviderPopoverOpen(false);
+                      } else if (savedDafProviderSelection) {
+                        setTempSelectedDafProviders(savedDafProviderSelection.temp);
+                        setSelectedDafProviders(savedDafProviderSelection.selected);
+                        setSavedDafProviderSelection(null);
+                      }
+                      setFoundationGrantsOnly(next);
+                      setCurrentPage(1);
+                    }}
+                    data-testid="checkbox-foundation-grants-only"
+                  />
+                  <Label
+                    htmlFor="foundation-grants-only"
+                    className="text-sm font-normal cursor-pointer select-none"
+                  >
+                    Foundation Grants
+                  </Label>
+                </div>
               </div>
 
               <div className="flex flex-col gap-0.5">

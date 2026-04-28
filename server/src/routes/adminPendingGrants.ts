@@ -127,6 +127,10 @@ router.get("/", async (req: Request, res: Response) => {
     const pageSize = params.perPage;
 
     const dafProvider = (req.query.dafProvider || req.query.DafProvider) as string | undefined;
+    const foundationGrantsOnlyRaw = (req.query.foundationGrantsOnly ?? req.query.FoundationGrantsOnly) as string | undefined;
+    const foundationGrantsOnly =
+      typeof foundationGrantsOnlyRaw === "string" &&
+      foundationGrantsOnlyRaw.toLowerCase() === "true";
 
     const statusList = params.status
       ? params.status.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
@@ -170,7 +174,9 @@ router.get("/", async (req: Request, res: Response) => {
       paramIdx++;
     }
 
-    if (dafProvider) {
+    if (foundationGrantsOnly) {
+      conditions.push(`LOWER(TRIM(pg.daf_provider)) = 'foundation grant'`);
+    } else if (dafProvider) {
       const dafProviderList = dafProvider.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
       const hasOther = dafProviderList.includes("other");
       const selectedProviders = dafProviderList.filter((p) => p !== "other");
