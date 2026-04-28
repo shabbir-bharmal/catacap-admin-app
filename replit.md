@@ -97,6 +97,7 @@ You are a senior software engineer working with Node.js (Express), React (Vite),
 - Do NOT introduce new logic
 - Follow existing API structure, business logic, validation, and data flow
 - Use @schema.sql for database mapping (snake_case)
+- The `/Back-End` folder contains .NET reference code only and must NOT be modified; all code changes must be made only in the Node.js (`server/`) and React (`src/`) code
 
 ## Architecture
 - Use modular structure (controller, service, etc.)
