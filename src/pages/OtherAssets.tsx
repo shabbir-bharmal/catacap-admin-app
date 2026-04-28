@@ -179,6 +179,11 @@ export default function AdminOtherAssets() {
   const [receivedAmount, setReceivedAmount] = useState("");
   const [receivedAttachments, setReceivedAttachments] = useState<SelectedAttachment[]>([]);
 
+  const [followUpDialogOpen, setFollowUpDialogOpen] = useState(false);
+  const [followUpTarget, setFollowUpTarget] = useState<OtherAssetEntry | null>(null);
+  const [followUpNote, setFollowUpNote] = useState("");
+  const [followUpAttachments, setFollowUpAttachments] = useState<SelectedAttachment[]>([]);
+
   // Delete state
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
@@ -386,6 +391,46 @@ export default function AdminOtherAssets() {
     }
   };
 
+  const confirmFollowUp = async () => {
+    if (!followUpTarget) return;
+    setIsSubmitting(true);
+    try {
+      const res = await updateOtherAsset({
+        id: followUpTarget.id,
+        status: followUpTarget.status,
+        note: followUpNote.trim(),
+        noteEmail: [],
+        attachments: mapAttachmentsForApi(followUpAttachments),
+      });
+      if (res.success) {
+        toast({
+          title: res.message || "Note added successfully.",
+          duration: 4000
+        });
+        queryClient.invalidateQueries({ queryKey: ["otherAssets"] });
+        queryClient.invalidateQueries({ queryKey: ["otherAssetNotes", followUpTarget.id] });
+        setFollowUpDialogOpen(false);
+        setFollowUpTarget(null);
+        setFollowUpNote("");
+        setFollowUpAttachments([]);
+      } else {
+        toast({
+          title: res.message || "Failed to add note",
+          variant: "destructive",
+          duration: 4000
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Failed to add note",
+        variant: "destructive",
+        duration: 4000
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const handleExportAll = async () => {
     setIsExporting(true);
     try {
@@ -583,6 +628,20 @@ export default function AdminOtherAssets() {
                                   Received
                                 </Button>
                               )}
+                              <Button
+                                size="sm"
+                                className="bg-[#299cdb] hover:bg-[#258cc5] text-white text-[11px] h-7 px-3 uppercase font-semibold"
+                                onClick={() => {
+                                  setFollowUpTarget(grant);
+                                  setFollowUpNote("");
+                                  setFollowUpAttachments([]);
+                                  setFollowUpDialogOpen(true);
+                                }}
+                                disabled={isSubmitting}
+                                data-testid={`button-follow-up-grant-${grant.id}`}
+                              >
+                                Add Note
+                              </Button>
                               {(grant.hasNotes || authUser?.isSuperAdmin) && (
                               <div className="inline-flex rounded-md shadow-sm ml-1">
                                 {grant.hasNotes && (
@@ -745,6 +804,34 @@ export default function AdminOtherAssets() {
           onChange={setReceivedAttachments}
           disabled={isSubmitting}
           dataTestId="dialog-received-attachments"
+        />
+      </ConfirmationDialog>
+
+      <ConfirmationDialog
+        open={followUpDialogOpen}
+        onOpenChange={(open) => {
+          setFollowUpDialogOpen(open);
+          if (!open) {
+            setFollowUpNote("");
+            setFollowUpAttachments([]);
+            setFollowUpTarget(null);
+          }
+        }}
+        title="Add Note to this asset request"
+        noteLabel="Add a note"
+        noteValue={followUpNote}
+        onNoteChange={setFollowUpNote}
+        onConfirm={confirmFollowUp}
+        isSubmitting={isSubmitting}
+        confirmLabel="SAVE"
+        confirmButtonClass="bg-[#299cdb] text-white"
+        dataTestId="dialog-follow-up"
+      >
+        <AttachmentsPicker
+          attachments={followUpAttachments}
+          onChange={setFollowUpAttachments}
+          disabled={isSubmitting}
+          dataTestId="dialog-follow-up-attachments"
         />
       </ConfirmationDialog>
 
