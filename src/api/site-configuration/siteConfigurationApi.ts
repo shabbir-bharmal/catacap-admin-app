@@ -205,8 +205,8 @@ export async function fetchDAFProviders(): Promise<DAFProviderItem[]> {
     const raw = await fetchRaw<RawDAFProviderItem>("daf-providers");
     return raw.map((item) => ({
         id: item.id,
-        name: item.value,
-        url: item.link,
+        name: item.value ?? "",
+        url: item.link ?? "",
         isActive: item.isActive,
     }));
 }

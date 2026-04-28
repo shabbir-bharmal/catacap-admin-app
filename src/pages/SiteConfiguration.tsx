@@ -332,7 +332,12 @@ export default function SiteConfiguration() {
   async function handleSave() {
     const { id, field1, configType } = editingItem;
     if (isSaving) return;
-    if (activeTab !== "Meta Information" && !field1.trim()) return;
+    if (activeTab !== "Meta Information" && !field1.trim()) {
+      if (activeTab === "DAF Providers") {
+        toast({ title: "Cannot Save", description: "Provider Name is required.", variant: "destructive" });
+      }
+      return;
+    }
 
     const isAutoDeleteConfig = activeTab === "Configuration" && field1.toLowerCase().startsWith("auto delete archived");
     const useRichText = (activeTab === "Configuration" && !isAutoDeleteConfig) || activeTab === "Statistics";
@@ -387,7 +392,7 @@ export default function SiteConfiguration() {
       payload.description = editingItem.field2 || undefined;
     }
     if (activeTab === "DAF Providers") {
-      const url = editingItem.field2.trim();
+      const url = (editingItem.field2 ?? "").trim();
       if (!url) {
         toast({ title: "Cannot Save", description: "Provider URL is required.", variant: "destructive" });
         return;
@@ -1330,7 +1335,7 @@ export default function SiteConfiguration() {
                             </tr>
                           ))}
                         {activeTab === "DAF Providers" &&
-                          dafProviders.map((item) => (
+                          [...dafProviders].sort((a, b) => a.id - b.id).map((item) => (
                             <tr key={item.id} className="border-b last:border-b-0 hover:bg-muted/20 transition-colors" data-testid={`row-item-${item.id}`}>
                               <td className="px-4 py-3">
                                 <span className="text-sm" data-testid={`text-name-${item.id}`}>
@@ -1434,7 +1439,10 @@ export default function SiteConfiguration() {
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <label className="text-sm font-medium">{getField1Label()}</label>
+              <label className="text-sm font-medium">
+                {getField1Label()}
+                {activeTab === "DAF Providers" && <span className="text-destructive"> *</span>}
+              </label>
               <Input
                 value={editingItem.field1}
                 onChange={(e) => setEditingItem((prev) => ({ ...prev, field1: e.target.value }))}
@@ -1615,7 +1623,10 @@ export default function SiteConfiguration() {
             )}
             {activeTab === "DAF Providers" && (
               <div className="space-y-2">
-                <label className="text-sm font-medium">Provider URL</label>
+                <label className="text-sm font-medium">
+                  Provider URL
+                  <span className="text-destructive"> *</span>
+                </label>
                 <Input
                   value={editingItem.field2}
                   onChange={(e) => setEditingItem((prev) => ({ ...prev, field2: e.target.value }))}
