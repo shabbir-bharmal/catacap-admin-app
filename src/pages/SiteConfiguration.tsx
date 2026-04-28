@@ -12,6 +12,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { Plus, Pencil, Trash2, ListPlus, Upload, X, Bold, Italic, Underline, Link as LinkIcon, List, ListOrdered, Strikethrough } from "lucide-react";
 import { getUrlBlobContainerImage, defaultImage, catacapDefaultImageLogo } from "@/lib/image-utils";
+import { Switch } from "@/components/ui/switch";
 import {
   fetchAllSiteConfigurations,
   fetchSourcedBy,
@@ -25,6 +26,8 @@ import {
   fetchStatistics,
   fetchMetaInformation,
   fetchContactInfo,
+  fetchDAFProviders,
+  toggleDAFProviderActive,
   deleteSiteConfigItem,
   saveSiteConfigItem,
   fetchConfigItemInvestments,
@@ -39,12 +42,13 @@ import {
   StatisticsItem,
   MetaInformationItem,
   ContactInfoItem,
+  DAFProviderItem,
   SiteConfigType,
   SiteConfigSavePayload,
   ConfigItemInvestment
 } from "../api/site-configuration/siteConfigurationApi";
 
-const TABS = ["Sourced By", "Themes", "Special Filters", "Configuration", "Contact Info", "Transaction Type", "News Type", "News Audience", "Statistics", "Meta Information"] as const;
+const TABS = ["Sourced By", "Themes", "Special Filters", "Configuration", "Contact Info", "Transaction Type", "News Type", "News Audience", "Statistics", "Meta Information", "DAF Providers"] as const;
 
 const CONTACT_INFO_SECTIONS = [
   { key: "emails", label: "Emails" },
@@ -73,6 +77,8 @@ export default function SiteConfiguration() {
   const [statistics, setStatistics] = useState<StatisticsItem[]>([]);
   const [metaInformation, setMetaInformation] = useState<MetaInformationItem[]>([]);
   const [contactInfo, setContactInfo] = useState<ContactInfoItem[]>([]);
+  const [dafProviders, setDafProviders] = useState<DAFProviderItem[]>([]);
+  const [togglingDafId, setTogglingDafId] = useState<number | string | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -110,6 +116,7 @@ export default function SiteConfiguration() {
         setStatistics(data.statistics);
         setMetaInformation(data.metaInformation);
         setContactInfo(data.contactInfo);
+        setDafProviders(data.dafProviders);
       })
       .catch(() => setFetchError("Failed to load site configuration. Please try again."))
       .finally(() => setLoading(false));
@@ -213,6 +220,8 @@ export default function SiteConfiguration() {
         return "Add Meta Information";
       case "Contact Info":
         return "Add Contact Info";
+      case "DAF Providers":
+        return "Add DAF Provider";
     }
   }
 
@@ -301,6 +310,19 @@ export default function SiteConfiguration() {
           });
         break;
       }
+      case "DAF Providers": {
+        const item = dafProviders.find((i) => i.id === id);
+        if (item)
+          setEditingItem({
+            id,
+            field1: item.name,
+            field2: item.url,
+            field3: "",
+            imagePreview: "",
+            imageFileName: ""
+          });
+        break;
+      }
     }
     setDialogOpen(true);
   }
@@ -364,6 +386,21 @@ export default function SiteConfiguration() {
       payload.image = editingItem.imagePreview.startsWith("data:") ? editingItem.imagePreview : "";
       payload.description = editingItem.field2 || undefined;
     }
+    if (activeTab === "DAF Providers") {
+      const url = editingItem.field2.trim();
+      if (!url) {
+        toast({ title: "Cannot Save", description: "Provider URL is required.", variant: "destructive" });
+        return;
+      }
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error();
+      } catch {
+        toast({ title: "Cannot Save", description: "Provider URL must be a valid http or https URL.", variant: "destructive" });
+        return;
+      }
+      payload.link = url;
+    }
 
     setIsSaving(true);
     try {
@@ -403,6 +440,9 @@ export default function SiteConfiguration() {
           break;
         case "Contact Info":
           setContactInfo(await fetchContactInfo());
+          break;
+        case "DAF Providers":
+          setDafProviders(await fetchDAFProviders());
           break;
       }
       toast({
@@ -451,6 +491,8 @@ export default function SiteConfiguration() {
         return "meta-information";
       case "Contact Info":
         return "contact-info";
+      case "DAF Providers":
+        return "daf-providers";
     }
   }
 
@@ -495,6 +537,9 @@ export default function SiteConfiguration() {
         case "Contact Info":
           setContactInfo((prev) => prev.filter((i) => i.id !== id));
           break;
+        case "DAF Providers":
+          setDafProviders((prev) => prev.filter((i) => i.id !== id));
+          break;
       }
       toast({
         title: `${activeTab} deleted successfully`,
@@ -510,6 +555,24 @@ export default function SiteConfiguration() {
       });
     } finally {
       setIsDeleting(false);
+    }
+  }
+
+  async function handleToggleDafActive(item: DAFProviderItem) {
+    if (togglingDafId !== null) return;
+    setTogglingDafId(item.id);
+    setDafProviders((prev) => prev.map((p) => (p.id === item.id ? { ...p, isActive: !p.isActive } : p)));
+    try {
+      await toggleDAFProviderActive(item.id);
+      toast({
+        title: !item.isActive ? "DAF provider activated" : "DAF provider deactivated",
+      });
+    } catch (err) {
+      setDafProviders((prev) => prev.map((p) => (p.id === item.id ? { ...p, isActive: item.isActive } : p)));
+      const message = err instanceof Error ? err.message : "Failed to update status.";
+      toast({ title: "Cannot Update", description: message, variant: "destructive" });
+    } finally {
+      setTogglingDafId(null);
     }
   }
 
@@ -536,6 +599,8 @@ export default function SiteConfiguration() {
         return `${action} Meta Information`;
       case "Contact Info":
         return "Edit Contact Info";
+      case "DAF Providers":
+        return `${action} DAF Provider`;
     }
   }
 
@@ -548,6 +613,8 @@ export default function SiteConfiguration() {
         return "Key";
       case "Meta Information":
         return "Identifier";
+      case "DAF Providers":
+        return "Provider Name";
       default:
         return "Name";
     }
@@ -944,6 +1011,13 @@ export default function SiteConfiguration() {
                               <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Description</th>
                               <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider w-[140px]">Actions</th>
                             </>
+                          ) : activeTab === "DAF Providers" ? (
+                            <>
+                              <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Name</th>
+                              <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">URL</th>
+                              <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider w-[120px]">Status</th>
+                              <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider w-[140px]">Actions</th>
+                            </>
                           ) : (
                             <>
                               <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">{activeTab === "Special Filters" ? "Tag" : "Name"}</th>
@@ -1255,14 +1329,89 @@ export default function SiteConfiguration() {
                               </td>
                             </tr>
                           ))}
+                        {activeTab === "DAF Providers" &&
+                          dafProviders.map((item) => (
+                            <tr key={item.id} className="border-b last:border-b-0 hover:bg-muted/20 transition-colors" data-testid={`row-item-${item.id}`}>
+                              <td className="px-4 py-3">
+                                <span className="text-sm" data-testid={`text-name-${item.id}`}>
+                                  {item.name}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3">
+                                <a
+                                  href={item.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-sm text-[#405189] hover:underline break-all"
+                                  data-testid={`text-url-${item.id}`}
+                                >
+                                  {item.url}
+                                </a>
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-2">
+                                  <Switch
+                                    checked={item.isActive}
+                                    disabled={togglingDafId === item.id}
+                                    onCheckedChange={() => handleToggleDafActive(item)}
+                                    data-testid={`switch-active-${item.id}`}
+                                  />
+                                  <span className="text-xs text-muted-foreground" data-testid={`text-active-${item.id}`}>
+                                    {item.isActive ? "Active" : "Inactive"}
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                <div className="flex items-center justify-end">
+                                  <div className="inline-flex rounded-md shadow-sm">
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          size="icon"
+                                          variant="outline"
+                                          className={cn(
+                                            "h-8 w-8 text-[#405189] hover:text-[#405189] hover:bg-[#405189]/5",
+                                            hasActionPermission("site configuration", "delete") ? "rounded-r-none border-r-0" : ""
+                                          )}
+                                          onClick={() => openEdit(item.id)}
+                                          data-testid={`button-edit-${item.id}`}
+                                        >
+                                          <Pencil className="h-4 w-4" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>Edit Item</TooltipContent>
+                                    </Tooltip>
+
+                                    {hasActionPermission("site configuration", "delete") && (
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <Button
+                                            size="icon"
+                                            variant="outline"
+                                            className="h-8 w-8 rounded-l-none text-[#f06548] hover:text-[#f06548] hover:bg-[#f06548]/5"
+                                            onClick={() => openDelete(item.id, item.name)}
+                                            data-testid={`button-delete-${item.id}`}
+                                          >
+                                            <Trash2 className="h-4 w-4" />
+                                          </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>Delete Item</TooltipContent>
+                                      </Tooltip>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
                         {((activeTab === "Sourced By" && sourcedBy.length === 0) ||
                           (activeTab === "Themes" && themes.length === 0) ||
                           (activeTab === "Special Filters" && specialFilters.length === 0) ||
                           (activeTab === "Transaction Type" && transactionTypes.length === 0) ||
                           (activeTab === "News Type" && newsTypes.length === 0) ||
-                          (activeTab === "News Audience" && newsAudiences.length === 0)) && (
+                          (activeTab === "News Audience" && newsAudiences.length === 0) ||
+                          (activeTab === "DAF Providers" && dafProviders.length === 0)) && (
                             <tr>
-                              <td colSpan={activeTab === "Themes" ? 3 : 2} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                              <td colSpan={activeTab === "Themes" ? 3 : activeTab === "DAF Providers" ? 4 : 2} className="px-4 py-8 text-center text-sm text-muted-foreground">
                                 No items found
                               </td>
                             </tr>
@@ -1462,6 +1611,17 @@ export default function SiteConfiguration() {
                   <label className="text-sm font-medium">Value</label>
                   <Input value={editingItem.field2} onChange={(e) => setEditingItem((prev) => ({ ...prev, field2: e.target.value }))} placeholder="e.g. 59" data-testid="input-field2" />
                 </div>
+              </div>
+            )}
+            {activeTab === "DAF Providers" && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Provider URL</label>
+                <Input
+                  value={editingItem.field2}
+                  onChange={(e) => setEditingItem((prev) => ({ ...prev, field2: e.target.value }))}
+                  placeholder="https://example.com"
+                  data-testid="input-daf-provider-url"
+                />
               </div>
             )}
             {activeTab === "Meta Information" && (
