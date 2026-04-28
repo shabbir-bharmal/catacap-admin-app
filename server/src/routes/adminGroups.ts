@@ -41,6 +41,13 @@ router.get("/", async (req: Request, res: Response) => {
 
     softDeleteFilter("g", params.isDeleted, conditions);
 
+    const activeFilter = ((req.query.ActiveFilter as string) || (req.query.activeFilter as string) || "").toLowerCase();
+    if (activeFilter === "active") {
+      conditions.push(`(g.is_deactivated IS NULL OR g.is_deactivated = false)`);
+    } else if (activeFilter === "inactive") {
+      conditions.push(`g.is_deactivated = true`);
+    }
+
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     const groupsResult = await pool.query(
@@ -99,6 +106,23 @@ router.get("/", async (req: Request, res: Response) => {
     const memberCounts: Record<number, number> = {};
     for (const row of memberResult.rows) {
       memberCounts[row.group_to_follow_id] = parseInt(row.cnt);
+    }
+
+    const memberInvestedResult = await pool.query(
+      `SELECT req.group_to_follow_id, COALESCE(SUM(r.amount), 0) AS total
+       FROM requests req
+       JOIN recommendations r
+         ON r.user_id = req.request_owner_id
+        AND (r.is_deleted IS NULL OR r.is_deleted = false)
+       WHERE req.group_to_follow_id IN (${memberPlaceholders})
+         AND req.status = 'accepted'
+         AND (req.is_deleted IS NULL OR req.is_deleted = false)
+       GROUP BY req.group_to_follow_id`,
+      groupIds
+    );
+    const memberInvestedTotals: Record<number, number> = {};
+    for (const row of memberInvestedResult.rows) {
+      memberInvestedTotals[row.group_to_follow_id] = parseFloat(row.total) || 0;
     }
 
     const cgPlaceholders = groupIds.map((_: any, i: number) => `$${i + 1}`).join(", ");
@@ -168,6 +192,7 @@ router.get("/", async (req: Request, res: Response) => {
         featuredGroup: g.featured_group || false,
         leader: leaderNames.join(", "),
         member: memberCounts[g.id] || 0,
+        memberInvestedTotal: memberInvestedTotals[g.id] || 0,
         groupThemes: g.group_themes,
         investment: allCampaignIds.size,
         metaTitle: g.meta_title,
@@ -199,6 +224,10 @@ router.get("/", async (req: Request, res: Response) => {
         case "membercount":
           valA = a.member;
           valB = b.member;
+          break;
+        case "memberinvestedtotal":
+          valA = a.memberInvestedTotal || 0;
+          valB = b.memberInvestedTotal || 0;
           break;
         case "investmentcount":
           valA = a.investment;
@@ -237,6 +266,78 @@ router.get("/", async (req: Request, res: Response) => {
     res.json({ items, totalCount });
   } catch (err) {
     console.error("Get admin groups error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+router.get("/reports", async (_req: Request, res: Response) => {
+  try {
+    const FUNDING_THRESHOLDS = [50000, 100000, 200000, 500000, 1000000];
+
+    const [secondMemberResult, totalsResult] = await Promise.all([
+      pool.query(
+        `WITH ordered AS (
+           SELECT req.group_to_follow_id,
+                  req.created_at,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY req.group_to_follow_id
+                    ORDER BY req.created_at ASC
+                  ) AS rn
+           FROM requests req
+           JOIN groups g ON g.id = req.group_to_follow_id
+           WHERE req.status = 'accepted'
+             AND (req.is_deleted IS NULL OR req.is_deleted = false)
+             AND req.created_at IS NOT NULL
+             AND (g.is_deleted IS NULL OR g.is_deleted = false)
+         )
+         SELECT to_char(date_trunc('month', created_at), 'YYYY-MM') AS month,
+                COUNT(*)::int AS new_groups
+         FROM ordered
+         WHERE rn = 2
+         GROUP BY date_trunc('month', created_at)
+         ORDER BY date_trunc('month', created_at) ASC`
+      ),
+      pool.query(
+        `SELECT COALESCE(SUM(r.amount), 0)::numeric AS total
+         FROM requests req
+         JOIN recommendations r
+           ON r.user_id = req.request_owner_id
+          AND (r.is_deleted IS NULL OR r.is_deleted = false)
+         JOIN groups g ON g.id = req.group_to_follow_id
+         WHERE req.status = 'accepted'
+           AND (req.is_deleted IS NULL OR req.is_deleted = false)
+           AND (g.is_deleted IS NULL OR g.is_deleted = false)
+         GROUP BY req.group_to_follow_id`
+      ),
+    ]);
+
+    let cumulative = 0;
+    const cumulativeMembership = secondMemberResult.rows.map((row: any) => {
+      const newGroups = parseInt(row.new_groups, 10) || 0;
+      cumulative += newGroups;
+      return {
+        month: row.month as string,
+        newGroups,
+        cumulativeGroups: cumulative,
+      };
+    });
+
+    const groupTotals = totalsResult.rows.map((r: any) => parseFloat(r.total) || 0);
+    const fundingBuckets = FUNDING_THRESHOLDS.map((threshold) => ({
+      threshold,
+      groupCount: groupTotals.filter((t) => t >= threshold).length,
+    }));
+
+    res.json({
+      cumulativeMembership,
+      fundingBuckets,
+      totals: {
+        groupsWithTwoOrMore: cumulative,
+        groupsWithAnyInvestment: groupTotals.filter((t) => t > 0).length,
+      },
+    });
+  } catch (err) {
+    console.error("Get group reports error:", err);
     res.status(500).json({ message: "Internal server error" });
   }
 });
@@ -280,6 +381,7 @@ router.get("/export", async (req: Request, res: Response) => {
     }
 
     let memberCounts: Record<number, number> = {};
+    let memberInvestedTotals: Record<number, number> = {};
     if (groupIds.length > 0) {
       const memberPlaceholders = groupIds.map((_: any, i: number) => `$${i + 1}`).join(", ");
       const memberResult = await pool.query(
@@ -293,6 +395,22 @@ router.get("/export", async (req: Request, res: Response) => {
       );
       for (const row of memberResult.rows) {
         memberCounts[row.group_to_follow_id] = parseInt(row.cnt);
+      }
+
+      const memberInvestedResult = await pool.query(
+        `SELECT req.group_to_follow_id, COALESCE(SUM(r.amount), 0) AS total
+         FROM requests req
+         JOIN recommendations r
+           ON r.user_id = req.request_owner_id
+          AND (r.is_deleted IS NULL OR r.is_deleted = false)
+         WHERE req.group_to_follow_id IN (${memberPlaceholders})
+           AND req.status = 'accepted'
+           AND (req.is_deleted IS NULL OR req.is_deleted = false)
+         GROUP BY req.group_to_follow_id`,
+        groupIds
+      );
+      for (const row of memberInvestedResult.rows) {
+        memberInvestedTotals[row.group_to_follow_id] = parseFloat(row.total) || 0;
       }
     }
 
@@ -344,13 +462,19 @@ router.get("/export", async (req: Request, res: Response) => {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet("InvestmentNotes");
 
-    const headers = ["Group Name", "Group URL", "Group Leader(s)", "Member Count", "Investment Count", "Status", "Active", "Corporate Group", "Featured Group", "Themes"];
+    const headers = ["Group Name", "Group URL", "Group Leader(s)", "Member Count", "Total Mem Invested", "Investment Count", "Status", "Active", "Corporate Group", "Featured Group", "Themes"];
     const headerRow = worksheet.addRow(headers);
     headerRow.eachCell((cell) => {
       cell.font = { bold: true };
     });
 
-    for (const g of groups) {
+    const sortedGroups = [...groups].sort((a: any, b: any) => {
+      const ta = memberInvestedTotals[a.id] || 0;
+      const tb = memberInvestedTotals[b.id] || 0;
+      return tb - ta;
+    });
+
+    for (const g of sortedGroups) {
       let leaderNames: string[] = [];
       if (g.leaders) {
         try {
@@ -382,11 +506,13 @@ router.get("/export", async (req: Request, res: Response) => {
 
       const url = g.identifier?.trim() ? `${requestOrigin}/group/${g.identifier.trim()}` : `${requestOrigin}/group/${g.id}`;
 
-      worksheet.addRow([
+      const memInvested = memberInvestedTotals[g.id] || 0;
+      const newRow = worksheet.addRow([
         g.name || "",
         url,
         leaderNames.join(", "),
         memberCounts[g.id] || 0,
+        memInvested,
         allCampaignIds.size,
         g.is_private_group ? "Private" : "Public",
         g.is_deactivated ? "False" : "True",
@@ -394,6 +520,7 @@ router.get("/export", async (req: Request, res: Response) => {
         g.featured_group ? "True" : "",
         groupThemeNames.join(", "),
       ]);
+      newRow.getCell(5).numFmt = '"$"#,##0';
     }
 
     worksheet.columns.forEach((col) => {

@@ -18,6 +18,7 @@ import {
   Mail,
   Award,
   UserCog,
+  TrendingUp,
   CalendarCheck,
   Settings,
   Shield,
@@ -123,6 +124,12 @@ export const sidebarConfig = [
             title: "Consolidated Finances",
             url: "/consolidated-finances",
             icon: DollarSign,
+            permission: { module: "consolidated-finances", action: "view" }
+          },
+          {
+            title: "KPIs",
+            url: "/kpis",
+            icon: TrendingUp,
             permission: { module: "consolidated-finances", action: "view" }
           }
         ]

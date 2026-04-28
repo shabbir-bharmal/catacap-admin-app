@@ -12,6 +12,7 @@ export interface GroupParams {
     stages?: string;
     investmentStatus?: boolean;
     isDeleted?: boolean;
+    activeFilter?: string;
 }
 
 // Raw shape returned by the API
@@ -25,6 +26,7 @@ export interface GroupApiItem {
     featuredGroup: boolean;
     leader: string;
     member: number;
+    memberInvestedTotal?: number;
     investment: number;
     groupThemes?: string;
 }
@@ -55,6 +57,17 @@ export interface GroupChampionsResponse {
         pictureFileName: string | null;
         memberSince: string | null;
     }[];
+}
+
+export interface GroupReportsResponse {
+    cumulativeMembership: { month: string; newGroups: number; cumulativeGroups: number }[];
+    fundingBuckets: { threshold: number; groupCount: number }[];
+    totals: { groupsWithTwoOrMore: number; groupsWithAnyInvestment: number };
+}
+
+export async function fetchGroupReports(): Promise<GroupReportsResponse> {
+    const response = await axiosInstance.get<GroupReportsResponse>("/api/admin/group/reports");
+    return response.data;
 }
 
 export async function fetchAllGroups(): Promise<GroupUpdatePayload[]> {
@@ -89,6 +102,7 @@ export async function fetchGroups(
         if (params.stages) queryParams.Stages = params.stages;
         if (params.investmentStatus !== undefined) queryParams.InvestmentStatus = params.investmentStatus.toString();
         if (params.isDeleted !== undefined) queryParams.IsDeleted = params.isDeleted.toString();
+        if (params.activeFilter) queryParams.ActiveFilter = params.activeFilter;
     }
 
     const response = await axiosInstance.get<PaginatedGroupResponse>(

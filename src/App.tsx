@@ -10,6 +10,7 @@ import AdminDashboard from "@/pages/Dashboard";
 import AdminRaiseMoney from "@/pages/RaiseMoney";
 import AdminUsers from "@/pages/Users";
 import AdminGroups from "@/pages/Groups";
+import GroupReports from "@/pages/GroupReports";
 import EventManagement from "@/pages/EventManagement";
 import EventRegistrationsList from "@/pages/EventRegistrationsList";
 import AdminInvestments from "@/pages/Investments";
@@ -20,6 +21,7 @@ import AdminPendingGrants from "./pages/PendingGrants";
 import AdminDisbursalRequest from "./pages/DisbursalRequest";
 import AdminDisbursalRequestDetail from "./pages/DisbursalRequestDetail";
 import AdminConsolidatedFinances from "./pages/ConsolidatedFinances";
+import FinanceKPIs from "./pages/FinanceKPIs";
 import AdminCompletedInvestments from "./pages/CompletedInvestments";
 import AdminReturns from "./pages/Returns";
 import SiteConfiguration from "./pages/SiteConfiguration";
@@ -59,6 +61,7 @@ function Router() {
         <ProtectedRoute path="/form-submissions" component={FormSubmissions} moduleName="form-submissions" />
         {/* <ProtectedRoute path="/soft-circle-investments" component={SoftCircleInvestments} moduleName="soft-circle-investments" /> */}
         <ProtectedRoute path="/groups" component={AdminGroups} moduleName="group" />
+        <ProtectedRoute path="/groups/reports" component={GroupReports} moduleName="group" />
         <ProtectedRoute path="/groups/:identifier/edit" component={AdminGroupEdit} moduleName="group" />
         <ProtectedRoute path="/event-management" component={EventManagement} moduleName="event registrations" />
         <ProtectedRoute path="/event-registrations" component={EventRegistrationsList} moduleName="event registrations" />
@@ -71,6 +74,7 @@ function Router() {
         <ProtectedRoute path="/disbursal-request" component={AdminDisbursalRequest} moduleName="disbursal request" />
         <ProtectedRoute path="/disbursal-request-detail/:id" component={AdminDisbursalRequestDetail} moduleName="disbursal request" />
         <ProtectedRoute path="/consolidated-finances" component={AdminConsolidatedFinances} moduleName="consolidated finances" />
+        <ProtectedRoute path="/kpis" component={FinanceKPIs} moduleName="consolidated finances" />
         <ProtectedRoute path="/completed-investments" component={AdminCompletedInvestments} moduleName="completed investments" />
         <ProtectedRoute path="/returns" component={AdminReturns} moduleName="return" />
         <ProtectedRoute path="/site-configuration" component={SiteConfiguration} moduleName="site configuration" />

@@ -56,6 +56,94 @@ export async function fetchFinanceData(): Promise<FinanceData> {
   return response.data;
 }
 
+export interface CumulativeBalancePoint {
+  date: string;
+  added: number;
+  cumulative: number;
+}
+
+export interface CumulativeBalanceResponse {
+  range: string;
+  granularity: "day" | "week" | "month";
+  baselineCumulative: number;
+  currentCumulative: number;
+  series: CumulativeBalancePoint[];
+}
+
+export async function fetchCumulativeAccountBalance(
+  range: string,
+  granularity?: "day" | "week" | "month",
+): Promise<CumulativeBalanceResponse> {
+  const params: Record<string, string> = { range };
+  if (granularity) params.granularity = granularity;
+  const response = await axiosInstance.get<CumulativeBalanceResponse>(
+    "/api/admin/finance/kpis/account-balance-cumulative",
+    { params },
+  );
+  return response.data;
+}
+
+export interface CompletedInvestmentPoint {
+  date: string;
+  count: number;
+  amount: number;
+  cumulativeCount: number;
+  cumulativeAmount: number;
+}
+
+export interface CompletedInvestmentsResponse {
+  range: string;
+  granularity: "day" | "week" | "month";
+  baselineCount: number;
+  baselineAmount: number;
+  currentCumulativeCount: number;
+  currentCumulativeAmount: number;
+  series: CompletedInvestmentPoint[];
+}
+
+export async function fetchCompletedInvestmentsKPI(
+  range: string,
+  granularity?: "day" | "week" | "month",
+): Promise<CompletedInvestmentsResponse> {
+  const params: Record<string, string> = { range };
+  if (granularity) params.granularity = granularity;
+  const response = await axiosInstance.get<CompletedInvestmentsResponse>(
+    "/api/admin/finance/kpis/completed-investments",
+    { params },
+  );
+  return response.data;
+}
+
+export interface CompletedInvestmentListItem {
+  id: number;
+  investmentDetail: string;
+  amount: number;
+  dateOfLastInvestment: string | null;
+  typeOfInvestment: string;
+  donors: number;
+  campaignId: number | null;
+  campaignName: string;
+}
+
+export interface CompletedInvestmentsListResponse {
+  start: string;
+  end: string;
+  count: number;
+  totalAmount: number;
+  items: CompletedInvestmentListItem[];
+}
+
+export async function fetchCompletedInvestmentsList(
+  startIso: string,
+  endIso: string,
+): Promise<CompletedInvestmentsListResponse> {
+  const response = await axiosInstance.get<CompletedInvestmentsListResponse>(
+    "/api/admin/finance/kpis/completed-investments/list",
+    { params: { start: startIso, end: endIso } },
+  );
+  return response.data;
+}
+
 export async function exportFinanceData(): Promise<void> {
   const response = await axiosInstance.get("/api/admin/finance/export", {
     responseType: "blob",

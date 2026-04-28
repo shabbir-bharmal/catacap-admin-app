@@ -383,6 +383,274 @@ router.get("/", async (_req: Request, res: Response) => {
   }
 });
 
+const RANGE_TO_DAYS: Record<string, number | null> = {
+  all: null,
+  "5y": 365 * 5,
+  "3y": 365 * 3,
+  "1y": 365,
+  "6m": 180,
+  "3m": 90,
+  "1m": 30,
+};
+
+const VALID_GRANULARITIES = new Set(["day", "week", "month"]);
+
+function buildRangeFilter(
+  range: string,
+  dateColExpr: string,
+): {
+  periodFilter: string;
+  periodParams: Array<string | number>;
+  baselineFilter: string | null;
+  baselineParams: Array<string | number>;
+  days: number | null;
+} {
+  if (range === "ytd") {
+    const now = new Date();
+    const jan1 = Date.UTC(now.getUTCFullYear(), 0, 1);
+    const daysSinceJan1 = Math.max(1, Math.floor((Date.now() - jan1) / 86400000));
+    return {
+      periodFilter: `AND ${dateColExpr} >= date_trunc('year', NOW())`,
+      periodParams: [],
+      baselineFilter: `AND ${dateColExpr} < date_trunc('year', NOW())`,
+      baselineParams: [],
+      days: daysSinceJan1,
+    };
+  }
+
+  const days = RANGE_TO_DAYS[range] ?? null;
+  if (days === null) {
+    return {
+      periodFilter: "",
+      periodParams: [],
+      baselineFilter: null,
+      baselineParams: [],
+      days: null,
+    };
+  }
+
+  return {
+    periodFilter: `AND ${dateColExpr} >= NOW() - ($1::int * INTERVAL '1 day')`,
+    periodParams: [days],
+    baselineFilter: `AND ${dateColExpr} < NOW() - ($1::int * INTERVAL '1 day')`,
+    baselineParams: [days],
+    days,
+  };
+}
+
+router.get("/kpis/account-balance-cumulative", async (req: Request, res: Response) => {
+  try {
+    const range = String(req.query.range || "all").toLowerCase();
+    const granularityRaw = String(req.query.granularity || "").toLowerCase();
+    const { periodFilter, periodParams, baselineFilter, baselineParams, days } =
+      buildRangeFilter(range, "change_date");
+
+    let granularity = granularityRaw;
+    if (!VALID_GRANULARITIES.has(granularity)) {
+      if (days === null || days > 365 * 2) granularity = "month";
+      else if (days > 90) granularity = "week";
+      else granularity = "day";
+    }
+
+    const truncUnit = granularity === "day" ? "day" : granularity === "week" ? "week" : "month";
+
+    const periodResult = await pool.query(
+      `SELECT date_trunc('${truncUnit}', change_date) AS bucket,
+              COALESCE(SUM(GREATEST(new_value - old_value, 0)), 0) AS added
+       FROM account_balance_change_logs
+       WHERE (is_deleted IS NULL OR is_deleted = false)
+         AND new_value > old_value
+         AND change_date IS NOT NULL
+         ${periodFilter}
+       GROUP BY bucket
+       ORDER BY bucket ASC`,
+      periodParams,
+    );
+
+    let baselineCumulative = 0;
+    if (baselineFilter !== null) {
+      const baselineResult = await pool.query(
+        `SELECT COALESCE(SUM(GREATEST(new_value - old_value, 0)), 0) AS total
+         FROM account_balance_change_logs
+         WHERE (is_deleted IS NULL OR is_deleted = false)
+           AND new_value > old_value
+           AND change_date IS NOT NULL
+           ${baselineFilter}`,
+        baselineParams,
+      );
+      baselineCumulative = parseFloat(baselineResult.rows[0]?.total) || 0;
+    }
+
+    let runningTotal = baselineCumulative;
+    const series = periodResult.rows.map((row: { bucket: Date; added: string }) => {
+      const added = parseFloat(row.added) || 0;
+      runningTotal += added;
+      return {
+        date: new Date(row.bucket).toISOString().slice(0, 10),
+        added,
+        cumulative: runningTotal,
+      };
+    });
+
+    res.json({
+      range,
+      granularity,
+      baselineCumulative,
+      currentCumulative: runningTotal,
+      series,
+    });
+  } catch (err) {
+    console.error("KPI cumulative balance error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+router.get("/kpis/completed-investments", async (req: Request, res: Response) => {
+  try {
+    const range = String(req.query.range || "all").toLowerCase();
+    const granularityRaw = String(req.query.granularity || "").toLowerCase();
+    const dateExpr = "COALESCE(date_of_last_investment::timestamp, created_on)";
+    const { periodFilter, periodParams, baselineFilter, baselineParams, days } =
+      buildRangeFilter(range, dateExpr);
+
+    let granularity = granularityRaw;
+    if (!VALID_GRANULARITIES.has(granularity)) {
+      if (days === null || days > 365 * 2) granularity = "month";
+      else if (days > 90) granularity = "week";
+      else granularity = "day";
+    }
+
+    const truncUnit = granularity === "day" ? "day" : granularity === "week" ? "week" : "month";
+
+    const periodResult = await pool.query(
+      `SELECT date_trunc('${truncUnit}', ${dateExpr}) AS bucket,
+              COUNT(*) AS count,
+              COALESCE(SUM(amount), 0) AS amount
+       FROM completed_investment_details
+       WHERE (is_deleted IS NULL OR is_deleted = false)
+         AND ${dateExpr} IS NOT NULL
+         ${periodFilter}
+       GROUP BY bucket
+       ORDER BY bucket ASC`,
+      periodParams,
+    );
+
+    let baselineCount = 0;
+    let baselineAmount = 0;
+    if (baselineFilter !== null) {
+      const baselineResult = await pool.query(
+        `SELECT COUNT(*) AS count, COALESCE(SUM(amount), 0) AS amount
+         FROM completed_investment_details
+         WHERE (is_deleted IS NULL OR is_deleted = false)
+           AND ${dateExpr} IS NOT NULL
+           ${baselineFilter}`,
+        baselineParams,
+      );
+      baselineCount = parseInt(baselineResult.rows[0]?.count) || 0;
+      baselineAmount = parseFloat(baselineResult.rows[0]?.amount) || 0;
+    }
+
+    let runningCount = baselineCount;
+    let runningAmount = baselineAmount;
+    const series = periodResult.rows.map((row: { bucket: Date; count: string; amount: string }) => {
+      const count = parseInt(row.count) || 0;
+      const amount = parseFloat(row.amount) || 0;
+      runningCount += count;
+      runningAmount += amount;
+      return {
+        date: new Date(row.bucket).toISOString().slice(0, 10),
+        count,
+        amount,
+        cumulativeCount: runningCount,
+        cumulativeAmount: runningAmount,
+      };
+    });
+
+    res.json({
+      range,
+      granularity,
+      baselineCount,
+      baselineAmount,
+      currentCumulativeCount: runningCount,
+      currentCumulativeAmount: runningAmount,
+      series,
+    });
+  } catch (err) {
+    console.error("KPI completed investments error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+router.get("/kpis/completed-investments/list", async (req: Request, res: Response) => {
+  try {
+    const start = String(req.query.start || "");
+    const end = String(req.query.end || "");
+    if (!start || !end) {
+      return res.status(400).json({ message: "start and end query parameters are required" });
+    }
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+      return res.status(400).json({ message: "start and end must be valid ISO date strings" });
+    }
+
+    const dateExpr = "COALESCE(cid.date_of_last_investment::timestamp, cid.created_on)";
+
+    const result = await pool.query(
+      `SELECT cid.id,
+              cid.investment_detail,
+              cid.amount,
+              cid.date_of_last_investment,
+              cid.type_of_investment,
+              cid.donors,
+              cid.campaign_id,
+              c.name AS campaign_name
+       FROM completed_investment_details cid
+       LEFT JOIN campaigns c ON c.id = cid.campaign_id
+       WHERE (cid.is_deleted IS NULL OR cid.is_deleted = false)
+         AND ${dateExpr} >= $1
+         AND ${dateExpr} < $2
+       ORDER BY ${dateExpr} ASC, cid.id ASC`,
+      [startDate, endDate],
+    );
+
+    const items = result.rows.map((r: {
+      id: number;
+      investment_detail: string | null;
+      amount: string | number | null;
+      date_of_last_investment: Date | string | null;
+      type_of_investment: string | null;
+      donors: number | null;
+      campaign_id: number | null;
+      campaign_name: string | null;
+    }) => ({
+      id: r.id,
+      investmentDetail: r.investment_detail || "",
+      amount: parseFloat(String(r.amount ?? 0)) || 0,
+      dateOfLastInvestment: r.date_of_last_investment
+        ? new Date(r.date_of_last_investment).toISOString().slice(0, 10)
+        : null,
+      typeOfInvestment: r.type_of_investment || "",
+      donors: r.donors ?? 0,
+      campaignId: r.campaign_id,
+      campaignName: r.campaign_name || "",
+    }));
+
+    const totalAmount = items.reduce((s, i) => s + i.amount, 0);
+
+    res.json({
+      start: startDate.toISOString(),
+      end: endDate.toISOString(),
+      count: items.length,
+      totalAmount,
+      items,
+    });
+  } catch (err) {
+    console.error("KPI completed investments list error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
 router.get("/export", async (_req: Request, res: Response) => {
   try {
     const data = await getFinancesData();

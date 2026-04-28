@@ -11,13 +11,14 @@ import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { Search, Download, Check, X, Pencil, Eye, History, Crown, Users as UsersIcon, Loader2, Trash2 } from "lucide-react";
+import { Search, Download, Check, X, Pencil, Eye, History, Crown, Users as UsersIcon, Loader2, Trash2, BarChart3 } from "lucide-react";
 import { useSort } from "../hooks/useSort";
 import { useDebounce } from "../hooks/useDebounce";
 import { SortHeader } from "../components/ui/table-sort";
 import { PaginationControls } from "@/components/ui/pagination-controls";
 import { fetchGroups, exportGroupsData, updateGroupSettings, fetchGroupLeaders, fetchGroupChampions, deleteGroup, type GroupApiItem, type GroupLeader, type Champion } from "../api/group/groupApi";
 import { AuditLogModal } from "../components/AuditLogModal";
+import { currency_format } from "@/helpers/format";
 import { ConfirmationDialog } from "../components/ConfirmationDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { GroupLeadersSection } from "@/components/group/GroupLeadersSection";
@@ -31,6 +32,7 @@ interface GroupData {
   identifier: string;
   groupLeaders: string[];
   memberCount: number;
+  memberInvestedTotal: number;
   investmentCount: number;
   status: "Public" | "Private" | string;
   active: boolean;
@@ -38,7 +40,7 @@ interface GroupData {
   featuredGroup: boolean;
 }
 
-type SortField = "groupName" | "memberCount" | "investmentCount" | "status" | "active" | "corporateGroup";
+type SortField = "groupName" | "memberCount" | "memberInvestedTotal" | "investmentCount" | "status" | "active";
 
 export default function GroupsPage() {
   const { user: authUser } = useAuth();
@@ -46,7 +48,8 @@ export default function GroupsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearch = useDebounce(searchQuery, 500);
   const effectiveSearch = debouncedSearch.length >= 3 || debouncedSearch.length === 0 ? debouncedSearch : "";
-  const { sortField, sortDir, handleSort: originalHandleSort } = useSort<SortField>("groupName", "asc");
+  const { sortField, sortDir, handleSort: originalHandleSort } = useSort<SortField>("memberInvestedTotal", "desc");
+  const [activeFilter, setActiveFilter] = useState<"active" | "inactive" | "all">("active");
 
   const handleSort = (field: SortField) => {
     originalHandleSort(field);
@@ -109,7 +112,7 @@ export default function GroupsPage() {
 
   useEffect(() => {
     loadGroups();
-  }, [effectiveSearch, sortField, sortDir, currentPage, rowsPerPage]);
+  }, [effectiveSearch, sortField, sortDir, currentPage, rowsPerPage, activeFilter]);
 
   const loadGroups = async (showLoading = true) => {
     if (showLoading) setIsLoading(true);
@@ -119,7 +122,8 @@ export default function GroupsPage() {
         perPage: rowsPerPage,
         sortField: sortField || undefined,
         sortDirection: sortDir || undefined,
-        searchValue: effectiveSearch || undefined
+        searchValue: effectiveSearch || undefined,
+        activeFilter: activeFilter === "all" ? undefined : activeFilter
       });
 
       if (response && response.items) {
@@ -136,6 +140,7 @@ export default function GroupsPage() {
               .filter(Boolean)
             : [],
           memberCount: item.member ?? 0,
+          memberInvestedTotal: item.memberInvestedTotal ?? 0,
           investmentCount: item.investment ?? 0,
           // isPrivateGroup=false → "Public", isPrivateGroup=true → "Private"
           status: item.isPrivateGroup ? "Private" : "Public",
@@ -263,26 +268,56 @@ export default function GroupsPage() {
           <h1 className="text-2xl font-semibold" data-testid="text-page-heading">
             Groups
           </h1>
-          <Button className="bg-[#405189] hover:bg-[#405189]/90 text-white" onClick={handleExport} disabled={isExporting} data-testid="button-export-all">
-            <Download className="h-3.5 w-3.5 mr-1.5" />
-            {isExporting ? "Exporting..." : "Export All"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Link href="/groups/reports">
+              <Button
+                variant="outline"
+                className="text-[#405189] hover:text-[#405189] hover:bg-[#405189]/5"
+                data-testid="button-group-reports"
+              >
+                <BarChart3 className="h-3.5 w-3.5 mr-1.5" />
+                Group Reports
+              </Button>
+            </Link>
+            <Button className="bg-[#405189] hover:bg-[#405189]/90 text-white" onClick={handleExport} disabled={isExporting} data-testid="button-export-all">
+              <Download className="h-3.5 w-3.5 mr-1.5" />
+              {isExporting ? "Exporting..." : "Export All"}
+            </Button>
+          </div>
         </div>
 
         <Card>
           <CardHeader className="border-b px-6 py-4">
-            <div className="relative w-full max-w-xs">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search by Group Name"
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative w-full max-w-xs">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by Group Name"
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="pl-9"
+                  data-testid="input-search-groups"
+                />
+              </div>
+              <Select
+                value={activeFilter}
+                onValueChange={(val) => {
+                  setActiveFilter(val as "active" | "inactive" | "all");
                   setCurrentPage(1);
                 }}
-                className="pl-9"
-                data-testid="input-search-groups"
-              />
+              >
+                <SelectTrigger className="w-[140px]" data-testid="select-active-filter">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active" data-testid="option-active">Active</SelectItem>
+                  <SelectItem value="inactive" data-testid="option-inactive">Inactive</SelectItem>
+                  <SelectItem value="all" data-testid="option-all">All</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </CardHeader>
 
@@ -298,6 +333,9 @@ export default function GroupsPage() {
                     <SortHeader field="memberCount" sortField={sortField} sortDir={sortDir} handleSort={handleSort} className="text-center">
                       Member Count
                     </SortHeader>
+                    <SortHeader field="memberInvestedTotal" sortField={sortField} sortDir={sortDir} handleSort={handleSort} className="text-right whitespace-nowrap">
+                      <span className="leading-tight">Total Mem<br />Invested</span>
+                    </SortHeader>
                     <SortHeader field="investmentCount" sortField={sortField} sortDir={sortDir} handleSort={handleSort} className="text-center">
                       Investment Count
                     </SortHeader>
@@ -307,10 +345,7 @@ export default function GroupsPage() {
                     <SortHeader field="active" sortField={sortField} sortDir={sortDir} handleSort={handleSort} className="text-center whitespace-nowrap">
                       Active
                     </SortHeader>
-                    <SortHeader field="corporateGroup" sortField={sortField} sortDir={sortDir} handleSort={handleSort} className="text-center whitespace-nowrap">
-                      Corporate Group
-                    </SortHeader>
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">Featured Group</th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">Featured</th>
                     <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
@@ -345,6 +380,11 @@ export default function GroupsPage() {
                             {group.memberCount}
                           </span>
                         </td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          <span className="text-sm font-medium" data-testid={`text-memberinvestedtotal-${group.id}`}>
+                            {currency_format(group.memberInvestedTotal, true, 0)}
+                          </span>
+                        </td>
                         <td className="px-4 py-3 text-center">
                           <span className="text-sm" data-testid={`text-investmentcount-${group.id}`}>
                             {group.investmentCount}
@@ -363,15 +403,6 @@ export default function GroupsPage() {
                         </td>
                         <td className="px-4 py-3 text-center" data-testid={`status-active-${group.id}`}>
                           <div className="flex items-center justify-center">{group.active ? <Check className="h-4 w-4 text-emerald-600" /> : <X className="h-4 w-4 text-rose-600" />}</div>
-                        </td>
-                        <td className="px-4 py-3 text-center" data-testid={`checkbox-corporate-${group.id}`}>
-                          <div className="flex items-center justify-center">
-                            <Checkbox
-                              checked={group.corporateGroup}
-                              onCheckedChange={() => handleToggleStatus(group.id, "corporateGroup", group.corporateGroup)}
-                              className="data-[state=checked]:bg-[#405189] data-[state=checked]:border-[#405189]"
-                            />
-                          </div>
                         </td>
                         <td className="px-4 py-3 text-center" data-testid={`checkbox-featured-${group.id}`}>
                           <div className="flex items-center justify-center">
