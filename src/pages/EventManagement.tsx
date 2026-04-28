@@ -58,7 +58,7 @@ interface FormState {
   type: string;
   pageUrl: string;
   linkTargetType: EventLinkTargetType;
-  linkTargetIdsByType: Record<EventLinkTargetType, Array<number | string>>;
+  linkTargetIds: Array<number | string>;
 }
 
 const emptyForm: FormState = {
@@ -76,11 +76,7 @@ const emptyForm: FormState = {
   type: "",
   pageUrl: "",
   linkTargetType: "investments",
-  linkTargetIdsByType: {
-    investments: [],
-    groups: [],
-    "custom-pages": [],
-  },
+  linkTargetIds: [],
 };
 
 export default function EventManagement() {
@@ -103,6 +99,7 @@ export default function EventManagement() {
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletingEvent, setDeletingEvent] = useState<Event | null>(null);
+  const [pendingLinkTypeSwitch, setPendingLinkTypeSwitch] = useState<EventLinkTargetType | null>(null);
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
   const imageInputRef = useRef<HTMLInputElement>(null);
 
@@ -220,16 +217,27 @@ export default function EventManagement() {
 
   const toggleLinkTargetId = (id: number | string) => {
     setForm((f) => {
-      const current = f.linkTargetIdsByType[f.linkTargetType] ?? [];
-      const next = current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
-      return {
-        ...f,
-        linkTargetIdsByType: {
-          ...f.linkTargetIdsByType,
-          [f.linkTargetType]: next,
-        },
-      };
+      const next = f.linkTargetIds.includes(id)
+        ? f.linkTargetIds.filter((x) => x !== id)
+        : [...f.linkTargetIds, id];
+      return { ...f, linkTargetIds: next };
     });
+  };
+
+  const handleLinkTargetTypeChange = (newType: EventLinkTargetType) => {
+    if (newType === form.linkTargetType) return;
+    if (form.linkTargetIds.length > 0) {
+      setPendingLinkTypeSwitch(newType);
+      return;
+    }
+    setForm((f) => ({ ...f, linkTargetType: newType, linkTargetIds: [] }));
+  };
+
+  const confirmLinkTargetTypeSwitch = () => {
+    if (!pendingLinkTypeSwitch) return;
+    const nextType = pendingLinkTypeSwitch;
+    setForm((f) => ({ ...f, linkTargetType: nextType, linkTargetIds: [] }));
+    setPendingLinkTypeSwitch(null);
   };
 
   const openCreate = () => {
@@ -250,24 +258,33 @@ export default function EventManagement() {
     }
 
     setEditingEvent(event);
-    const linkTargetIdsByType: Record<EventLinkTargetType, Array<number | string>> = {
-      investments: [],
-      groups: [],
-      "custom-pages": [],
-    };
+
+    let linkTargetType: EventLinkTargetType = "investments";
+    let linkTargetIds: Array<number | string> = [];
     const grouped = event.linkTargetsByType;
     if (grouped && typeof grouped === "object") {
-      if (Array.isArray(grouped.investments)) linkTargetIdsByType.investments = [...grouped.investments];
-      if (Array.isArray(grouped.groups)) linkTargetIdsByType.groups = [...grouped.groups];
-      if (Array.isArray(grouped["custom-pages"])) linkTargetIdsByType["custom-pages"] = [...grouped["custom-pages"]];
+      const investments = Array.isArray(grouped.investments) ? [...grouped.investments] : [];
+      const groups = Array.isArray(grouped.groups) ? [...grouped.groups] : [];
+      const customPages = Array.isArray(grouped["custom-pages"]) ? [...grouped["custom-pages"]] : [];
+      if (investments.length > 0) {
+        linkTargetType = "investments";
+        linkTargetIds = investments;
+      } else if (groups.length > 0) {
+        linkTargetType = "groups";
+        linkTargetIds = groups;
+      } else if (customPages.length > 0) {
+        linkTargetType = "custom-pages";
+        linkTargetIds = customPages;
+      }
     } else if (event.linkTargetType && Array.isArray(event.linkTargetIds)) {
       const legacyType = LINK_TARGET_OPTIONS.some((o) => o.value === event.linkTargetType)
         ? (event.linkTargetType as EventLinkTargetType)
         : null;
-      if (legacyType) linkTargetIdsByType[legacyType] = [...event.linkTargetIds];
+      if (legacyType && event.linkTargetIds.length > 0) {
+        linkTargetType = legacyType;
+        linkTargetIds = [...event.linkTargetIds];
+      }
     }
-    const linkTargetType: EventLinkTargetType =
-      LINK_TARGET_OPTIONS.find((o) => linkTargetIdsByType[o.value].length > 0)?.value ?? "investments";
 
     setForm({
       title: event.title,
@@ -284,7 +301,7 @@ export default function EventManagement() {
       type: event.type || "",
       pageUrl: event.pageUrl || "",
       linkTargetType,
-      linkTargetIdsByType,
+      linkTargetIds,
     });
     setErrors({});
     setDialogOpen(true);
@@ -357,21 +374,24 @@ export default function EventManagement() {
       return;
     }
 
-    const investmentsIds = (form.linkTargetIdsByType.investments ?? [])
-      .map((v) => Number(v))
-      .filter((n) => Number.isFinite(n) && n > 0);
-    const groupsIds = (form.linkTargetIdsByType.groups ?? [])
-      .map((v) => Number(v))
-      .filter((n) => Number.isFinite(n) && n > 0);
-    const customPagesSlugs = (form.linkTargetIdsByType["custom-pages"] ?? [])
-      .map((v) => String(v).trim())
-      .filter((s) => s.length > 0);
+    const investmentsIds =
+      form.linkTargetType === "investments"
+        ? form.linkTargetIds.map((v) => Number(v)).filter((n) => Number.isFinite(n) && n > 0)
+        : [];
+    const groupsIds =
+      form.linkTargetType === "groups"
+        ? form.linkTargetIds.map((v) => Number(v)).filter((n) => Number.isFinite(n) && n > 0)
+        : [];
+    const customPagesSlugs =
+      form.linkTargetType === "custom-pages"
+        ? form.linkTargetIds.map((v) => String(v).trim()).filter((s) => s.length > 0)
+        : [];
     const linkTargetsByType: eventApi.EventLinkTargetsByType = {
       investments: investmentsIds,
       groups: groupsIds,
       "custom-pages": customPagesSlugs,
     };
-    const { linkTargetIdsByType: _unusedIds, linkTargetType: _unusedType, ...formRest } = form;
+    const { linkTargetIds: _unusedIds, linkTargetType: _unusedType, ...formRest } = form;
     const payload: eventApi.EventCreateUpdatePayload = {
       ...formRest,
       title: form.title.trim(),
@@ -814,7 +834,7 @@ export default function EventManagement() {
               <Label>Link Event To</Label>
               <RadioGroup
                 value={form.linkTargetType}
-                onValueChange={(v) => setForm((f) => ({ ...f, linkTargetType: v as EventLinkTargetType }))}
+                onValueChange={(v) => handleLinkTargetTypeChange(v as EventLinkTargetType)}
                 className="flex flex-wrap gap-x-6 gap-y-2"
                 data-testid="radio-event-link-target"
               >
@@ -837,7 +857,7 @@ export default function EventManagement() {
 
               <MultiSelectPopover<number | string>
                 options={linkTargetOptionsByType[form.linkTargetType] || []}
-                selected={form.linkTargetIdsByType[form.linkTargetType] || []}
+                selected={form.linkTargetIds}
                 onToggle={toggleLinkTargetId}
                 placeholder={
                   isLoadingLinkOptions
@@ -991,6 +1011,29 @@ export default function EventManagement() {
         isSubmitting={deleteMutation.isPending}
         confirmButtonClass="bg-[#f06548] text-white hover:bg-[#d0543c]"
         dataTestId="dialog-delete-confirm"
+      />
+
+      <ConfirmationDialog
+        open={pendingLinkTypeSwitch !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingLinkTypeSwitch(null);
+        }}
+        title="Switch link type?"
+        description={
+          <span>
+            Switching will clear the {form.linkTargetIds.length}{" "}
+            {form.linkTargetIds.length === 1 ? "item" : "items"} you selected for{" "}
+            <strong className="text-foreground">
+              {LINK_TARGET_OPTIONS.find((o) => o.value === form.linkTargetType)?.label}
+            </strong>
+            . Continue?
+          </span>
+        }
+        confirmLabel="Switch"
+        cancelLabel="Cancel"
+        onConfirm={confirmLinkTargetTypeSwitch}
+        confirmButtonClass="bg-[#405189] text-white hover:bg-[#405189]/90"
+        dataTestId="dialog-link-type-switch-confirm"
       />
     </AdminLayout>
   );

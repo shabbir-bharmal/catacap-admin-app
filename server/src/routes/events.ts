@@ -61,6 +61,17 @@ function normalizeLinkTargets(dto: any): NormalizeResult {
     targets.investments = normalizeIntIds((grouped as any).investments);
     targets.groups = normalizeIntIds((grouped as any).groups);
     targets["custom-pages"] = normalizeSlugs((grouped as any)["custom-pages"]);
+    const populatedTypes = [
+      targets.investments.length > 0 ? "investments" : null,
+      targets.groups.length > 0 ? "groups" : null,
+      targets["custom-pages"].length > 0 ? "custom-pages" : null,
+    ].filter((v): v is string => v !== null);
+    if (populatedTypes.length > 1) {
+      return {
+        ok: false,
+        error: `An event can only be linked to one type at a time. Received items for: ${populatedTypes.join(", ")}.`,
+      };
+    }
     return { ok: true, targets };
   }
 
