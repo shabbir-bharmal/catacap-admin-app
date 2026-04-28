@@ -21,6 +21,238 @@ interface RichTextEditorProps {
   maxLength?: number;
 }
 
+const ALLOWED_TAGS = new Set([
+  "P",
+  "DIV",
+  "BR",
+  "B",
+  "STRONG",
+  "I",
+  "EM",
+  "U",
+  "OL",
+  "UL",
+  "LI",
+  "A",
+]);
+
+const DROPPED_TAGS = new Set([
+  "SCRIPT",
+  "STYLE",
+  "NOSCRIPT",
+  "IFRAME",
+  "OBJECT",
+  "EMBED",
+  "META",
+  "LINK",
+  "HEAD",
+  "TITLE",
+  "FORM",
+  "INPUT",
+  "BUTTON",
+  "TEXTAREA",
+  "SELECT",
+  "OPTION",
+]);
+
+const MENTION_CLASS_NAME =
+  "bg-sky-100 text-sky-900 rounded-md px-1.5 py-0.5 inline-block mx-0.5 font-medium select-none";
+
+const MENTION_REQUIRED_CLASSES = [
+  "bg-sky-100",
+  "text-sky-900",
+  "select-none",
+];
+
+const MENTION_TEXT_PATTERN = /^\{[^{}]+\}$/;
+
+// Only treat a span as a mention chip if it matches the exact shape produced
+// by `insertMention` below: contenteditable=false, all of the mention CSS
+// classes present, and text content shaped like `{Placeholder}`. Anything
+// else is treated as foreign formatting and unwrapped.
+function isTrustedMentionSpan(el: Element): boolean {
+  if (el.tagName !== "SPAN") return false;
+  if (el.getAttribute("contenteditable") !== "false") return false;
+  const text = (el.textContent || "").trim();
+  if (!MENTION_TEXT_PATTERN.test(text)) return false;
+  const classes = el.classList;
+  for (const required of MENTION_REQUIRED_CLASSES) {
+    if (!classes.contains(required)) return false;
+  }
+  // Mention chips are leaf nodes that only contain text — reject anything
+  // with nested elements (e.g. an attacker wrapping a script in a fake chip).
+  for (let i = 0; i < el.childNodes.length; i++) {
+    if (el.childNodes[i].nodeType !== Node.TEXT_NODE) return false;
+  }
+  return true;
+}
+
+// Rebuild a safe mention span from scratch — never clone untrusted attributes
+// (style, on*, etc.) from the source element.
+function rebuildMentionSpan(el: Element): HTMLSpanElement {
+  const span = document.createElement("span");
+  span.className = MENTION_CLASS_NAME;
+  span.contentEditable = "false";
+  span.textContent = (el.textContent || "").trim();
+  return span;
+}
+
+function isSafeHref(href: string): boolean {
+  const trimmed = href.trim();
+  if (!trimmed) return false;
+  return /^(https?:|mailto:|tel:|#|\/|\.\/|\.\.\/)/i.test(trimmed);
+}
+
+function sanitizeNode(node: Node): Node | null {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return document.createTextNode(node.textContent || "");
+  }
+  if (node.nodeType !== Node.ELEMENT_NODE) {
+    // Drop comments, processing instructions, etc.
+    return null;
+  }
+
+  const el = node as Element;
+
+  if (DROPPED_TAGS.has(el.tagName)) {
+    return null;
+  }
+
+  // Preserve mention chips, but rebuild them from a fixed template so we
+  // never carry over untrusted attributes (style, on*, etc.).
+  if (isTrustedMentionSpan(el)) {
+    return rebuildMentionSpan(el);
+  }
+
+  if (ALLOWED_TAGS.has(el.tagName)) {
+    const tagName = el.tagName.toLowerCase();
+
+    // For anchors, only keep the <a> wrapper when the href is safe and
+    // present. Otherwise unwrap the anchor so its text content survives
+    // without an empty/broken link tag.
+    if (tagName === "a") {
+      const href = (el.getAttribute("href") || "").trim();
+      if (!isSafeHref(href)) {
+        const frag = document.createDocumentFragment();
+        el.childNodes.forEach((child) => {
+          const sanitized = sanitizeNode(child);
+          if (sanitized) frag.appendChild(sanitized);
+        });
+        return frag;
+      }
+      const newAnchor = document.createElement("a");
+      newAnchor.setAttribute("href", href);
+      newAnchor.setAttribute("target", "_blank");
+      newAnchor.setAttribute("rel", "noopener noreferrer");
+      el.childNodes.forEach((child) => {
+        const sanitized = sanitizeNode(child);
+        if (sanitized) newAnchor.appendChild(sanitized);
+      });
+      return newAnchor;
+    }
+
+    const newEl = document.createElement(tagName);
+    el.childNodes.forEach((child) => {
+      const sanitized = sanitizeNode(child);
+      if (sanitized) newEl.appendChild(sanitized);
+    });
+
+    return newEl;
+  }
+
+  // Unwrap any tag that isn't allowed: keep the text content,
+  // drop the wrapper and all of its attributes (style, class, etc.).
+  const frag = document.createDocumentFragment();
+  el.childNodes.forEach((child) => {
+    const sanitized = sanitizeNode(child);
+    if (sanitized) frag.appendChild(sanitized);
+  });
+  return frag;
+}
+
+function sanitizeHtmlToFragment(html: string): DocumentFragment {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(`<body>${html}</body>`, "text/html");
+  const out = document.createDocumentFragment();
+  doc.body.childNodes.forEach((child) => {
+    const sanitized = sanitizeNode(child);
+    if (sanitized) out.appendChild(sanitized);
+  });
+  return out;
+}
+
+function plainTextToFragment(text: string): DocumentFragment {
+  const frag = document.createDocumentFragment();
+  const lines = text.replace(/\r\n?/g, "\n").split("\n");
+  lines.forEach((line, idx) => {
+    if (line.length > 0) {
+      frag.appendChild(document.createTextNode(line));
+    }
+    if (idx < lines.length - 1) {
+      frag.appendChild(document.createElement("br"));
+    }
+  });
+  return frag;
+}
+
+// Strip every formatting wrapper from a fragment, preserving plain text and
+// mention chips, and inserting <br> in place of block boundaries so the
+// visual line breaks that the user pasted/typed are not lost.
+function clearFormattingInPlace(root: Node): void {
+  const blockTags = new Set(["P", "DIV", "LI", "OL", "UL"]);
+
+  const flatten = (node: Node): Node[] => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return [document.createTextNode(node.textContent || "")];
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      return [];
+    }
+    const el = node as Element;
+
+    if (DROPPED_TAGS.has(el.tagName)) {
+      return [];
+    }
+    if (isTrustedMentionSpan(el)) {
+      return [rebuildMentionSpan(el)];
+    }
+    if (el.tagName === "BR") {
+      return [document.createElement("br")];
+    }
+
+    const children: Node[] = [];
+    el.childNodes.forEach((child) => {
+      flatten(child).forEach((c) => children.push(c));
+    });
+
+    if (blockTags.has(el.tagName) && children.length > 0) {
+      const last = children[children.length - 1];
+      if (!(last.nodeType === Node.ELEMENT_NODE && (last as Element).tagName === "BR")) {
+        children.push(document.createElement("br"));
+      }
+    }
+    return children;
+  };
+
+  const flattened: Node[] = [];
+  Array.from(root.childNodes).forEach((child) => {
+    flatten(child).forEach((n) => flattened.push(n));
+  });
+
+  // Trim a trailing <br> so we don't leave an extra blank line.
+  while (flattened.length > 0) {
+    const last = flattened[flattened.length - 1];
+    if (last.nodeType === Node.ELEMENT_NODE && (last as Element).tagName === "BR") {
+      flattened.pop();
+    } else {
+      break;
+    }
+  }
+
+  while (root.firstChild) root.removeChild(root.firstChild);
+  flattened.forEach((n) => root.appendChild(n));
+}
+
 export function RichTextEditor({
   value,
   onChange,
@@ -59,21 +291,6 @@ export function RichTextEditor({
     }
   }, [value]);
 
-  const execCommand = useCallback((command: string, val?: string) => {
-    document.execCommand(command, false, val);
-    if (editorRef.current) {
-      onChange(editorRef.current.innerHTML);
-    }
-    editorRef.current?.focus();
-  }, [onChange]);
-
-  const handleLink = useCallback(() => {
-    const url = prompt("Enter URL:");
-    if (url) {
-      execCommand("createLink", url);
-    }
-  }, [execCommand]);
-
   const enforceMaxLength = useCallback((): boolean => {
     if (!maxLength || !editorRef.current) return false;
     if (getPlainTextLength(editorRef.current) > maxLength) {
@@ -91,6 +308,78 @@ export function RichTextEditor({
     lastValidHtmlRef.current = editorRef.current.innerHTML;
     return false;
   }, [maxLength, getPlainTextLength]);
+
+  const execCommand = useCallback((command: string, val?: string) => {
+    document.execCommand(command, false, val);
+    if (editorRef.current) {
+      onChange(editorRef.current.innerHTML);
+    }
+    editorRef.current?.focus();
+  }, [onChange]);
+
+  const handleLink = useCallback(() => {
+    const url = prompt("Enter URL:");
+    if (url) {
+      execCommand("createLink", url);
+    }
+  }, [execCommand]);
+
+  const handleClearFormatting = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    const selection = window.getSelection();
+    const hasSelection =
+      selection &&
+      selection.rangeCount > 0 &&
+      !selection.getRangeAt(0).collapsed &&
+      editor.contains(selection.getRangeAt(0).commonAncestorContainer);
+
+    if (hasSelection && selection) {
+      // Strip formatting from just the selected fragment.
+      const range = selection.getRangeAt(0);
+      const extracted = range.extractContents();
+      const wrapper = document.createElement("div");
+      wrapper.appendChild(extracted);
+      clearFormattingInPlace(wrapper);
+
+      const insertFrag = document.createDocumentFragment();
+      let lastInserted: Node | null = null;
+      Array.from(wrapper.childNodes).forEach((node) => {
+        insertFrag.appendChild(node);
+      });
+      if (insertFrag.lastChild) {
+        lastInserted = insertFrag.lastChild;
+      }
+      range.insertNode(insertFrag);
+
+      if (lastInserted) {
+        const newRange = document.createRange();
+        newRange.setStartAfter(lastInserted);
+        newRange.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(newRange);
+      }
+    } else {
+      // Strip formatting from the entire editor when nothing is selected.
+      clearFormattingInPlace(editor);
+
+      const newRange = document.createRange();
+      newRange.selectNodeContents(editor);
+      newRange.collapse(false);
+      const sel = window.getSelection();
+      if (sel) {
+        sel.removeAllRanges();
+        sel.addRange(newRange);
+      }
+    }
+
+    if (!enforceMaxLength()) {
+      onChange(editor.innerHTML);
+      lastValidHtmlRef.current = editor.innerHTML;
+    }
+    editor.focus();
+  }, [enforceMaxLength, onChange]);
 
   const handleInput = useCallback(() => {
     if (!editorRef.current) return;
@@ -192,13 +481,75 @@ export function RichTextEditor({
     }
   };
 
-  const handlePaste = useCallback(() => {
-    setTimeout(() => {
-      if (!editorRef.current) return;
-      if (enforceMaxLength()) return;
-      onChange(editorRef.current.innerHTML);
-    }, 0);
-  }, [enforceMaxLength, onChange]);
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      const editor = editorRef.current;
+      if (!editor) return;
+
+      const clipboard = e.clipboardData;
+      if (!clipboard) return;
+
+      const html = clipboard.getData("text/html");
+      const text = clipboard.getData("text/plain");
+
+      let fragment: DocumentFragment;
+      if (html && html.trim().length > 0) {
+        fragment = sanitizeHtmlToFragment(html);
+        // If sanitization produced nothing meaningful, fall back to plain text.
+        if (!fragment.firstChild && text) {
+          fragment = plainTextToFragment(text);
+        }
+      } else {
+        fragment = plainTextToFragment(text || "");
+      }
+
+      if (!fragment.firstChild) return;
+
+      const previousHtml = editor.innerHTML;
+
+      const selection = window.getSelection();
+      if (
+        !selection ||
+        selection.rangeCount === 0 ||
+        !editor.contains(selection.getRangeAt(0).commonAncestorContainer)
+      ) {
+        // No valid caret inside the editor — append at end.
+        editor.appendChild(fragment);
+      } else {
+        const range = selection.getRangeAt(0);
+        range.deleteContents();
+
+        const lastNode = fragment.lastChild;
+        range.insertNode(fragment);
+
+        if (lastNode) {
+          const newRange = document.createRange();
+          newRange.setStartAfter(lastNode);
+          newRange.collapse(true);
+          selection.removeAllRanges();
+          selection.addRange(newRange);
+        }
+      }
+
+      if (maxLength && getPlainTextLength(editor) > maxLength) {
+        editor.innerHTML = previousHtml;
+        const sel = window.getSelection();
+        if (sel) {
+          const range = document.createRange();
+          range.selectNodeContents(editor);
+          range.collapse(false);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+        return;
+      }
+
+      lastValidHtmlRef.current = editor.innerHTML;
+      onChange(editor.innerHTML);
+    },
+    [maxLength, getPlainTextLength, onChange],
+  );
 
   const hasContent = value.replace(/<[^>]*>/g, "").trim().length > 0;
 
@@ -238,7 +589,7 @@ export function RichTextEditor({
     { icon: Link, command: "link", label: "Link", testId: "button-link", onClick: handleLink },
     { icon: ListOrdered, command: "insertOrderedList", label: "Ordered List", testId: "button-ordered-list" },
     { icon: List, command: "insertUnorderedList", label: "Unordered List", testId: "button-unordered-list" },
-    { icon: RemoveFormatting, command: "removeFormat", label: "Clear Formatting", testId: "button-clear-format" },
+    { icon: RemoveFormatting, command: "removeFormat", label: "Clear Formatting", testId: "button-clear-format", onClick: handleClearFormatting },
   ];
 
   return (
