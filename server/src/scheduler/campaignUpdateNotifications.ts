@@ -12,7 +12,7 @@ export async function runCampaignUpdateNotifications(): Promise<void> {
 
   const due = await pool.query(
     `SELECT cu.id, cu.campaign_id, cu.subject, cu.description,
-            cu.short_subject, cu.short_description,
+            cu.short_description,
             c.property AS campaign_property,
             c.image_file_name, c.tile_image_file_name
        FROM campaign_updates cu
@@ -44,7 +44,7 @@ export async function runCampaignUpdateNotifications(): Promise<void> {
       );
 
       const redirectUrl = `/investments/${u.campaign_property || u.campaign_id}`;
-      const title = u.short_subject || u.subject;
+      const title = u.subject;
       const description = u.short_description || truncate(u.description, 240);
       const picture = u.image_file_name || u.tile_image_file_name || null;
 

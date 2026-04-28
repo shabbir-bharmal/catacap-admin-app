@@ -274,7 +274,6 @@ export interface CampaignUpdateItem {
     campaignId: number;
     subject: string;
     description: string | null;
-    shortSubject: string | null;
     shortDescription: string | null;
     attachFile: string | null;
     attachFileUrl: string | null;
@@ -287,7 +286,6 @@ export interface CampaignUpdateItem {
 export interface CampaignUpdatePayload {
     subject: string;
     description?: string | null;
-    shortSubject?: string | null;
     shortDescription?: string | null;
     attachFile?: string | { data: string; name: string } | null;
     startDate?: string | null;

@@ -489,14 +489,13 @@ export default function AdminInvestmentEdit() {
   const [updateForm, setUpdateForm] = useState<{
     subject: string;
     description: string;
-    shortSubject: string;
     shortDescription: string;
     startDate: string;
     endDate: string;
     attachFile: string | null;
     attachFilePreview: string | null;
     attachFileName: string | null;
-  }>({ subject: "", description: "", shortSubject: "", shortDescription: "", startDate: "", endDate: "", attachFile: null, attachFilePreview: null, attachFileName: null });
+  }>({ subject: "", description: "", shortDescription: "", startDate: "", endDate: "", attachFile: null, attachFilePreview: null, attachFileName: null });
   const [updateFormErrors, setUpdateFormErrors] = useState<Record<string, string>>({});
   const [updateStartOpen, setUpdateStartOpen] = useState(false);
   const [updateEndOpen, setUpdateEndOpen] = useState(false);
@@ -566,7 +565,7 @@ export default function AdminInvestmentEdit() {
   }, [currentStep, resolvedNumericId, updatesDisabled, loadCampaignUpdates]);
 
   const resetUpdateForm = () => {
-    setUpdateForm({ subject: "", description: "", shortSubject: "", shortDescription: "", startDate: "", endDate: "", attachFile: null, attachFilePreview: null, attachFileName: null });
+    setUpdateForm({ subject: "", description: "", shortDescription: "", startDate: "", endDate: "", attachFile: null, attachFilePreview: null, attachFileName: null });
     setUpdateFormErrors({});
     setEditingUpdateId(null);
   };
@@ -581,7 +580,6 @@ export default function AdminInvestmentEdit() {
     setUpdateForm({
       subject: item.subject || "",
       description: item.description || "",
-      shortSubject: item.shortSubject || "",
       shortDescription: item.shortDescription || "",
       startDate: item.startDate || "",
       endDate: item.endDate || "",
@@ -677,7 +675,6 @@ export default function AdminInvestmentEdit() {
       const payload = {
         subject: updateForm.subject.trim(),
         description: updateForm.description || null,
-        shortSubject: updateForm.shortSubject.trim() || null,
         shortDescription: updateForm.shortDescription.trim() || null,
         startDate: updateForm.startDate || null,
         endDate: updateForm.endDate || null,
@@ -2854,19 +2851,6 @@ export default function AdminInvestmentEdit() {
                   maxLength={3000}
                 />
                 {updateFormErrors.description && <p className="text-[#f06548] text-xs">{updateFormErrors.description}</p>}
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="update-short-subject" className="text-sm">Short Subject</Label>
-                <Input
-                  id="update-short-subject"
-                  maxLength={120}
-                  placeholder="Notification title (defaults to Subject)"
-                  value={updateForm.shortSubject}
-                  onChange={(e) => setUpdateForm((p) => ({ ...p, shortSubject: e.target.value }))}
-                  data-testid="input-update-short-subject"
-                />
-                <p className="text-[11px] text-muted-foreground">Used as the in-app notification title.</p>
               </div>
 
               <div className="space-y-1.5">

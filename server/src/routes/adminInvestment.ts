@@ -2314,7 +2314,7 @@ router.post("/:id/updates", async (req: Request, res: Response) => {
       return;
     }
 
-    const { subject, description, shortSubject, shortDescription, startDate, endDate, attachFile, attachFileName } =
+    const { subject, description, shortDescription, startDate, endDate, attachFile, attachFileName } =
       req.body || {};
     if (!subject || !String(subject).trim()) {
       res.status(400).json({ success: false, message: "Subject is required." });
@@ -2347,13 +2347,12 @@ router.post("/:id/updates", async (req: Request, res: Response) => {
       storedAttachFileName = String(attachFileName).trim() || null;
     }
 
-    const finalShortSubject = (shortSubject && String(shortSubject).trim()) || String(subject).trim();
     const finalShortDescription =
       (shortDescription && String(shortDescription).trim()) || truncate(description, 240);
 
     const insertResult = await pool.query(
       `INSERT INTO campaign_updates (campaign_id, subject, description, short_subject, short_description, attach_file, attach_file_name, start_date, end_date)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       VALUES ($1, $2, $3, NULL, $4, $5, $6, $7, $8)
        RETURNING id, campaign_id AS "campaignId", subject, description,
                  short_subject AS "shortSubject", short_description AS "shortDescription",
                  attach_file AS "attachFile", attach_file_name AS "attachFileName",
@@ -2363,7 +2362,6 @@ router.post("/:id/updates", async (req: Request, res: Response) => {
         campaignId,
         String(subject).trim(),
         description || null,
-        finalShortSubject,
         finalShortDescription,
         attachFilePath,
         storedAttachFileName,
@@ -2389,7 +2387,7 @@ router.post("/:id/updates", async (req: Request, res: Response) => {
       );
 
       const redirectUrl = `/investments/${campaign.property || campaign.id}`;
-      const notifTitle = created.shortSubject || created.subject;
+      const notifTitle = created.subject;
       const notifDescription = created.shortDescription || truncate(created.description, 240);
       const notifPicture =
         campaign.image_file_name || campaign.tile_image_file_name || null;
@@ -2452,7 +2450,7 @@ router.put("/:id/updates/:updateId", async (req: Request, res: Response) => {
     }
     const existing = existingResult.rows[0];
 
-    const { subject, description, shortSubject, shortDescription, startDate, endDate, attachFile, attachFileName } =
+    const { subject, description, shortDescription, startDate, endDate, attachFile, attachFileName } =
       req.body || {};
     if (!subject || !String(subject).trim()) {
       res.status(400).json({ success: false, message: "Subject is required." });
@@ -2485,15 +2483,14 @@ router.put("/:id/updates/:updateId", async (req: Request, res: Response) => {
       }
     }
 
-    const finalShortSubject = (shortSubject && String(shortSubject).trim()) || String(subject).trim();
     const finalShortDescription =
       (shortDescription && String(shortDescription).trim()) || truncate(description, 240);
 
     const updateResult = await pool.query(
       `UPDATE campaign_updates
-         SET subject = $1, description = $2, short_subject = $3, short_description = $4,
-             attach_file = $5, attach_file_name = $6, start_date = $7, end_date = $8, updated_at = NOW()
-       WHERE id = $9 AND campaign_id = $10
+         SET subject = $1, description = $2, short_subject = NULL, short_description = $3,
+             attach_file = $4, attach_file_name = $5, start_date = $6, end_date = $7, updated_at = NOW()
+       WHERE id = $8 AND campaign_id = $9
        RETURNING id, campaign_id AS "campaignId", subject, description,
                  short_subject AS "shortSubject", short_description AS "shortDescription",
                  attach_file AS "attachFile", attach_file_name AS "attachFileName",
@@ -2502,7 +2499,6 @@ router.put("/:id/updates/:updateId", async (req: Request, res: Response) => {
       [
         String(subject).trim(),
         description || null,
-        finalShortSubject,
         finalShortDescription,
         attachFilePath,
         storedAttachFileName,
