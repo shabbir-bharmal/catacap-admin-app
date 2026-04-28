@@ -7,12 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, Download, ChevronLeft, ChevronRight, ChevronDown, FileText, Ban, SendHorizonal, X, Loader2, Trash2, ListFilter, Check } from "lucide-react";
+import { Search, Download, ChevronLeft, ChevronRight, ChevronDown, FileText, Ban, SendHorizonal, X, Loader2, Trash2, ListFilter, Check, Paperclip } from "lucide-react";
 import { useSort } from "../hooks/useSort";
 import { useDebounce } from "../hooks/useDebounce";
 import { SortHeader } from "../components/ui/table-sort";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchPendingGrants, updatePendingGrant, exportPendingGrants, fetchPendingGrantNotes, deletePendingGrant, fetchDafProviders, PendingGrantEntry, NoteEntry } from "../api/pending-grant/pendingGrantApi";
+import { AttachmentsPicker, SelectedAttachment } from "../components/AttachmentsPicker";
 import { currency_format, formatDate } from "../helpers/format";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
@@ -60,6 +61,7 @@ function PendingGrantNotes({ grantId }: { grantId: number }) {
               <th className="px-4 py-2.5 text-left text-xs font-semibold text-white uppercase tracking-wider whitespace-nowrap">Old Status</th>
               <th className="px-4 py-2.5 text-left text-xs font-semibold text-white uppercase tracking-wider whitespace-nowrap">New Status</th>
               <th className="px-4 py-2.5 text-left text-xs font-semibold text-white uppercase tracking-wider whitespace-nowrap">Note</th>
+              <th className="px-4 py-2.5 text-left text-xs font-semibold text-white uppercase tracking-wider whitespace-nowrap">Attachments</th>
             </tr>
           </thead>
           <tbody>
@@ -85,11 +87,38 @@ function PendingGrantNotes({ grantId }: { grantId: number }) {
                   <td className="px-4 py-3 text-sm" data-testid={`text-note-note-${grantId}-${idx}`}>
                     {entry.note}
                   </td>
+                  <td className="px-4 py-3 text-sm align-top max-w-[260px]" data-testid={`text-note-attachments-${grantId}-${idx}`}>
+                    {entry.attachments && entry.attachments.length > 0 ? (
+                      <ul className="space-y-1">
+                        {entry.attachments.map((att, ai) => (
+                          <li key={att.id} className="flex items-center gap-1.5 min-w-0">
+                            <Paperclip className="h-3 w-3 text-muted-foreground shrink-0" />
+                            {att.url ? (
+                              <a
+                                href={att.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[#405189] hover:underline truncate"
+                                title={att.fileName}
+                                data-testid={`link-note-attachment-${grantId}-${idx}-${ai}`}
+                              >
+                                {att.fileName}
+                              </a>
+                            ) : (
+                              <span className="truncate" title={att.fileName}>{att.fileName}</span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-sm text-muted-foreground text-center bg-white dark:bg-background">
+                <td colSpan={6} className="px-4 py-8 text-sm text-muted-foreground text-center bg-white dark:bg-background">
                   No notes available for this grant.
                 </td>
               </tr>
@@ -152,18 +181,22 @@ export default function AdminPendingGrants() {
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectTarget, setRejectTarget] = useState<PendingGrantEntry | null>(null);
   const [rejectNote, setRejectNote] = useState("");
+  const [rejectAttachments, setRejectAttachments] = useState<SelectedAttachment[]>([]);
 
   const [transitDialogOpen, setTransitDialogOpen] = useState(false);
   const [transitTarget, setTransitTarget] = useState<PendingGrantEntry | null>(null);
   const [transitNote, setTransitNote] = useState("");
+  const [transitAttachments, setTransitAttachments] = useState<SelectedAttachment[]>([]);
 
   const [receivedDialogOpen, setReceivedDialogOpen] = useState(false);
   const [receivedTarget, setReceivedTarget] = useState<PendingGrantEntry | null>(null);
   const [receivedNote, setReceivedNote] = useState("");
+  const [receivedAttachments, setReceivedAttachments] = useState<SelectedAttachment[]>([]);
 
   const [followUpDialogOpen, setFollowUpDialogOpen] = useState(false);
   const [followUpTarget, setFollowUpTarget] = useState<PendingGrantEntry | null>(null);
   const [followUpNote, setFollowUpNote] = useState("");
+  const [followUpAttachments, setFollowUpAttachments] = useState<SelectedAttachment[]>([]);
 
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
@@ -291,10 +324,25 @@ export default function AdminPendingGrants() {
   const startIdx = totalCount > 0 ? (currentPage - 1) * rowsPerPage + 1 : 0;
   const endIdx = Math.min(currentPage * rowsPerPage, totalCount);
 
-  const onUpdateStatus = async (id: number, status: string, note: string) => {
+  const onUpdateStatus = async (
+    id: number,
+    status: string,
+    note: string,
+    attachments: SelectedAttachment[] = []
+  ) => {
     setIsSubmitting(true);
     try {
-      const res = await updatePendingGrant({ id, status, note, noteEmail: [] });
+      const res = await updatePendingGrant({
+        id,
+        status,
+        note,
+        noteEmail: [],
+        attachments: attachments.map((a) => ({
+          fileName: a.fileName,
+          mimeType: a.mimeType,
+          base64Data: a.base64Data,
+        })),
+      });
       if (res.success) {
         toast({
           title: res.message || "Status updated successfully",
@@ -310,6 +358,10 @@ export default function AdminPendingGrants() {
         setTransitNote("");
         setReceivedNote("");
         setFollowUpNote("");
+        setRejectAttachments([]);
+        setTransitAttachments([]);
+        setReceivedAttachments([]);
+        setFollowUpAttachments([]);
         setRejectTarget(null);
         setTransitTarget(null);
         setReceivedTarget(null);
@@ -779,6 +831,7 @@ export default function AdminPendingGrants() {
           setRejectDialogOpen(open);
           if (!open) {
             setRejectNote("");
+            setRejectAttachments([]);
             setRejectTarget(null);
           }
         }}
@@ -786,11 +839,18 @@ export default function AdminPendingGrants() {
         noteLabel="Please include the reason for the rejection"
         noteValue={rejectNote}
         onNoteChange={setRejectNote}
-        onConfirm={() => onUpdateStatus(rejectTarget!.id, "Rejected", rejectNote)}
+        onConfirm={() => onUpdateStatus(rejectTarget!.id, "Rejected", rejectNote, rejectAttachments)}
         isSubmitting={isSubmitting}
         confirmButtonClass="bg-[#82b64b] text-white"
         dataTestId="dialog-reject"
-      />
+      >
+        <AttachmentsPicker
+          attachments={rejectAttachments}
+          onChange={setRejectAttachments}
+          disabled={isSubmitting}
+          dataTestId="dialog-reject-attachments"
+        />
+      </ConfirmationDialog>
 
       <ConfirmationDialog
         open={transitDialogOpen}
@@ -798,6 +858,7 @@ export default function AdminPendingGrants() {
           setTransitDialogOpen(open);
           if (!open) {
             setTransitNote("");
+            setTransitAttachments([]);
             setTransitTarget(null);
           }
         }}
@@ -805,11 +866,18 @@ export default function AdminPendingGrants() {
         noteLabel="Add a note"
         noteValue={transitNote}
         onNoteChange={setTransitNote}
-        onConfirm={() => onUpdateStatus(transitTarget!.id, "In Transit", transitNote)}
+        onConfirm={() => onUpdateStatus(transitTarget!.id, "In Transit", transitNote, transitAttachments)}
         isSubmitting={isSubmitting}
         confirmButtonClass="bg-[#2185d0] text-white"
         dataTestId="dialog-transit"
-      />
+      >
+        <AttachmentsPicker
+          attachments={transitAttachments}
+          onChange={setTransitAttachments}
+          disabled={isSubmitting}
+          dataTestId="dialog-transit-attachments"
+        />
+      </ConfirmationDialog>
 
       <ConfirmationDialog
         open={receivedDialogOpen}
@@ -817,6 +885,7 @@ export default function AdminPendingGrants() {
           setReceivedDialogOpen(open);
           if (!open) {
             setReceivedNote("");
+            setReceivedAttachments([]);
             setReceivedTarget(null);
           }
         }}
@@ -824,11 +893,18 @@ export default function AdminPendingGrants() {
         noteLabel="Add a note"
         noteValue={receivedNote}
         onNoteChange={setReceivedNote}
-        onConfirm={() => onUpdateStatus(receivedTarget!.id, "Received", receivedNote)}
+        onConfirm={() => onUpdateStatus(receivedTarget!.id, "Received", receivedNote, receivedAttachments)}
         isSubmitting={isSubmitting}
         confirmButtonClass="bg-[#1b4370] text-white"
         dataTestId="dialog-received"
-      />
+      >
+        <AttachmentsPicker
+          attachments={receivedAttachments}
+          onChange={setReceivedAttachments}
+          disabled={isSubmitting}
+          dataTestId="dialog-received-attachments"
+        />
+      </ConfirmationDialog>
 
       <ConfirmationDialog
         open={followUpDialogOpen}
@@ -836,6 +912,7 @@ export default function AdminPendingGrants() {
           setFollowUpDialogOpen(open);
           if (!open) {
             setFollowUpNote("");
+            setFollowUpAttachments([]);
             setFollowUpTarget(null);
           }
         }}
@@ -843,12 +920,19 @@ export default function AdminPendingGrants() {
         noteLabel="Add a note"
         noteValue={followUpNote}
         onNoteChange={setFollowUpNote}
-        onConfirm={() => onUpdateStatus(followUpTarget!.id, followUpTarget!.status, followUpNote)}
+        onConfirm={() => onUpdateStatus(followUpTarget!.id, followUpTarget!.status, followUpNote, followUpAttachments)}
         isSubmitting={isSubmitting}
         confirmLabel="SAVE"
         confirmButtonClass="bg-[#299cdb] text-white"
         dataTestId="dialog-follow-up"
-      />
+      >
+        <AttachmentsPicker
+          attachments={followUpAttachments}
+          onChange={setFollowUpAttachments}
+          disabled={isSubmitting}
+          dataTestId="dialog-follow-up-attachments"
+        />
+      </ConfirmationDialog>
 
       <ConfirmationDialog
         open={isDeleteDialogOpen}

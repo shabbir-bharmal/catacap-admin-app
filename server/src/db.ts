@@ -400,12 +400,61 @@ export async function testConnection(): Promise<void> {
 
     await runSoftDeleteMigration(client);
     await ensureSchedulerTables(client);
+    await ensureNoteAttachmentsTables(client);
     await backfillSchedulerLogIds(client);
     await backfillSoftDeleteTimestamps(client);
     await fixIncorrectBackfillDates(client);
     await backfillOrphanedUserRoles(client);
   } finally {
     client.release();
+  }
+}
+
+async function ensureNoteAttachmentsTables(client: pg.PoolClient): Promise<void> {
+  const pgnExists = await client.query(
+    `SELECT 1 FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_name = 'pending_grant_notes'`,
+  );
+  if (pgnExists.rows.length > 0) {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS pending_grant_note_attachments (
+        id SERIAL PRIMARY KEY,
+        note_id INTEGER NOT NULL REFERENCES pending_grant_notes(id) ON DELETE CASCADE,
+        file_name TEXT NOT NULL,
+        storage_path TEXT NOT NULL,
+        mime_type TEXT,
+        size_bytes BIGINT,
+        uploaded_at TIMESTAMP DEFAULT NOW(),
+        uploaded_by VARCHAR(450)
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_pending_grant_note_attachments_note_id
+        ON pending_grant_note_attachments(note_id)
+    `);
+  }
+
+  const abprnExists = await client.query(
+    `SELECT 1 FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_name = 'asset_based_payment_request_notes'`,
+  );
+  if (abprnExists.rows.length > 0) {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS asset_based_payment_request_note_attachments (
+        id SERIAL PRIMARY KEY,
+        note_id INTEGER NOT NULL REFERENCES asset_based_payment_request_notes(id) ON DELETE CASCADE,
+        file_name TEXT NOT NULL,
+        storage_path TEXT NOT NULL,
+        mime_type TEXT,
+        size_bytes BIGINT,
+        uploaded_at TIMESTAMP DEFAULT NOW(),
+        uploaded_by VARCHAR(450)
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_asset_based_payment_request_note_attachments_note_id
+        ON asset_based_payment_request_note_attachments(note_id)
+    `);
   }
 }
 

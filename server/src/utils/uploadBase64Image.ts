@@ -5,7 +5,7 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const SUPABASE_STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET;
 
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+export const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 
 const FOLDER_PATTERN = /^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/;
 
@@ -47,7 +47,7 @@ const MIME_TO_EXT: Record<string, string> = {
 export async function uploadBase64Image(
   base64String: string,
   folder: string,
-): Promise<{ filePath: string; publicUrl: string }> {
+): Promise<{ filePath: string; publicUrl: string; mimeType: string; sizeBytes: number }> {
   if (!folder || !FOLDER_PATTERN.test(folder)) {
     throw new Error(
       "Invalid folder name. Must be non-empty, must not start or end with '/', and must contain only alphanumeric characters, underscores, and hyphens between slashes.",
@@ -108,7 +108,20 @@ export async function uploadBase64Image(
   return {
     filePath,
     publicUrl: urlData.publicUrl,
+    mimeType,
+    sizeBytes: buffer.length,
   };
+}
+
+export async function deleteStorageFile(storagePath: string): Promise<void> {
+  if (!storagePath) return;
+  try {
+    const { client: supabase, bucket } = getSupabaseConfig();
+    const cleaned = storagePath.startsWith("/") ? storagePath.slice(1) : storagePath;
+    await supabase.storage.from(bucket).remove([cleaned]);
+  } catch (err) {
+    console.error("Failed to delete storage file:", storagePath, err);
+  }
 }
 
 const VALID_STORAGE_PATH = /\.(png|jpe?g|gif|webp|bmp|tiff|pdf|svg)$/i;

@@ -9,6 +9,14 @@ export interface OtherAssetParams {
   status?: string;
 }
 
+export interface NoteAttachmentEntry {
+  id: number;
+  fileName: string;
+  mimeType: string | null;
+  sizeBytes: number;
+  url: string | null;
+}
+
 export interface NoteEntry {
   id: number;
   oldStatus: string;
@@ -16,6 +24,13 @@ export interface NoteEntry {
   note: string;
   userName: string;
   createdAt: string;
+  attachments?: NoteAttachmentEntry[];
+}
+
+export interface AttachmentUploadInput {
+  fileName: string;
+  mimeType: string;
+  base64Data: string;
 }
 
 export interface OtherAssetEntry {
@@ -70,6 +85,7 @@ export interface UpdateOtherAssetPayload {
   amount?: number;
   note?: string;
   noteEmail?: string[];
+  attachments?: AttachmentUploadInput[];
 }
 
 export interface UpdateOtherAssetResponse {

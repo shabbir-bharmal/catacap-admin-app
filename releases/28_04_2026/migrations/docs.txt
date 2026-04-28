@@ -271,3 +271,89 @@ how to restore the NOT NULL constraint and DEFAULT TRUE (after
 backfilling any NULL rows to TRUE). Apply the rollback BEFORE
 rolling the application code back to a build that does not
 treat `show_on_home` as a tri-state value.
+
+
+===============================================================================
+
+Migration: 2026_04_28_note_attachments.sql
+Release date: 2026-04-28
+Feature: Note attachment tables for Pending Grants and Other Assets
+
+Overview
+--------
+The admin Pending Grants and admin Other Assets pages now support
+file attachments on status-change notes. Each note can have zero or
+more attached files, uploaded to Supabase Storage and recorded in
+Postgres via two new tables:
+
+  - `pending_grant_note_attachments`
+    Attachments belonging to rows in `pending_grant_notes`.
+
+  - `asset_based_payment_request_note_attachments`
+    Attachments belonging to rows in `asset_based_payment_request_notes`.
+
+The application also creates these tables on boot via
+`ensureNoteAttachmentsTables()` in `server/src/db.ts`. This release
+captures the same DDL as a tracked migration so the schema change is
+visible in the release history (and so a fresh environment that does
+not boot the Node service first still has the tables).
+
+Schema
+------
+Both tables share the same shape:
+
+  id            SERIAL PRIMARY KEY
+  note_id       INTEGER NOT NULL  -- FK to the parent notes table
+  file_name     TEXT NOT NULL     -- original uploaded filename
+  storage_path  TEXT NOT NULL     -- path inside the storage bucket
+  mime_type     TEXT
+  size_bytes    BIGINT
+  uploaded_at   TIMESTAMP DEFAULT NOW()
+  uploaded_by   VARCHAR(450)      -- admin user id
+
+  Index: (note_id) for fast lookups when rendering a note.
+
+Foreign keys cascade-delete with the parent notes row, so removing
+a note cleans up all of its attachment metadata.
+
+Storage layout
+--------------
+Files are uploaded to the existing Supabase Storage bucket
+(`SUPABASE_STORAGE_BUCKET`) under a new top-level `notes` folder:
+
+  - notes/pending-grants/<uuid>.<ext>
+  - notes/other-assets/<uuid>.<ext>
+
+The `storage_path` column on each attachment row holds the bucket
+key returned by the storage upload, so old/new path conventions
+coexist without code changes.
+
+Idempotency
+-----------
+- `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS`
+  make every step safe to re-run.
+- Each table-create is wrapped in a `DO $$ ... $$` block that first
+  checks for the parent notes table. If the parent table is not
+  present in this environment, the corresponding attachments table
+  is skipped — mirroring the runtime guard in
+  `ensureNoteAttachmentsTables()` and matching the behaviour of
+  environments that have only one of the two notes tables.
+- Wrapped in a single transaction so a partial failure rolls back
+  cleanly.
+
+What it deliberately does NOT do
+--------------------------------
+- It does NOT create or modify the parent notes tables
+  (`pending_grant_notes`, `asset_based_payment_request_notes`).
+  Those are owned by their respective feature areas.
+- It does NOT touch the storage bucket itself; the Supabase bucket
+  and its policies are managed outside this migration.
+- It does NOT delete any storage objects on rollback. If you drop
+  the tables you may want to clean up `notes/pending-grants/` and
+  `notes/other-assets/` in the bucket separately.
+
+Rollback
+--------
+A commented rollback block at the bottom of the SQL file drops both
+tables. Apply it BEFORE rolling the application code back to a
+build that does not reference the tables.

@@ -3,6 +3,13 @@ import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter, handleMissingTableError } from "../utils/softDelete.js";
 import { restoreOwningUsersForRecordsInTx } from "../utils/userRestore.js";
+import {
+  uploadNoteAttachments,
+  rollbackUploadedAttachments,
+  insertNoteAttachmentRows,
+  buildAttachmentPublicUrl,
+  type UploadedAttachment,
+} from "../utils/noteAttachments.js";
 import ExcelJS from "exceljs";
 
 const router = Router();
@@ -362,6 +369,28 @@ router.put("/restore", async (req: Request, res: Response) => {
 
 router.put("/:id", async (req: Request, res: Response) => {
   const client = await pool.connect();
+  let uploadedAttachments: UploadedAttachment[] = [];
+  try {
+    const incomingAttachments = Array.isArray((req.body as any)?.attachments)
+      ? ((req.body as any).attachments as Array<{
+          fileName?: string;
+          mimeType?: string;
+          base64Data?: string;
+        }>)
+      : [];
+    if (incomingAttachments.length > 0) {
+      uploadedAttachments = await uploadNoteAttachments(
+        incomingAttachments,
+        "notes/pending-grants",
+      );
+    }
+  } catch (err: any) {
+    client.release();
+    console.error("Error uploading pending grant note attachments:", err);
+    res.status(400).json({ success: false, message: err.message || "Failed to upload attachments." });
+    return;
+  }
+
   try {
     const id = parseInt(String(req.params.id), 10);
     const data = req.body;
@@ -665,11 +694,25 @@ router.put("/:id", async (req: Request, res: Response) => {
       await client.query(`UPDATE pending_grants SET status = 'Received' WHERE id = $1`, [id]);
     }
 
+    let insertedNoteId: number | null = null;
     if (data.note && data.note.trim()) {
-      await client.query(
+      const noteResult = await client.query(
         `INSERT INTO pending_grant_notes (pending_grant_id, note, created_by, created_at, old_status, new_status)
-         VALUES ($1, $2, $3, NOW(), $4, $5)`,
+         VALUES ($1, $2, $3, NOW(), $4, $5) RETURNING id`,
         [id, data.note.trim(), loginUserId, currentStatus, data.status]
+      );
+      insertedNoteId = noteResult.rows[0]?.id ?? null;
+    } else if (uploadedAttachments.length > 0) {
+      throw new Error("A note is required when adding attachments.");
+    }
+
+    if (insertedNoteId && uploadedAttachments.length > 0) {
+      await insertNoteAttachmentRows(
+        client,
+        "pending_grant_note_attachments",
+        insertedNoteId,
+        uploadedAttachments,
+        loginUserId ?? null,
       );
     }
 
@@ -677,6 +720,7 @@ router.put("/:id", async (req: Request, res: Response) => {
     res.json({ success: true, message: `Grant set ${data.status}` });
   } catch (err: any) {
     await client.query("ROLLBACK").catch(() => {});
+    await rollbackUploadedAttachments(uploadedAttachments);
     console.error("Error updating pending grant:", err);
     res.status(500).json({ success: false, message: err.message });
   } finally {
@@ -698,7 +742,42 @@ router.get("/:id/notes", async (req: Request, res: Response) => {
       [id]
     );
 
-    res.json(result.rows);
+    const noteIds = result.rows.map((r: any) => r.id);
+    let attachmentsByNoteId: Record<number, any[]> = {};
+    if (noteIds.length > 0) {
+      try {
+        const attResult = await pool.query(
+          `SELECT id, note_id, file_name AS "fileName", storage_path AS "storagePath",
+                  mime_type AS "mimeType", size_bytes AS "sizeBytes"
+           FROM pending_grant_note_attachments
+           WHERE note_id = ANY($1)
+           ORDER BY id ASC`,
+          [noteIds]
+        );
+        for (const att of attResult.rows) {
+          const url = buildAttachmentPublicUrl(att.storagePath);
+          if (!attachmentsByNoteId[att.note_id]) attachmentsByNoteId[att.note_id] = [];
+          attachmentsByNoteId[att.note_id].push({
+            id: att.id,
+            fileName: att.fileName,
+            mimeType: att.mimeType,
+            sizeBytes: att.sizeBytes ? Number(att.sizeBytes) : 0,
+            url,
+          });
+        }
+      } catch (err: any) {
+        if (err?.code !== "42P01") {
+          console.error("Error fetching pending grant note attachments:", err);
+        }
+      }
+    }
+
+    const rowsWithAttachments = result.rows.map((row: any) => ({
+      ...row,
+      attachments: attachmentsByNoteId[row.id] || [],
+    }));
+
+    res.json(rowsWithAttachments);
   } catch (err: any) {
     console.error("Error fetching pending grant notes:", err);
     res.status(500).json({ success: false, message: err.message });

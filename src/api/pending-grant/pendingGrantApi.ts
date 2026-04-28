@@ -12,6 +12,14 @@ export interface PendingGrantParams {
   foundationGrantsOnly?: boolean;
 }
 
+export interface NoteAttachmentEntry {
+  id: number;
+  fileName: string;
+  mimeType: string | null;
+  sizeBytes: number;
+  url: string | null;
+}
+
 export interface NoteEntry {
   id: number;
   oldStatus: string;
@@ -19,6 +27,13 @@ export interface NoteEntry {
   note: string;
   userName: string;
   createdAt: string;
+  attachments?: NoteAttachmentEntry[];
+}
+
+export interface AttachmentUploadInput {
+  fileName: string;
+  mimeType: string;
+  base64Data: string;
 }
 
 export interface PendingGrantEntry {
@@ -79,6 +94,7 @@ export interface UpdatePendingGrantPayload {
   amount?: number;
   note?: string;
   noteEmail?: string[];
+  attachments?: AttachmentUploadInput[];
 }
 
 export interface UpdatePendingGrantResponse {
