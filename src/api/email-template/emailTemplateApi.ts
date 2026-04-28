@@ -135,6 +135,26 @@ export async function fetchEmailTemplatePreview(id: number): Promise<EmailTempla
   return response.data;
 }
 
+export async function fetchActiveEmailTemplateByCategory(
+  category: number
+): Promise<EmailTemplateListItem | null> {
+  const response = await axiosInstance.get<EmailTemplateListResponse>(
+    "/api/admin/email-template",
+    {
+      params: {
+        Category: String(category),
+        Status: "Active",
+        CurrentPage: "1",
+        PerPage: "1",
+        SortField: "modifiedAt",
+        SortDirection: "desc",
+      },
+    }
+  );
+  const items = response.data?.items || [];
+  return items.length > 0 ? items[0] : null;
+}
+
 export async function fetchEmailTemplateHtml(id: number): Promise<string> {
   const response = await axiosInstance.get<string>(`/api/admin/email-template/html/${id}`);
   return response.data;

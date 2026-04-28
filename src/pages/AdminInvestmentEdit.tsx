@@ -49,6 +49,7 @@ const STEPS = [
 ];
 
 import { fetchCountries, fetchInvestmentById, fetchInvestmentData, updateInvestment, exportInvestmentRecommendations, fetchAllInvestmentNameList, sendInvestmentQrCodeEmail, fetchInvestmentNotes, exportInvestmentNotesApi, downloadInvestmentDocument, fetchCampaignUpdates, createCampaignUpdate, updateCampaignUpdate, deleteCampaignUpdate, sendCampaignUpdateEmail, getCampaignUpdateEmailPreview, type CampaignUpdateItem } from "@/api/investment/investmentApi";
+import { fetchActiveEmailTemplateByCategory, fetchEmailTemplatePreview } from "@/api/email-template/emailTemplateApi";
 import { fetchAllGroups, GroupUpdatePayload } from "@/api/group/groupApi";
 import { fetchAllAdminUsers, AdminUserItem } from "@/api/user/userApi";
 import { fetchStaticValues, StaticValueItem } from "@/api/site-configuration/siteConfigurationApi";
@@ -242,6 +243,87 @@ interface InvestmentTagItem { id: number; tag: string; }
 interface CountryItem { id?: number; name: string; }
 interface ApprovedByItem { id: number; name: string; }
 interface InvestmentNote { date: string; userName: string; note: string; oldStatus: string | null; newStatus: string | null; }
+
+interface ThankYouAttachment {
+  id: number;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  publicUrl: string | null;
+  filePath?: string;
+  sortOrder?: number | null;
+}
+
+interface PendingThankYouAttachment {
+  localId: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  dataBase64: string;
+}
+
+interface EmailPreviewTemplateOption {
+  category: number;
+  templateId: number;
+  name: string;
+  label: string;
+}
+
+const THANK_YOU_PER_FILE_MAX_BYTES = 10 * 1024 * 1024;
+const THANK_YOU_TOTAL_MAX_BYTES = 25 * 1024 * 1024;
+const THANK_YOU_ALLOWED_MIME_TYPES = new Set([
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/webp",
+]);
+const THANK_YOU_ALLOWED_EXT_REGEX = /\.(pdf|doc|docx|png|jpe?g|webp)$/i;
+const THANK_YOU_ACCEPT_ATTR =
+  ".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg,image/webp";
+
+const PERSONALIZED_THANK_YOU_MAX_CHARS = 1000;
+
+const EMAIL_PREVIEW_CATEGORIES: { category: number; label: string }[] = [
+  { category: 4, label: "DAF Donation Instructions" },
+  { category: 5, label: "Foundation Donation Instructions" },
+  { category: 6, label: "Donation Receipt" },
+  { category: 8, label: "Donation Confirmation" },
+  { category: 29, label: "DAF Donation Instructions (ImpactAssets)" },
+];
+
+function formatBytes(bytes: number): string {
+  if (!bytes || bytes <= 0) return "0 B";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function getPlainTextLengthFromHtml(html: string): number {
+  if (!html) return 0;
+  const stripped = html
+    .replace(/<br\s*\/?>(\s*)/gi, "\n")
+    .replace(/<\/(p|div|li|h\d|tr)>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+  return stripped.replace(/\u200B/g, "").length;
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Failed to read file."));
+    reader.readAsDataURL(file);
+  });
+}
 
 function parseIds(raw: string | null | undefined): number[] {
   if (!raw) return [];
@@ -506,6 +588,21 @@ export default function AdminInvestmentEdit() {
   const [taggedUserNames, setTaggedUserNames] = useState<string[]>([]);
   const [taggedUserEmails, setTaggedUserEmails] = useState<string[]>([]);
   const noteTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const [thankYouExistingAttachments, setThankYouExistingAttachments] = useState<ThankYouAttachment[]>([]);
+  const [thankYouRemovedIds, setThankYouRemovedIds] = useState<number[]>([]);
+  const [thankYouPendingFiles, setThankYouPendingFiles] = useState<PendingThankYouAttachment[]>([]);
+  const [thankYouAttachmentError, setThankYouAttachmentError] = useState<string>("");
+  const [thankYouDragActive, setThankYouDragActive] = useState(false);
+  const thankYouFileInputRef = useRef<HTMLInputElement>(null);
+
+  const [previewEmailOpen, setPreviewEmailOpen] = useState(false);
+  const [previewEmailLoading, setPreviewEmailLoading] = useState(false);
+  const [previewEmailTemplates, setPreviewEmailTemplates] = useState<EmailPreviewTemplateOption[]>([]);
+  const [previewEmailSelectedCategory, setPreviewEmailSelectedCategory] = useState<number | null>(null);
+  const [previewEmailHtml, setPreviewEmailHtml] = useState<string>("");
+  const [previewEmailSubject, setPreviewEmailSubject] = useState<string>("");
+  const [previewEmailError, setPreviewEmailError] = useState<string>("");
 
   const { role } = useAuth();
   const isAdmin = role === "Admin";
@@ -948,6 +1045,22 @@ export default function AdminInvestmentEdit() {
     setSavedTagValues(tagValues);
     setSavedApprovedBy(data.approvedBy ? Array.from(new Set(String(data.approvedBy).split(",").map((s: string) => s.trim()).filter(Boolean))) : []);
     setSavedStage(data.stage != null ? String(data.stage) : "");
+
+    const incomingAttachments: ThankYouAttachment[] = Array.isArray(data.thankYouAttachments)
+      ? data.thankYouAttachments.map((a: any) => ({
+          id: Number(a.id),
+          fileName: String(a.fileName || ""),
+          contentType: String(a.contentType || ""),
+          sizeBytes: Number(a.sizeBytes) || 0,
+          publicUrl: a.publicUrl || null,
+          filePath: a.filePath || "",
+          sortOrder: a.sortOrder ?? null,
+        }))
+      : [];
+    setThankYouExistingAttachments(incomingAttachments);
+    setThankYouRemovedIds([]);
+    setThankYouPendingFiles([]);
+    setThankYouAttachmentError("");
   }, [toast]);
 
   const upd = (field: keyof FormData, value: any) => {
@@ -1102,6 +1215,228 @@ export default function AdminInvestmentEdit() {
     }
   };
 
+  const thankYouUsedBytes = useMemo(() => {
+    const keptBytes = thankYouExistingAttachments
+      .filter((a) => !thankYouRemovedIds.includes(a.id))
+      .reduce((sum, a) => sum + (a.sizeBytes || 0), 0);
+    const newBytes = thankYouPendingFiles.reduce((sum, f) => sum + (f.sizeBytes || 0), 0);
+    return keptBytes + newBytes;
+  }, [thankYouExistingAttachments, thankYouRemovedIds, thankYouPendingFiles]);
+
+  const handleThankYouFiles = useCallback(
+    async (files: FileList | File[]) => {
+      const incoming = Array.from(files);
+      if (incoming.length === 0) return;
+
+      const accepted: PendingThankYouAttachment[] = [];
+      const errors: string[] = [];
+      let runningTotal = thankYouUsedBytes;
+
+      for (const file of incoming) {
+        const mime = (file.type || "").toLowerCase();
+        const okByMime = THANK_YOU_ALLOWED_MIME_TYPES.has(mime);
+        const okByExt = THANK_YOU_ALLOWED_EXT_REGEX.test(file.name);
+        if (!okByMime && !okByExt) {
+          errors.push(`"${file.name}" — unsupported file type. Allowed: PDF, DOC, DOCX, PNG, JPG, WEBP.`);
+          continue;
+        }
+        if (file.size > THANK_YOU_PER_FILE_MAX_BYTES) {
+          errors.push(`"${file.name}" exceeds the 10 MB per-file limit.`);
+          continue;
+        }
+        if (runningTotal + file.size > THANK_YOU_TOTAL_MAX_BYTES) {
+          errors.push(`"${file.name}" would exceed the 25 MB total attachment limit.`);
+          continue;
+        }
+        try {
+          const dataUrl = await readFileAsDataUrl(file);
+          if (!dataUrl) {
+            errors.push(`"${file.name}" could not be read.`);
+            continue;
+          }
+          const resolvedMime = mime || dataUrl.match(/^data:([^;]+);base64/)?.[1] || "application/octet-stream";
+          accepted.push({
+            localId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            fileName: file.name,
+            contentType: resolvedMime,
+            sizeBytes: file.size,
+            dataBase64: dataUrl,
+          });
+          runningTotal += file.size;
+        } catch {
+          errors.push(`"${file.name}" could not be read.`);
+        }
+      }
+
+      if (accepted.length > 0) {
+        setThankYouPendingFiles((prev) => [...prev, ...accepted]);
+      }
+      setThankYouAttachmentError(errors.join(" "));
+    },
+    [thankYouUsedBytes],
+  );
+
+  const handleThankYouFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const target = e.target;
+    const files = target.files;
+    if (files && files.length > 0) {
+      void handleThankYouFiles(files);
+    }
+    target.value = "";
+  };
+
+  const handleThankYouDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setThankYouDragActive(false);
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) {
+      void handleThankYouFiles(files);
+    }
+  };
+
+  const removeExistingThankYouAttachment = (id: number) => {
+    setThankYouRemovedIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    setThankYouAttachmentError("");
+  };
+
+  const undoRemoveExistingThankYouAttachment = (id: number) => {
+    setThankYouRemovedIds((prev) => prev.filter((rid) => rid !== id));
+  };
+
+  const removePendingThankYouAttachment = (localId: string) => {
+    setThankYouPendingFiles((prev) => prev.filter((f) => f.localId !== localId));
+    setThankYouAttachmentError("");
+  };
+
+  const personalizedThankYouCharCount = useMemo(
+    () => getPlainTextLengthFromHtml(formData.personalizedThankYou || ""),
+    [formData.personalizedThankYou],
+  );
+
+  const buildPreviewVariables = useCallback((): Record<string, string> => {
+    const investmentLabel = formData.name || investmentName || "this investment";
+    const exampleAmount = "$1,000";
+    const today = dayjs().format("MMMM D, YYYY");
+    const personalizedHtml = (formData.personalizedThankYou || "").trim();
+    const personalizedSection = personalizedHtml
+      ? `<div style="margin-top:16px; padding:16px; background:#eef7f0; border-radius:8px; color:#1f2937;">
+          <div style="font-weight:700; font-size:15px; margin-bottom:10px;">Thank you from Investment Owner</div>
+          ${personalizedHtml}
+          <hr style="margin-top:16px; border:none; border-top:1px solid #d1d5db;" />
+        </div>`
+      : "";
+    return {
+      firstName: "Sample Donor",
+      lastName: "Donor",
+      fullName: "Sample Donor",
+      email: "donor@example.com",
+      formattedAmount: exampleAmount,
+      amount: exampleAmount,
+      donationAmount: exampleAmount,
+      donationRecipient: investmentLabel,
+      campaignName: investmentLabel,
+      investmentName: investmentLabel,
+      investmentScenario: investmentLabel,
+      investmentScenarios: investmentLabel,
+      dafProviderName: "Sample DAF Provider",
+      dafName: "Sample DAF Provider",
+      dafProviderLink: "https://example.com/daf",
+      foundationName: "Sample Foundation",
+      date: today,
+      donationDate: today,
+      logoUrl: "",
+      requestOrigin: typeof window !== "undefined" ? window.location.origin : "",
+      personalizedThankYouSection: personalizedSection,
+    };
+  }, [formData.name, formData.personalizedThankYou, investmentName]);
+
+  const applyTemplatePlaceholders = useCallback(
+    (html: string, vars: Record<string, string>): string => {
+      if (!html) return "";
+      return html.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, name) => {
+        if (Object.prototype.hasOwnProperty.call(vars, name)) {
+          return vars[name];
+        }
+        return "";
+      });
+    },
+    [],
+  );
+
+  const loadEmailPreviewForCategory = useCallback(
+    async (category: number, options: EmailPreviewTemplateOption[]) => {
+      const opt = options.find((o) => o.category === category);
+      if (!opt) {
+        setPreviewEmailHtml("");
+        setPreviewEmailSubject("");
+        setPreviewEmailError("No active template configured for this category.");
+        return;
+      }
+      setPreviewEmailLoading(true);
+      setPreviewEmailError("");
+      try {
+        const data = await fetchEmailTemplatePreview(opt.templateId);
+        const vars = buildPreviewVariables();
+        setPreviewEmailSubject(applyTemplatePlaceholders(data.subject || "", vars));
+        setPreviewEmailHtml(applyTemplatePlaceholders(data.bodyHtml || "", vars));
+      } catch (err: any) {
+        console.error("Failed to load email template preview", err);
+        setPreviewEmailHtml("");
+        setPreviewEmailSubject("");
+        setPreviewEmailError(err?.response?.data?.message || "Failed to load template preview.");
+      } finally {
+        setPreviewEmailLoading(false);
+      }
+    },
+    [applyTemplatePlaceholders, buildPreviewVariables],
+  );
+
+  const openPreviewEmail = async () => {
+    setPreviewEmailOpen(true);
+    setPreviewEmailLoading(true);
+    setPreviewEmailError("");
+    setPreviewEmailHtml("");
+    setPreviewEmailSubject("");
+    try {
+      const results = await Promise.all(
+        EMAIL_PREVIEW_CATEGORIES.map(async ({ category, label }) => {
+          try {
+            const tpl = await fetchActiveEmailTemplateByCategory(category);
+            if (!tpl) return null;
+            return {
+              category,
+              templateId: tpl.id,
+              name: tpl.name,
+              label,
+            } as EmailPreviewTemplateOption;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      const opts = results.filter((r): r is EmailPreviewTemplateOption => r !== null);
+      setPreviewEmailTemplates(opts);
+      if (opts.length === 0) {
+        setPreviewEmailError("No active templates are configured for the selected categories.");
+        setPreviewEmailLoading(false);
+        return;
+      }
+      const initial = opts[0].category;
+      setPreviewEmailSelectedCategory(initial);
+      await loadEmailPreviewForCategory(initial, opts);
+    } catch (err: any) {
+      console.error("Failed to load email preview templates", err);
+      setPreviewEmailError(err?.response?.data?.message || "Failed to load email templates.");
+      setPreviewEmailLoading(false);
+    }
+  };
+
+  const handleSelectPreviewCategory = async (category: number) => {
+    setPreviewEmailSelectedCategory(category);
+    await loadEmailPreviewForCategory(category, previewEmailTemplates);
+  };
+
   const handleSaveClick = () => {
     if (!validate()) {
       toast({ title: "Required Fields", description: "Please fill in all required fields.", variant: "destructive" });
@@ -1200,6 +1535,13 @@ export default function AdminInvestmentEdit() {
         state: formData.state?.trim() || "",
         zipCode: formData.zipCode?.trim() || "",
         otherCountryAddress: "",
+        thankYouAttachmentIdsToRemove: thankYouRemovedIds,
+        thankYouAttachmentsToAdd: thankYouPendingFiles.map((f) => ({
+          fileName: f.fileName,
+          contentType: f.contentType,
+          sizeBytes: f.sizeBytes,
+          dataBase64: f.dataBase64,
+        })),
       };
 
       const result = await updateInvestment(formData.id!, payload);
@@ -1276,6 +1618,67 @@ export default function AdminInvestmentEdit() {
           onCropped={handleCropSave}
         />
       )}
+
+      <Dialog open={previewEmailOpen} onOpenChange={setPreviewEmailOpen}>
+        <DialogContent className="max-w-4xl max-h-[95vh] flex flex-col p-0 overflow-hidden">
+          <DialogHeader className="p-6 pb-2">
+            <DialogTitle data-testid="text-preview-email-title">Preview Email</DialogTitle>
+            {previewEmailSubject && (
+              <p className="text-sm text-muted-foreground" data-testid="text-preview-email-subject">
+                Subject: {previewEmailSubject}
+              </p>
+            )}
+          </DialogHeader>
+          <div className="px-6 pb-2 flex flex-wrap gap-2">
+            {previewEmailTemplates.length === 0 && !previewEmailLoading ? null : EMAIL_PREVIEW_CATEGORIES.map(({ category, label }) => {
+              const opt = previewEmailTemplates.find((o) => o.category === category);
+              const isAvailable = !!opt;
+              const isSelected = previewEmailSelectedCategory === category;
+              return (
+                <Button
+                  key={category}
+                  type="button"
+                  size="sm"
+                  variant={isSelected ? "default" : "outline"}
+                  disabled={!isAvailable || previewEmailLoading}
+                  onClick={() => isAvailable && handleSelectPreviewCategory(category)}
+                  data-testid={`button-preview-template-${category}`}
+                >
+                  {label}
+                </Button>
+              );
+            })}
+          </div>
+          <div className="flex-1 min-h-0 px-0">
+            {previewEmailLoading ? (
+              <div className="flex items-center justify-center h-[600px] text-sm text-muted-foreground">
+                Loading preview…
+              </div>
+            ) : previewEmailError ? (
+              <div className="flex items-center justify-center h-[600px] text-sm text-[#f06548] px-6 text-center" data-testid="text-preview-email-error">
+                {previewEmailError}
+              </div>
+            ) : previewEmailHtml ? (
+              <iframe
+                title="Email Preview"
+                className="w-full h-full min-h-[600px] border-0 bg-white"
+                srcDoc={previewEmailHtml}
+                sandbox=""
+                data-testid="iframe-preview-email"
+              />
+            ) : (
+              <div className="flex items-center justify-center h-[600px] text-sm text-muted-foreground">
+                Select a template to preview.
+              </div>
+            )}
+          </div>
+          <DialogFooter className="p-4 border-t bg-white dark:bg-muted/10">
+            <Button variant="outline" onClick={() => setPreviewEmailOpen(false)} data-testid="button-close-preview-email">
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={noteDialogOpen} onOpenChange={(open) => { if (!open) setNoteDialogOpen(false); }}>
         <DialogContent
@@ -1797,10 +2200,180 @@ export default function AdminInvestmentEdit() {
                   </div>
                 </div>
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="personalizedThankYou" className="text-sm">Personalized Thank You (Not to exceed 1,000 characters)</Label>
-                  <Textarea id="personalizedThankYou" value={formData.personalizedThankYou} onChange={(e) => upd("personalizedThankYou", e.target.value)} placeholder="Personalized Thank You" rows={5} maxLength={1000} data-testid="input-thank-you" />
-                  <p className="text-xs text-muted-foreground">What would you like your customized thank you message — displayed to users following a donation to your investment — to say?</p>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <Label htmlFor="personalizedThankYou" className="text-sm">Personalized Thank You (Not to exceed 1,000 characters)</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={openPreviewEmail}
+                      data-testid="button-preview-thank-you-email"
+                    >
+                      <Mail className="mr-2 h-4 w-4" />
+                      Preview email
+                    </Button>
+                  </div>
+                  <RichTextEditor
+                    value={formData.personalizedThankYou}
+                    onChange={(html) => upd("personalizedThankYou", html)}
+                    placeholder="Personalized Thank You"
+                    data-testid="input-thank-you"
+                  />
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>What would you like your customized thank you message — displayed to users following a donation to your investment — to say?</span>
+                    <span
+                      className={cn(
+                        personalizedThankYouCharCount > PERSONALIZED_THANK_YOU_MAX_CHARS && "text-[#f06548] font-medium"
+                      )}
+                      data-testid="text-thank-you-char-count"
+                    >
+                      {personalizedThankYouCharCount.toLocaleString()} / {PERSONALIZED_THANK_YOU_MAX_CHARS.toLocaleString()} characters
+                    </span>
+                  </div>
+
+                  <div className="space-y-2 pt-2">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <Label className="text-sm">Attachments</Label>
+                      <span className="text-xs text-muted-foreground" data-testid="text-thank-you-total-size">
+                        {formatBytes(thankYouUsedBytes)} of {formatBytes(THANK_YOU_TOTAL_MAX_BYTES)} used
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Allowed: PDF, DOC, DOCX, PNG, JPG, WEBP. Max 10 MB per file, 25 MB total.
+                    </p>
+
+                    <div
+                      className={cn(
+                        "rounded-md border-2 border-dashed p-4 transition-colors text-center",
+                        thankYouDragActive ? "border-[#405189] bg-[#f3f6ff]" : "border-muted-foreground/30 bg-muted/20"
+                      )}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setThankYouDragActive(true);
+                      }}
+                      onDragLeave={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setThankYouDragActive(false);
+                      }}
+                      onDrop={handleThankYouDrop}
+                      data-testid="thank-you-dropzone"
+                    >
+                      <p className="text-sm text-muted-foreground">
+                        Drag and drop files here, or
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="mt-2"
+                        onClick={() => thankYouFileInputRef.current?.click()}
+                        data-testid="button-add-thank-you-attachment"
+                      >
+                        Choose files
+                      </Button>
+                      <input
+                        ref={thankYouFileInputRef}
+                        type="file"
+                        multiple
+                        accept={THANK_YOU_ACCEPT_ATTR}
+                        className="hidden"
+                        onChange={handleThankYouFileInputChange}
+                        data-testid="input-thank-you-attachment-file"
+                      />
+                    </div>
+
+                    {thankYouAttachmentError && (
+                      <p className="text-xs text-[#f06548]" data-testid="text-thank-you-attachment-error">
+                        {thankYouAttachmentError}
+                      </p>
+                    )}
+
+                    {(thankYouExistingAttachments.length > 0 || thankYouPendingFiles.length > 0) && (
+                      <ul className="divide-y rounded-md border">
+                        {thankYouExistingAttachments.map((att) => {
+                          const removed = thankYouRemovedIds.includes(att.id);
+                          return (
+                            <li
+                              key={`existing-${att.id}`}
+                              className={cn(
+                                "flex items-center justify-between gap-3 px-3 py-2",
+                                removed && "opacity-60"
+                              )}
+                              data-testid={`item-thank-you-attachment-${att.id}`}
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                <div className="min-w-0">
+                                  {att.publicUrl ? (
+                                    <a
+                                      href={att.publicUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className={cn("text-sm truncate block", removed ? "line-through" : "text-[#405189] hover:underline")}
+                                      data-testid={`link-thank-you-attachment-${att.id}`}
+                                    >
+                                      {att.fileName}
+                                    </a>
+                                  ) : (
+                                    <span className={cn("text-sm truncate block", removed && "line-through")}>{att.fileName}</span>
+                                  )}
+                                  <span className="text-xs text-muted-foreground">{formatBytes(att.sizeBytes)}{removed ? " · will be removed on save" : ""}</span>
+                                </div>
+                              </div>
+                              {removed ? (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => undoRemoveExistingThankYouAttachment(att.id)}
+                                  data-testid={`button-undo-remove-thank-you-attachment-${att.id}`}
+                                >
+                                  Undo
+                                </Button>
+                              ) : (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => removeExistingThankYouAttachment(att.id)}
+                                  data-testid={`button-remove-thank-you-attachment-${att.id}`}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              )}
+                            </li>
+                          );
+                        })}
+                        {thankYouPendingFiles.map((f) => (
+                          <li
+                            key={`pending-${f.localId}`}
+                            className="flex items-center justify-between gap-3 px-3 py-2 bg-[#f6fbf7]"
+                            data-testid={`item-thank-you-attachment-pending-${f.localId}`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                              <div className="min-w-0">
+                                <span className="text-sm truncate block">{f.fileName}</span>
+                                <span className="text-xs text-muted-foreground">{formatBytes(f.sizeBytes)} · will be uploaded on save</span>
+                              </div>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removePendingThankYouAttachment(f.localId)}
+                              data-testid={`button-remove-thank-you-attachment-pending-${f.localId}`}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 </div>
 
                 <div className="space-y-4">

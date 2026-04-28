@@ -5,7 +5,7 @@ import { parsePagination, softDeleteFilter, buildSortClause, handleMissingTableE
 import { sendTemplateEmail } from "../utils/emailService.js";
 import { Resend } from "resend";
 import ExcelJS from "exceljs";
-import { uploadBase64Image, resolveFileUrl, extractStoragePath, getSupabaseConfig } from "../utils/uploadBase64Image.js";
+import { uploadBase64Image, resolveFileUrl, extractStoragePath, getSupabaseConfig, deleteStorageFile } from "../utils/uploadBase64Image.js";
 import { logAudit } from "../utils/auditLog.js";
 import { restoreOwningUsersForRecordsInTx } from "../utils/userRestore.js";
 import { findOrCreateAnonymousUser } from "../utils/anonymousUser.js";
@@ -86,6 +86,44 @@ function normalizeMentionFormat(html: string): string {
   );
 
   return html;
+}
+
+const THANK_YOU_ATTACHMENT_FOLDER = "campaigns/thank-you-attachments";
+const THANK_YOU_PER_FILE_MAX_BYTES = 10 * 1024 * 1024;
+const THANK_YOU_TOTAL_MAX_BYTES = 25 * 1024 * 1024;
+const THANK_YOU_ALLOWED_MIME_TYPES = new Set([
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/webp",
+]);
+
+async function loadThankYouAttachments(campaignId: number) {
+  try {
+    const result = await pool.query(
+      `SELECT id, file_path, original_file_name, content_type, size_bytes, sort_order, created_at
+       FROM campaign_thank_you_attachments
+       WHERE campaign_id = $1
+       ORDER BY sort_order ASC NULLS LAST, id ASC`,
+      [campaignId]
+    );
+    return result.rows.map((r: any) => ({
+      id: Number(r.id),
+      fileName: r.original_file_name || "",
+      contentType: r.content_type || "",
+      sizeBytes: Number(r.size_bytes) || 0,
+      sortOrder: r.sort_order != null ? Number(r.sort_order) : null,
+      filePath: r.file_path || "",
+      publicUrl: resolveFileUrl(r.file_path),
+      createdAt: r.created_at,
+    }));
+  } catch (err) {
+    console.error("Error loading thank-you attachments:", err);
+    return [];
+  }
 }
 
 router.get("/types", async (_req: Request, res: Response) => {
@@ -941,6 +979,8 @@ router.get("/:id", async (req: Request, res: Response) => {
     let terms = c.terms || "";
     if (terms) terms = normalizeMentionFormat(terms);
 
+    const thankYouAttachments = await loadThankYouAttachments(id);
+
     const campaign: any = {
       id: Number(c.id),
       name: c.name,
@@ -1011,6 +1051,7 @@ router.get("/:id", async (req: Request, res: Response) => {
       metaTitle: c.meta_title,
       metaDescription: c.meta_description,
       groupForPrivateAccessId: c.group_for_private_access_id,
+      thankYouAttachments,
     };
 
     res.json(campaign);
@@ -1650,8 +1691,7 @@ router.put("/:id", async (req: Request, res: Response) => {
       finalUserId = resolvedUserId;
     }
 
-    await pool.query(
-      `UPDATE campaigns SET
+    const campaignUpdateSql = `UPDATE campaigns SET
         name = $1, description = $2, themes = $3, approved_by = $4, sdgs = $5,
         investment_instruments = $6, terms = $7, minimum_investment = $8, website = $9,
         network_description = $10, contact_info_full_name = $11, contact_info_address = $12,
@@ -1675,8 +1715,8 @@ router.put("/:id", async (req: Request, res: Response) => {
         personal_financial_benefit_description = $58, has_regulatory_issues = $59,
         regulatory_issues_description = $60, is_in_good_legal_standing = $61,
         modified_date = NOW()
-      WHERE id = $62`,
-      [
+      WHERE id = $62`;
+    const campaignUpdateParams: any[] = [
         campaign.name || existing.name,
         campaign.description ?? existing.description,
         campaign.themes ?? existing.themes,
@@ -1739,8 +1779,186 @@ router.put("/:id", async (req: Request, res: Response) => {
         Object.prototype.hasOwnProperty.call(campaign, "regulatoryIssuesDescription") ? campaign.regulatoryIssuesDescription : existing.regulatory_issues_description,
         Object.prototype.hasOwnProperty.call(campaign, "isInGoodLegalStanding") ? campaign.isInGoodLegalStanding : existing.is_in_good_legal_standing,
         id,
-      ]
-    );
+      ];
+
+    const removeIds: number[] = Array.isArray(campaign.thankYouAttachmentIdsToRemove)
+      ? campaign.thankYouAttachmentIdsToRemove
+          .map((v: any) => Number(v))
+          .filter((n: number) => Number.isFinite(n) && n > 0)
+      : [];
+    const addList: any[] = Array.isArray(campaign.thankYouAttachmentsToAdd)
+      ? campaign.thankYouAttachmentsToAdd
+      : [];
+
+    let validRemoveIds: number[] = [];
+    let removedFilePaths: string[] = [];
+    const decodedAdds: { fileName: string; mimeType: string; base64: string; sizeBytes: number }[] = [];
+    const uploadedAdds: {
+      filePath: string;
+      sizeBytes: number;
+      fileName: string;
+      mimeType: string;
+    }[] = [];
+
+    if (removeIds.length > 0 || addList.length > 0) {
+      const existingAttRes = await pool.query(
+        `SELECT id, file_path, size_bytes FROM campaign_thank_you_attachments WHERE campaign_id = $1`,
+        [id]
+      );
+      const existingMap = new Map<number, { filePath: string; sizeBytes: number }>();
+      for (const row of existingAttRes.rows) {
+        existingMap.set(Number(row.id), {
+          filePath: row.file_path || "",
+          sizeBytes: Number(row.size_bytes) || 0,
+        });
+      }
+
+      validRemoveIds = removeIds.filter((rid) => existingMap.has(rid));
+      removedFilePaths = validRemoveIds
+        .map((rid) => existingMap.get(rid)!.filePath)
+        .filter((fp) => !!fp);
+      const keptBytes = Array.from(existingMap.entries())
+        .filter(([rid]) => !validRemoveIds.includes(rid))
+        .reduce((sum, [, info]) => sum + info.sizeBytes, 0);
+
+      let addBytes = 0;
+
+      for (const item of addList) {
+        if (!item || typeof item !== "object") {
+          res.status(400).json({ success: false, message: "Invalid thank-you attachment payload." });
+          return;
+        }
+        const fileName = String(item.fileName || "").trim();
+        const base64 = String(item.dataBase64 || item.data || "").trim();
+        if (!fileName || !base64) {
+          res.status(400).json({ success: false, message: "Each thank-you attachment requires fileName and dataBase64." });
+          return;
+        }
+        const match = base64.match(/^data:([a-zA-Z0-9+.\/-]+);base64,([A-Za-z0-9+/=]+)$/);
+        if (!match) {
+          res.status(400).json({ success: false, message: `Invalid data URL for "${fileName}".` });
+          return;
+        }
+        const mimeType = match[1].toLowerCase();
+        if (!THANK_YOU_ALLOWED_MIME_TYPES.has(mimeType)) {
+          res.status(400).json({
+            success: false,
+            message: `Unsupported file type for "${fileName}". Allowed: PDF, DOC, DOCX, PNG, JPG, WEBP.`,
+          });
+          return;
+        }
+        const sizeBytes = Math.floor((match[2].length * 3) / 4);
+        if (sizeBytes > THANK_YOU_PER_FILE_MAX_BYTES) {
+          res.status(400).json({
+            success: false,
+            message: `"${fileName}" exceeds the 10 MB per-file limit.`,
+          });
+          return;
+        }
+        addBytes += sizeBytes;
+        decodedAdds.push({ fileName, mimeType, base64, sizeBytes });
+      }
+
+      if (keptBytes + addBytes > THANK_YOU_TOTAL_MAX_BYTES) {
+        res.status(400).json({
+          success: false,
+          message: `Total attachment size exceeds the 25 MB limit (${((keptBytes + addBytes) / (1024 * 1024)).toFixed(1)} MB).`,
+        });
+        return;
+      }
+
+      // Upload new attachments to storage BEFORE opening the DB transaction.
+      // If any upload fails, clean up already-uploaded files and bail out
+      // before any DB state has been modified.
+      try {
+        for (const add of decodedAdds) {
+          const uploadResult = await uploadBase64Image(add.base64, THANK_YOU_ATTACHMENT_FOLDER);
+          uploadedAdds.push({
+            filePath: uploadResult.filePath,
+            sizeBytes: uploadResult.sizeBytes,
+            fileName: add.fileName,
+            mimeType: add.mimeType,
+          });
+        }
+      } catch (uploadErr: any) {
+        for (const u of uploadedAdds) {
+          try { await deleteStorageFile(u.filePath); } catch (_) { /* best-effort */ }
+        }
+        console.error("Error uploading thank-you attachments:", uploadErr);
+        res.status(500).json({
+          success: false,
+          message: uploadErr?.message || "Failed to upload thank-you attachments.",
+        });
+        return;
+      }
+    }
+
+    // Atomically persist the campaign update + attachment row mutations.
+    // Storage cleanup is performed AFTER commit (best-effort) for removed
+    // files and BEFORE return on rollback (compensating delete) for adds.
+    const txClient = await pool.connect();
+    try {
+      await txClient.query("BEGIN");
+
+      await txClient.query(campaignUpdateSql, campaignUpdateParams);
+
+      if (validRemoveIds.length > 0) {
+        await txClient.query(
+          `DELETE FROM campaign_thank_you_attachments WHERE campaign_id = $1 AND id = ANY($2::int[])`,
+          [id, validRemoveIds]
+        );
+      }
+
+      if (uploadedAdds.length > 0) {
+        const sortStartRes = await txClient.query(
+          `SELECT COALESCE(MAX(sort_order), -1) AS max_order FROM campaign_thank_you_attachments WHERE campaign_id = $1`,
+          [id]
+        );
+        let nextSortOrder = (Number(sortStartRes.rows[0]?.max_order) || -1) + 1;
+
+        for (const add of uploadedAdds) {
+          await txClient.query(
+            `INSERT INTO campaign_thank_you_attachments
+              (campaign_id, file_path, original_file_name, content_type, size_bytes, sort_order, created_at, created_by)
+             VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7)`,
+            [
+              id,
+              add.filePath,
+              add.fileName,
+              add.mimeType,
+              add.sizeBytes,
+              nextSortOrder,
+              req.user?.id || null,
+            ]
+          );
+          nextSortOrder += 1;
+        }
+      }
+
+      await txClient.query("COMMIT");
+    } catch (txErr: any) {
+      try { await txClient.query("ROLLBACK"); } catch (_) { /* ignore */ }
+      // Compensating action: delete uploaded storage files since their DB
+      // rows were rolled back. Removed-file deletions have not yet been
+      // executed (they're post-commit), so nothing to restore there.
+      for (const u of uploadedAdds) {
+        try { await deleteStorageFile(u.filePath); } catch (_) { /* best-effort */ }
+      }
+      console.error("Error persisting investment update:", txErr);
+      res.status(500).json({
+        success: false,
+        message: txErr?.message || "Failed to update investment.",
+      });
+      return;
+    } finally {
+      txClient.release();
+    }
+
+    // Best-effort storage cleanup for removed attachments. The DB rows are
+    // already gone (committed); a failure here only leaves orphaned blobs.
+    for (const fp of removedFilePaths) {
+      try { await deleteStorageFile(fp); } catch (_) { /* best-effort */ }
+    }
 
     if (campaign.investmentTag && Array.isArray(campaign.investmentTag)) {
       await handleTagMappings(id, campaign.investmentTag);
@@ -1859,6 +2077,8 @@ router.put("/:id", async (req: Request, res: Response) => {
     );
     const investmentTag = tagResult.rows.map((t: any) => ({ tag: t.tag }));
 
+    const thankYouAttachments = await loadThankYouAttachments(id);
+
     res.json({
       success: true,
       message: "Campaign details updated successfully",
@@ -1866,6 +2086,7 @@ router.put("/:id", async (req: Request, res: Response) => {
         ...mapCampaignRow(updatedCampaign),
         investmentNotes,
         investmentTag,
+        thankYouAttachments,
       },
     });
   } catch (err: any) {
