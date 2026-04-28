@@ -496,7 +496,7 @@ export default function AdminPendingGrants() {
               </div>
 
               <div className="flex flex-col gap-0.5">
-                <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">&nbsp;</Label>
+                <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">Filter</Label>
                 <div className="flex h-9 items-center gap-2">
                   <Checkbox
                     id="foundation-grants-only"
