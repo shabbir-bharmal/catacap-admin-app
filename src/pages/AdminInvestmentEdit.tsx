@@ -39,9 +39,7 @@ import { CalendarIcon, ArrowLeft, Download, ChevronDown, Copy, QrCode, Mail, Use
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { QRCodeCanvas } from "qrcode.react";
 
-const isUpdatesTabEnabled = import.meta.env.VITE_APP_ENVIRONMENT === "QA";
-
-const ALL_STEPS = [
+const STEPS = [
   { id: 0, label: "About You", icon: User },
   { id: 1, label: "About the Investment", icon: Briefcase },
   { id: 2, label: "Media", icon: ImageIcon },
@@ -49,10 +47,6 @@ const ALL_STEPS = [
   { id: 4, label: "Admin Details", icon: Settings },
   { id: 5, label: "Updates", icon: Mail },
 ];
-
-const STEPS = isUpdatesTabEnabled
-  ? ALL_STEPS
-  : ALL_STEPS.filter((s) => s.id !== 5);
 
 import { fetchCountries, fetchInvestmentById, fetchInvestmentData, updateInvestment, exportInvestmentRecommendations, fetchAllInvestmentNameList, sendInvestmentQrCodeEmail, fetchInvestmentNotes, exportInvestmentNotesApi, downloadInvestmentDocument, fetchCampaignUpdates, createCampaignUpdate, updateCampaignUpdate, deleteCampaignUpdate, sendCampaignUpdateEmail, getCampaignUpdateEmailPreview, type CampaignUpdateItem } from "@/api/investment/investmentApi";
 import { fetchAllGroups, GroupUpdatePayload } from "@/api/group/groupApi";
@@ -541,12 +535,12 @@ export default function AdminInvestmentEdit() {
   }, [formData.stage, savedStage]);
 
   const updatesDisabled = formData.stage === CLOSED_NOT_INVESTED_STAGE;
-  const lastNavigableStepIdx = isUpdatesTabEnabled && updatesDisabled
+  const lastNavigableStepIdx = updatesDisabled
     ? STEPS.length - 2
     : STEPS.length - 1;
 
   useEffect(() => {
-    if (isUpdatesTabEnabled && updatesDisabled && currentStep === 5) {
+    if (updatesDisabled && currentStep === 5) {
       setCurrentStep(4);
     }
   }, [updatesDisabled, currentStep]);
@@ -566,7 +560,7 @@ export default function AdminInvestmentEdit() {
   }, [resolvedNumericId, toast]);
 
   useEffect(() => {
-    if (isUpdatesTabEnabled && currentStep === 5 && resolvedNumericId && !updatesDisabled) {
+    if (currentStep === 5 && resolvedNumericId && !updatesDisabled) {
       loadCampaignUpdates();
     }
   }, [currentStep, resolvedNumericId, updatesDisabled, loadCampaignUpdates]);
@@ -2674,7 +2668,7 @@ export default function AdminInvestmentEdit() {
         )}
 
         {/* ── STEP 5: UPDATES ── */}
-        {isUpdatesTabEnabled && currentStep === 5 && !updatesDisabled && (
+        {currentStep === 5 && !updatesDisabled && (
           <Card className="rounded-t-none rounded-b-xl">
             <CardContent className="p-6 space-y-6">
               <div className="flex items-center justify-between border-b pb-2 mb-4">
@@ -2702,7 +2696,7 @@ export default function AdminInvestmentEdit() {
                   <table className="w-full" data-testid="table-updates">
                     <thead>
                       <tr className="border-b bg-[#405189] text-white">
-                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Image</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap">File</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Subject</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Description</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Start Date</th>
@@ -2823,7 +2817,7 @@ export default function AdminInvestmentEdit() {
           </Card>
         )}
 
-        {isUpdatesTabEnabled && currentStep === 5 && updatesDisabled && (
+        {currentStep === 5 && updatesDisabled && (
           <Card className="rounded-t-none rounded-b-xl">
             <CardContent className="p-6">
               <p className="text-sm text-muted-foreground">
@@ -3140,7 +3134,7 @@ export default function AdminInvestmentEdit() {
             <Button
               onClick={() => {
                 let next = currentStep + 1;
-                if (isUpdatesTabEnabled && updatesDisabled && next === 5) next = 4;
+                if (updatesDisabled && next === 5) next = 4;
                 setCurrentStep(next);
               }}
               className="bg-[#405189] hover:bg-[#364574] text-white"
