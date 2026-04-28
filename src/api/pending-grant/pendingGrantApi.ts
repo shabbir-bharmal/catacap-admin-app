@@ -136,7 +136,7 @@ export interface DafProviderEntry {
 
 export async function fetchDafProviders(): Promise<DafProviderEntry[]> {
   const response = await axiosInstance.get<DafProviderEntry[] | { items?: DafProviderEntry[]; data?: DafProviderEntry[] }>(
-    "/api/admin/pending-grant/daf-providers"
+    "/api/admin/site-configuration/daf-providers"
   );
   const data = response.data;
   if (Array.isArray(data)) return data;

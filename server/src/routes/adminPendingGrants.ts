@@ -31,19 +31,6 @@ function getReadableDuration(from: Date, to: Date): string {
   return parts.length > 0 ? parts.join(", ") : "0 days";
 }
 
-router.get("/daf-providers", async (_req: Request, res: Response) => {
-  try {
-    const result = await pool.query(
-      `SELECT id, provider_name AS "value", provider_url AS "link" FROM daf_providers`
-    );
-
-    res.json(result.rows);
-  } catch (err: any) {
-    console.error("Error fetching DAF providers:", err);
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
 router.get("/export", async (_req: Request, res: Response) => {
   try {
     const result = await pool.query(
