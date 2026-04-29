@@ -1,0 +1,151 @@
+Migration: 2026_04_29_admin_performance_indexes.sql
+Release date: 2026-04-29
+Feature: Admin pages performance — read-path indexes
+
+Overview
+--------
+Adds 21 B-tree / expression indexes that cover the foreign-key and join
+columns used by the most frequent admin queries. Before this migration
+the database only had PRIMARY KEY indexes on these tables, which forced
+PostgreSQL to do sequential scans on every join, filter, and aggregation
+that the admin app performs.
+
+The migration is purely additive: no table data is modified, no columns
+or constraints are added, dropped, or renamed. Every statement uses
+`CREATE INDEX IF NOT EXISTS` so the migration is safe to run repeatedly
+and safe to run on environments that already have some of the indexes
+(e.g. environments where the on-startup helper
+`ensureAdminPerformanceIndexes` in `server/src/db.ts` has already
+created them).
+
+Indexes added
+-------------
+
+recommendations
+  idx_recommendations_campaign_id        ON recommendations (campaign_id)
+  idx_recommendations_lower_email        ON recommendations (LOWER(user_email))
+  idx_recommendations_status             ON recommendations (status)
+
+users
+  idx_users_lower_email                  ON users (LOWER(email))
+
+user_roles
+  idx_user_roles_role_id                 ON user_roles (role_id)
+  idx_user_roles_user_id                 ON user_roles (user_id)
+
+requests
+  idx_requests_group_status              ON requests (group_to_follow_id, status)
+  idx_requests_owner                     ON requests (request_owner_id)
+
+pending_grants / pending_grant_notes
+  idx_pending_grants_user_id             ON pending_grants (user_id)
+  idx_pending_grants_campaign_id         ON pending_grants (campaign_id)
+  idx_pending_grant_notes_grant_id       ON pending_grant_notes (pending_grant_id)
+
+investment_notes
+  idx_investment_notes_campaign_id       ON investment_notes (campaign_id)
+
+account balances
+  idx_acl_user_id                        ON account_balance_change_logs (user_id)
+  idx_acl_group_id                       ON account_balance_change_logs (group_id)
+  idx_gab_user_id                        ON group_account_balances (user_id)
+  idx_gab_group_id                       ON group_account_balances (group_id)
+
+campaign_groups / campaigns
+  idx_campaign_groups_groups_id          ON campaign_groups (groups_id)
+  idx_campaigns_deleted_by               ON campaigns (deleted_by)
+  idx_campaigns_private_access_group     ON campaigns (group_for_private_access_id)
+
+groups / asset_based_payment_requests
+  idx_groups_owner_id                    ON groups (owner_id)
+  idx_asset_based_payment_requests_user_id
+                                         ON asset_based_payment_requests (user_id)
+
+Why each index
+--------------
+
+* `recommendations(campaign_id)` — Investments list aggregates total raised
+  and unique investors per campaign by grouping recommendations on
+  `campaign_id`. Used in dashboard, finance, and the per-campaign edit
+  page.
+
+* `recommendations(LOWER(user_email))` — Dashboard summary, finance, and
+  the top-donors / recent-investments queries all join on
+  `LOWER(r.user_email) = LOWER(u.email)`. Without an expression index
+  matching the join expression, PostgreSQL cannot use any index for the
+  join.
+
+* `recommendations(status)` — Pending / approved status filtering shows up
+  in nearly every recommendation query.
+
+* `users(LOWER(email))` — Companion to `recommendations(LOWER(user_email))`
+  for the same join.
+
+* `user_roles(role_id)` and `user_roles(user_id)` — Every admin query that
+  filters users by role joins through `user_roles` in both directions.
+
+* `requests(group_to_follow_id, status)` — Groups list counts members per
+  group with `WHERE group_to_follow_id = ? AND status = 'accepted'`.
+
+* `requests(request_owner_id)` — Used by the per-user join when fetching
+  group memberships.
+
+* `pending_grants(user_id)` and `pending_grants(campaign_id)` — Pending
+  Grants list filters / aggregates by both user and campaign.
+
+* `pending_grant_notes(pending_grant_id)` — Each row of the Pending Grants
+  list runs an `EXISTS(...)` for notes; the FK lookup is now index-backed.
+
+* `investment_notes(campaign_id)` — Investments list flags campaigns that
+  have notes via a single grouped lookup.
+
+* `account_balance_change_logs(user_id|group_id)` and
+  `group_account_balances(user_id|group_id)` — Consolidated Finances and
+  the per-user account history both filter on these FKs.
+
+* `campaign_groups(groups_id)` — The PK of `campaign_groups` already
+  covers `(campaigns_id, groups_id)`, but lookups by group alone needed
+  the reverse index.
+
+* `campaigns(deleted_by)` — `LEFT JOIN users du ON c.deleted_by = du.id`
+  appears in the Investments list and the per-campaign edit / restore
+  flows.
+
+* `campaigns(group_for_private_access_id)` — Groups list UNION pulls
+  campaigns that target a private group via this column.
+
+* `groups(owner_id)` — Consolidated Finances looks up groups by their
+  owner with `WHERE owner_id IN (...)`.
+
+* `asset_based_payment_requests(user_id)` — Same query also aggregates
+  asset-based payment requests by user.
+
+Operational notes
+-----------------
+
+* `LOWER(...)` indexes are PostgreSQL expression indexes. They are used
+  automatically when the query predicate matches the indexed expression
+  exactly (the application code already calls `LOWER(...)` consistently).
+
+* The dev-environment row counts are small enough that PostgreSQL's
+  planner may still pick a sequential scan over the new indexes for
+  some single-table aggregations — that is expected and correct
+  behaviour. The indexes pay off as soon as production-scale data
+  pushes those tables past the small-table threshold (and they
+  immediately help every `JOIN` and `WHERE foreign_key = ?` lookup
+  regardless of table size).
+
+* Index creation in this migration uses a normal transaction
+  (`BEGIN; ...; COMMIT;`) — the same pattern as the previous release
+  (`2026_04_27_event_link_targets.sql`). Tables affected are small
+  enough in this dataset that the brief write lock is acceptable. If
+  this migration is ever re-targeted at a much larger production table,
+  consider switching individual statements to
+  `CREATE INDEX CONCURRENTLY IF NOT EXISTS` (and removing the
+  surrounding transaction, as `CONCURRENTLY` cannot run inside one).
+
+Rollback
+--------
+See the commented-out `ROLLBACK` block at the bottom of the SQL file.
+The indexes are non-destructive read-path optimisations; dropping any
+of them only restores the slower query plan, no data is lost.
