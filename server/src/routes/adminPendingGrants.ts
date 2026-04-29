@@ -244,6 +244,9 @@ router.get("/", async (req: Request, res: Response) => {
       case "dayscount":
         orderBy = `CASE WHEN LOWER(COALESCE(pg.status, 'pending')) = 'pending' OR pg.status IS NULL OR pg.status = '' THEN 0 ELSE 1 END ASC, pg.created_date ${isAsc ? "ASC NULLS LAST" : "DESC NULLS FIRST"}`;
         break;
+      case "amount":
+        orderBy = `CASE WHEN LOWER(COALESCE(pg.status, 'pending')) = 'rejected' THEN 1 ELSE 0 END ASC, CAST(pg.amount AS float) ${isAsc ? "ASC NULLS LAST" : "DESC NULLS FIRST"}`;
+        break;
       default:
         orderBy = `CASE WHEN LOWER(COALESCE(pg.status, 'pending')) = 'rejected' THEN 1 ELSE 0 END ASC, pg.created_date DESC`;
         break;

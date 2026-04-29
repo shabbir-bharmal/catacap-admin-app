@@ -26,7 +26,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
 import { Badge } from "@/components/ui/badge";
 
-type SortField = "fullName" | "status" | "daysCount" | "createdDate";
+type SortField = "fullName" | "amount" | "status" | "daysCount" | "createdDate";
 
 const STATUS_OPTIONS = ["Pending", "In Transit", "Received", "Rejected"];
 
@@ -590,11 +590,11 @@ export default function AdminPendingGrants() {
                       Full Name
                     </SortHeader>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">Email</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+                    <SortHeader field="amount" sortField={sortField} sortDir={sortDir} handleSort={handleSort} className="whitespace-nowrap">
                       Original amount
                       <br />
                       Amount after fees
-                    </th>
+                    </SortHeader>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
                       DAF Provider
                       <br />
