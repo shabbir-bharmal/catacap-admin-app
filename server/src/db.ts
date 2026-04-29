@@ -345,6 +345,238 @@ async function fixIncorrectBackfillDates(client: pg.PoolClient): Promise<void> {
   } catch {}
 }
 
+async function ensureInvestmentInstruments(
+  client: pg.PoolClient,
+): Promise<void> {
+  // The product previously called this concept "Investment Types" and the
+  // schema used `investment_types` (table) and `campaigns.investment_types`
+  // (column). The canonical name is now `investment_instruments`. This
+  // helper reconciles any DB to the new naming without losing data.
+  //
+  // Strategy:
+  //  - If the new name is missing and the old name exists -> RENAME (preserves data).
+  //  - If both are missing entirely -> create empty so the API endpoints don't 500.
+  //  - If the new name already exists -> nothing to do.
+
+  const campaignsExists = await client.query(
+    `SELECT 1 FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_name = 'campaigns'`,
+  );
+  if (campaignsExists.rows.length === 0) {
+    return;
+  }
+
+  // 1) Lookup table reconciliation
+  const newTable = await client.query(
+    `SELECT 1 FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_name = 'investment_instruments'`,
+  );
+  const oldTable = await client.query(
+    `SELECT 1 FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_name = 'investment_types'`,
+  );
+
+  if (newTable.rows.length === 0 && oldTable.rows.length > 0) {
+    await client.query(
+      `ALTER TABLE investment_types RENAME TO investment_instruments`,
+    );
+    console.log(
+      "Renamed lookup table investment_types -> investment_instruments.",
+    );
+  } else if (newTable.rows.length === 0 && oldTable.rows.length === 0) {
+    await client.query(`
+      CREATE TABLE investment_instruments (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL
+      )
+    `);
+    console.log("Created empty investment_instruments lookup table.");
+  } else if (newTable.rows.length > 0 && oldTable.rows.length > 0) {
+    // Both exist — recover from a partial/aborted prior migration.
+    const newCount = await client.query(
+      `SELECT COUNT(*)::int AS cnt FROM investment_instruments`,
+    );
+    const oldCount = await client.query(
+      `SELECT COUNT(*)::int AS cnt FROM investment_types`,
+    );
+    if (newCount.rows[0].cnt === 0 && oldCount.rows[0].cnt > 0) {
+      await client.query(`DROP TABLE investment_instruments`);
+      await client.query(
+        `ALTER TABLE investment_types RENAME TO investment_instruments`,
+      );
+      console.log(
+        "Reconciled dual lookup tables: dropped empty investment_instruments and renamed investment_types -> investment_instruments.",
+      );
+    } else if (oldCount.rows[0].cnt === 0) {
+      await client.query(`DROP TABLE investment_types`);
+      console.log("Dropped empty legacy investment_types table.");
+    } else {
+      console.warn(
+        `Both investment_instruments (${newCount.rows[0].cnt} rows) and investment_types (${oldCount.rows[0].cnt} rows) contain data. Manual reconciliation required.`,
+      );
+    }
+  }
+
+  // 2) Campaign column reconciliation
+  const newCol = await client.query(
+    `SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'campaigns'
+        AND column_name = 'investment_instruments'`,
+  );
+  const oldCol = await client.query(
+    `SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'campaigns'
+        AND column_name = 'investment_types'`,
+  );
+
+  if (newCol.rows.length === 0 && oldCol.rows.length > 0) {
+    await client.query(
+      `ALTER TABLE campaigns RENAME COLUMN investment_types TO investment_instruments`,
+    );
+    console.log(
+      "Renamed column campaigns.investment_types -> campaigns.investment_instruments.",
+    );
+  } else if (newCol.rows.length === 0 && oldCol.rows.length === 0) {
+    await client.query(
+      `ALTER TABLE campaigns ADD COLUMN investment_instruments TEXT`,
+    );
+    console.log("Added empty campaigns.investment_instruments column.");
+  } else if (newCol.rows.length > 0 && oldCol.rows.length > 0) {
+    const newFilled = await client.query(
+      `SELECT COUNT(*)::int AS cnt FROM campaigns
+        WHERE investment_instruments IS NOT NULL AND investment_instruments <> ''`,
+    );
+    const oldFilled = await client.query(
+      `SELECT COUNT(*)::int AS cnt FROM campaigns
+        WHERE investment_types IS NOT NULL AND investment_types <> ''`,
+    );
+    if (newFilled.rows[0].cnt === 0 && oldFilled.rows[0].cnt > 0) {
+      await client.query(
+        `ALTER TABLE campaigns DROP COLUMN investment_instruments`,
+      );
+      await client.query(
+        `ALTER TABLE campaigns RENAME COLUMN investment_types TO investment_instruments`,
+      );
+      console.log(
+        "Reconciled dual campaign columns: dropped empty investment_instruments and renamed investment_types -> investment_instruments.",
+      );
+    } else if (oldFilled.rows[0].cnt === 0) {
+      await client.query(
+        `ALTER TABLE campaigns DROP COLUMN investment_types`,
+      );
+      console.log("Dropped empty legacy campaigns.investment_types column.");
+    } else {
+      console.warn(
+        `Both campaigns.investment_instruments (${newFilled.rows[0].cnt} rows) and campaigns.investment_types (${oldFilled.rows[0].cnt} rows) contain data. Manual reconciliation required.`,
+      );
+    }
+  }
+}
+
+async function ensureAdminPerformanceIndexes(
+  client: pg.PoolClient,
+): Promise<void> {
+  // Adds B-tree / expression indexes that back the most frequent admin
+  // queries (Investments list, Users list, Groups list, Pending Grants list,
+  // Dashboard, Consolidated Finances). All statements are
+  // CREATE INDEX IF NOT EXISTS so this is safe to run on every startup.
+  // We only create an index when the underlying table actually exists so a
+  // partial deployment doesn't break startup.
+  const indexes: Array<{ table: string; name: string; ddl: string }> = [
+    // recommendations: aggregated by campaign_id and joined on lower(user_email)
+    { table: "recommendations", name: "idx_recommendations_campaign_id",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_recommendations_campaign_id ON recommendations (campaign_id)` },
+    { table: "recommendations", name: "idx_recommendations_lower_email",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_recommendations_lower_email ON recommendations (LOWER(user_email))` },
+    { table: "recommendations", name: "idx_recommendations_status",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_recommendations_status ON recommendations (status)` },
+
+    // users: joined via lower(email) in dashboard, finance, top-donors etc.
+    { table: "users", name: "idx_users_lower_email",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_users_lower_email ON users (LOWER(email))` },
+
+    // user_roles: joined on both sides in nearly every admin query
+    { table: "user_roles", name: "idx_user_roles_role_id",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_user_roles_role_id ON user_roles (role_id)` },
+    { table: "user_roles", name: "idx_user_roles_user_id",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_user_roles_user_id ON user_roles (user_id)` },
+
+    // requests: lookups by group and by owner (Users list filter, Groups members)
+    { table: "requests", name: "idx_requests_group_status",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_requests_group_status ON requests (group_to_follow_id, status)` },
+    { table: "requests", name: "idx_requests_owner",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_requests_owner ON requests (request_owner_id)` },
+
+    // pending_grants and notes
+    { table: "pending_grants", name: "idx_pending_grants_user_id",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_pending_grants_user_id ON pending_grants (user_id)` },
+    { table: "pending_grants", name: "idx_pending_grants_campaign_id",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_pending_grants_campaign_id ON pending_grants (campaign_id)` },
+    { table: "pending_grant_notes", name: "idx_pending_grant_notes_grant_id",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_pending_grant_notes_grant_id ON pending_grant_notes (pending_grant_id)` },
+
+    // investment_notes
+    { table: "investment_notes", name: "idx_investment_notes_campaign_id",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_investment_notes_campaign_id ON investment_notes (campaign_id)` },
+
+    // account_balance_change_logs and group_account_balances
+    { table: "account_balance_change_logs", name: "idx_acl_user_id",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_acl_user_id ON account_balance_change_logs (user_id)` },
+    { table: "account_balance_change_logs", name: "idx_acl_group_id",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_acl_group_id ON account_balance_change_logs (group_id)` },
+    { table: "group_account_balances", name: "idx_gab_user_id",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_gab_user_id ON group_account_balances (user_id)` },
+    { table: "group_account_balances", name: "idx_gab_group_id",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_gab_group_id ON group_account_balances (group_id)` },
+
+    // campaign_groups (join membership table; PK already covers (campaigns_id, groups_id))
+    { table: "campaign_groups", name: "idx_campaign_groups_groups_id",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_campaign_groups_groups_id ON campaign_groups (groups_id)` },
+
+    // campaigns: deleted_by lookup join, group_for_private_access_id used in groups list UNION
+    { table: "campaigns", name: "idx_campaigns_deleted_by",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_campaigns_deleted_by ON campaigns (deleted_by)` },
+    { table: "campaigns", name: "idx_campaigns_private_access_group",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_campaigns_private_access_group ON campaigns (group_for_private_access_id)` },
+
+    // groups: owner_id IN (...) lookup in finance.ts getFinancesData
+    { table: "groups", name: "idx_groups_owner_id",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_groups_owner_id ON groups (owner_id)` },
+
+    // asset_based_payment_requests: filtered by user_id IN (...) in finance.ts
+    { table: "asset_based_payment_requests", name: "idx_asset_based_payment_requests_user_id",
+      ddl: `CREATE INDEX IF NOT EXISTS idx_asset_based_payment_requests_user_id ON asset_based_payment_requests (user_id)` },
+  ];
+
+  let created = 0;
+  for (const idx of indexes) {
+    const exists = await client.query(
+      `SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = $1`,
+      [idx.table],
+    );
+    if (exists.rows.length === 0) continue;
+    const before = await client.query(
+      `SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname=$1`,
+      [idx.name],
+    );
+    if (before.rows.length > 0) continue;
+    try {
+      await client.query(idx.ddl);
+      created++;
+    } catch (err) {
+      console.warn(
+        `Could not create index ${idx.name}: ${(err as Error).message}`,
+      );
+    }
+  }
+  if (created > 0) {
+    console.log(`Created ${created} admin performance indexes.`);
+  }
+}
+
 async function backfillOrphanedUserRoles(client: pg.PoolClient): Promise<void> {
   const roleCheck = await client.query(
     `SELECT id FROM roles WHERE name = 'User' LIMIT 1`,
@@ -401,6 +633,8 @@ export async function testConnection(): Promise<void> {
     await runSoftDeleteMigration(client);
     await ensureSchedulerTables(client);
     await ensureNoteAttachmentsTables(client);
+    await ensureInvestmentInstruments(client);
+    await ensureAdminPerformanceIndexes(client);
     await backfillSchedulerLogIds(client);
     await backfillSoftDeleteTimestamps(client);
     await fixIncorrectBackfillDates(client);

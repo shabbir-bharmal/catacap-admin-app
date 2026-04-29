@@ -23,259 +23,97 @@ interface FinancesData {
 }
 
 async function getFinancesData(): Promise<FinancesData> {
-    const userStatsResult = await pool.query(
-      `SELECT
-         COUNT(CASE WHEN u.is_active = true THEN 1 END) AS active,
-         COUNT(CASE WHEN u.is_active = false THEN 1 END) AS inactive,
-         COALESCE(SUM(u.account_balance), 0) AS account_balances
-       FROM users u
-       JOIN user_roles ur ON u.id = ur.user_id
-       JOIN roles r ON ur.role_id = r.id
-       WHERE r.name = $1
-         AND (u.is_deleted IS NULL OR u.is_deleted = false)`,
-      [USER_ROLE]
-    );
+    // Stage 1 — independent queries that don't depend on any earlier result.
+    // Run them in parallel rather than serially.
+    const [
+      userStatsResult,
+      userAccountBalancesResult,
+      userIdsResult,
+      userEmailsResult,
+      nonExcludeEmailsResult,
+      campaignStatsResult,
+      completedResult,
+      allThemesResult,
+      rawCampaignThemesResult,
+    ] = await Promise.all([
+      pool.query(
+        `SELECT
+           COUNT(CASE WHEN u.is_active = true THEN 1 END) AS active,
+           COUNT(CASE WHEN u.is_active = false THEN 1 END) AS inactive,
+           COALESCE(SUM(u.account_balance), 0) AS account_balances
+         FROM users u
+         JOIN user_roles ur ON u.id = ur.user_id
+         JOIN roles r ON ur.role_id = r.id
+         WHERE r.name = $1
+           AND (u.is_deleted IS NULL OR u.is_deleted = false)`,
+        [USER_ROLE]
+      ),
+      pool.query(
+        `SELECT COALESCE(SUM(u.account_balance), 0) AS account_balances
+         FROM users u
+         JOIN user_roles ur ON u.id = ur.user_id
+         JOIN roles r ON ur.role_id = r.id
+         WHERE r.name = $1
+           AND u.is_exclude_user_balance = false
+           AND (u.is_deleted IS NULL OR u.is_deleted = false)`,
+        [USER_ROLE]
+      ),
+      pool.query(
+        `SELECT u.id
+         FROM users u
+         JOIN user_roles ur ON u.id = ur.user_id
+         JOIN roles r ON ur.role_id = r.id
+         WHERE r.name = $1
+           AND (u.is_deleted IS NULL OR u.is_deleted = false)`,
+        [USER_ROLE]
+      ),
+      pool.query(
+        `SELECT LOWER(u.email) AS email
+         FROM users u
+         JOIN user_roles ur ON u.id = ur.user_id
+         JOIN roles r ON ur.role_id = r.id
+         WHERE r.name = $1
+           AND (u.is_deleted IS NULL OR u.is_deleted = false)`,
+        [USER_ROLE]
+      ),
+      pool.query(
+        `SELECT LOWER(u.email) AS email
+         FROM users u
+         JOIN user_roles ur ON u.id = ur.user_id
+         JOIN roles r ON ur.role_id = r.id
+         WHERE r.name = $1
+           AND u.is_exclude_user_balance = false
+           AND (u.is_deleted IS NULL OR u.is_deleted = false)`,
+        [USER_ROLE]
+      ),
+      pool.query(
+        `SELECT COUNT(CASE WHEN is_active = true THEN 1 END) AS active
+         FROM campaigns
+         WHERE (is_deleted IS NULL OR is_deleted = false)`
+      ),
+      pool.query(
+        `SELECT COUNT(*) AS count, COALESCE(SUM(amount), 0) AS total
+         FROM completed_investment_details
+         WHERE (is_deleted IS NULL OR is_deleted = false)`
+      ),
+      pool.query(
+        `SELECT id, name FROM themes WHERE (is_deleted IS NULL OR is_deleted = false)`
+      ),
+      pool.query(
+        `SELECT id, themes FROM campaigns WHERE (is_deleted IS NULL OR is_deleted = false)`
+      ),
+    ]);
+
     const userStats = userStatsResult.rows[0];
-
-    const userAccountBalancesResult = await pool.query(
-      `SELECT COALESCE(SUM(u.account_balance), 0) AS account_balances
-       FROM users u
-       JOIN user_roles ur ON u.id = ur.user_id
-       JOIN roles r ON ur.role_id = r.id
-       WHERE r.name = $1
-         AND u.is_exclude_user_balance = false
-         AND (u.is_deleted IS NULL OR u.is_deleted = false)`,
-      [USER_ROLE]
-    );
     const userAccountBalances = parseFloat(userAccountBalancesResult.rows[0].account_balances) || 0;
-
-    const userIdsResult = await pool.query(
-      `SELECT u.id
-       FROM users u
-       JOIN user_roles ur ON u.id = ur.user_id
-       JOIN roles r ON ur.role_id = r.id
-       WHERE r.name = $1
-         AND (u.is_deleted IS NULL OR u.is_deleted = false)`,
-      [USER_ROLE]
-    );
     const userIds = userIdsResult.rows.map((r) => r.id);
-
-    const userEmailsResult = await pool.query(
-      `SELECT LOWER(u.email) AS email
-       FROM users u
-       JOIN user_roles ur ON u.id = ur.user_id
-       JOIN roles r ON ur.role_id = r.id
-       WHERE r.name = $1
-         AND (u.is_deleted IS NULL OR u.is_deleted = false)`,
-      [USER_ROLE]
-    );
     const userEmails = userEmailsResult.rows.map((r) => r.email);
-
-    const nonExcludeEmailsResult = await pool.query(
-      `SELECT LOWER(u.email) AS email
-       FROM users u
-       JOIN user_roles ur ON u.id = ur.user_id
-       JOIN roles r ON ur.role_id = r.id
-       WHERE r.name = $1
-         AND u.is_exclude_user_balance = false
-         AND (u.is_deleted IS NULL OR u.is_deleted = false)`,
-      [USER_ROLE]
-    );
     const nonExcludeEmails = nonExcludeEmailsResult.rows.map((r) => r.email);
-
-    let groupCount = 0;
-    let leadersCount = 0;
-    let corporateCount = 0;
-    let groupIds: number[] = [];
-
-    if (userIds.length > 0) {
-      const userIdPlaceholders = userIds.map((_: string, i: number) => `$${i + 1}`).join(", ");
-      const groupsResult = await pool.query(
-        `SELECT id, leaders, is_corporate_group
-         FROM groups
-         WHERE owner_id IN (${userIdPlaceholders})
-           AND (is_deleted IS NULL OR is_deleted = false)`,
-        userIds
-      );
-
-      groupCount = groupsResult.rows.length;
-      groupIds = groupsResult.rows.map((g) => g.id);
-      corporateCount = groupsResult.rows.filter((g) => g.is_corporate_group === true).length;
-
-      for (const group of groupsResult.rows) {
-        if (group.leaders) {
-          try {
-            const parsed = JSON.parse(group.leaders);
-            if (Array.isArray(parsed)) {
-              leadersCount += parsed.length;
-            }
-          } catch {
-            // skip
-          }
-        }
-      }
-    }
-
-    let membersCount = 0;
-    if (groupIds.length > 0) {
-      const gidPlaceholders = groupIds.map((_: number, i: number) => `$${i + 1}`).join(", ");
-      const membersResult = await pool.query(
-        `SELECT COUNT(*) AS total
-         FROM requests
-         WHERE group_to_follow_id IN (${gidPlaceholders})
-           AND status = $${groupIds.length + 1}
-           AND (is_deleted IS NULL OR is_deleted = false)`,
-        [...groupIds, ACCEPTED]
-      );
-      membersCount = parseInt(membersResult.rows[0].total) || 0;
-    }
-
-    let recStats = { pending: 0, approved: 0, rejected: 0, approvedCount: 0, approvedAndPendingCount: 0 };
-    if (userEmails.length > 0) {
-      const emailPlaceholders = userEmails.map((_: string, i: number) => `$${i + 1}`).join(", ");
-      const recResult = await pool.query(
-        `SELECT
-           COALESCE(SUM(CASE WHEN LOWER(TRIM(status)) = '${PENDING}' THEN amount ELSE 0 END), 0) AS pending,
-           COALESCE(SUM(CASE WHEN LOWER(TRIM(status)) = '${APPROVED}' THEN amount ELSE 0 END), 0) AS approved,
-           COALESCE(SUM(CASE WHEN LOWER(TRIM(status)) = '${REJECTED}' THEN amount ELSE 0 END), 0) AS rejected,
-           COUNT(CASE WHEN LOWER(TRIM(status)) = '${APPROVED}' THEN 1 END) AS approved_count,
-           COUNT(CASE WHEN LOWER(TRIM(status)) = '${PENDING}' OR LOWER(TRIM(status)) = '${APPROVED}' THEN 1 END) AS approved_and_pending_count
-         FROM recommendations
-         WHERE LOWER(user_email) IN (${emailPlaceholders})
-           AND (is_deleted IS NULL OR is_deleted = false)`,
-        userEmails
-      );
-      if (recResult.rows[0]) {
-        recStats = {
-          pending: parseFloat(recResult.rows[0].pending) || 0,
-          approved: parseFloat(recResult.rows[0].approved) || 0,
-          rejected: parseFloat(recResult.rows[0].rejected) || 0,
-          approvedCount: parseInt(recResult.rows[0].approved_count) || 0,
-          approvedAndPendingCount: parseInt(recResult.rows[0].approved_and_pending_count) || 0,
-        };
-      }
-    }
-
-    let nonExcludeRecStats = { pending: 0, approved: 0 };
-    if (nonExcludeEmails.length > 0) {
-      const nePlaceholders = nonExcludeEmails.map((_: string, i: number) => `$${i + 1}`).join(", ");
-      const neRecResult = await pool.query(
-        `SELECT
-           COALESCE(SUM(CASE WHEN LOWER(TRIM(status)) = '${PENDING}' THEN amount ELSE 0 END), 0) AS pending,
-           COALESCE(SUM(CASE WHEN LOWER(TRIM(status)) = '${APPROVED}' THEN amount ELSE 0 END), 0) AS approved
-         FROM recommendations
-         WHERE LOWER(user_email) IN (${nePlaceholders})
-           AND (is_deleted IS NULL OR is_deleted = false)`,
-        nonExcludeEmails
-      );
-      if (neRecResult.rows[0]) {
-        nonExcludeRecStats = {
-          pending: parseFloat(neRecResult.rows[0].pending) || 0,
-          approved: parseFloat(neRecResult.rows[0].approved) || 0,
-        };
-      }
-    }
-
-    const campaignStatsResult = await pool.query(
-      `SELECT COUNT(CASE WHEN is_active = true THEN 1 END) AS active
-       FROM campaigns
-       WHERE (is_deleted IS NULL OR is_deleted = false)`
-    );
     const activeCampaigns = parseInt(campaignStatsResult.rows[0].active) || 0;
-
-    let totalAccountChangeLogs = 0;
-    if (userIds.length > 0) {
-      const uidPlaceholders = userIds.map((_: string, i: number) => `$${i + 1}`).join(", ");
-      const aclResult = await pool.query(
-        `SELECT COALESCE(SUM(old_value - new_value), 0) AS total
-         FROM account_balance_change_logs
-         WHERE investment_name IS NOT NULL AND investment_name != ''
-           AND (transaction_status IS NULL OR transaction_status = '')
-           AND user_id IN (${uidPlaceholders})
-           AND (is_deleted IS NULL OR is_deleted = false)`,
-        userIds
-      );
-      totalAccountChangeLogs = parseFloat(aclResult.rows[0].total) || 0;
-    }
-
-    let grantsTotal = 0;
-    if (userIds.length > 0) {
-      const uidPlaceholders = userIds.map((_: string, i: number) => `$${i + 1}`).join(", ");
-      const grantsResult = await pool.query(
-        `SELECT amount
-         FROM pending_grants
-         WHERE (LOWER(TRIM(status)) = '${PENDING}'
-            OR (LOWER(TRIM(status)) = '${IN_TRANSIT}'
-                AND user_id IN (${uidPlaceholders})))
-           AND (is_deleted IS NULL OR is_deleted = false)`,
-        userIds
-      );
-      grantsTotal = grantsResult.rows.reduce((sum, r) => {
-        const val = parseFloat(r.amount);
-        return sum + (isNaN(val) ? 0 : val);
-      }, 0);
-    }
-
-    let totalAssets = 0;
-    if (userIds.length > 0) {
-      const uidPlaceholders = userIds.map((_: string, i: number) => `$${i + 1}`).join(", ");
-      const assetsResult = await pool.query(
-        `SELECT COALESCE(SUM(approximate_amount), 0) AS total
-         FROM asset_based_payment_requests
-         WHERE (LOWER(TRIM(status)) = '${PENDING}'
-            OR (LOWER(TRIM(status)) = '${IN_TRANSIT}'
-                AND user_id IN (${uidPlaceholders})))
-           AND (is_deleted IS NULL OR is_deleted = false)`,
-        userIds
-      );
-      totalAssets = parseFloat(assetsResult.rows[0].total) || 0;
-    }
-
-    let campaignTotals: Array<{ campaignId: number; isActive: boolean; totalAmount: number }> = [];
-    if (userEmails.length > 0) {
-      const emailPlaceholders = userEmails.map((_: string, i: number) => `$${i + 1}`).join(", ");
-      const ctResult = await pool.query(
-        `SELECT r.campaign_id, c.is_active, SUM(r.amount) AS total_amount
-         FROM recommendations r
-         JOIN campaigns c ON r.campaign_id = c.id AND (c.is_deleted IS NULL OR c.is_deleted = false)
-         WHERE LOWER(r.user_email) IN (${emailPlaceholders})
-           AND (LOWER(TRIM(r.status)) = '${APPROVED}' OR LOWER(TRIM(r.status)) = '${PENDING}')
-           AND r.amount > 0
-           AND r.user_email IS NOT NULL AND r.user_email != ''
-           AND (r.is_deleted IS NULL OR r.is_deleted = false)
-         GROUP BY r.campaign_id, c.is_active`,
-        userEmails
-      );
-      campaignTotals = ctResult.rows.map((r) => ({
-        campaignId: r.campaign_id,
-        isActive: r.is_active === true,
-        totalAmount: parseFloat(r.total_amount) || 0,
-      }));
-    }
-
-    const over25k = campaignTotals.filter((x) => x.isActive && x.totalAmount > 25000).length;
-    const over50k = campaignTotals.filter((x) => x.isActive && x.totalAmount > 50000).length;
-    const totalActive = campaignTotals
-      .filter((x) => x.isActive)
-      .reduce((sum, x) => sum + x.totalAmount, 0);
-    const totalClosed = campaignTotals.reduce((sum, x) => sum + x.totalAmount, 0);
-
-    const completedResult = await pool.query(
-      `SELECT COUNT(*) AS count, COALESCE(SUM(amount), 0) AS total
-       FROM completed_investment_details
-       WHERE (is_deleted IS NULL OR is_deleted = false)`
-    );
     const completedCount = parseInt(completedResult.rows[0].count) || 0;
     const totalCompleted = parseFloat(completedResult.rows[0].total) || 0;
-
-    const allThemesResult = await pool.query(
-      `SELECT id, name FROM themes WHERE (is_deleted IS NULL OR is_deleted = false)`
-    );
     const allThemes = allThemesResult.rows;
 
-    const rawCampaignThemesResult = await pool.query(
-      `SELECT id, themes FROM campaigns WHERE (is_deleted IS NULL OR is_deleted = false)`
-    );
     const campaignThemesMap = new Map<number, number[]>();
     for (const c of rawCampaignThemesResult.rows) {
       const themeIds = c.themes
@@ -287,19 +125,190 @@ async function getFinancesData(): Promise<FinancesData> {
       campaignThemesMap.set(Number(c.id), themeIds);
     }
 
-    let relevantRecs: Array<{ campaign_id: number; amount: number; status: string }> = [];
-    if (userEmails.length > 0) {
-      const emailPlaceholders = userEmails.map((_: string, i: number) => `$${i + 1}`).join(", ");
-      const rrResult = await pool.query(
-        `SELECT campaign_id, amount, status
-         FROM recommendations
-         WHERE LOWER(user_email) IN (${emailPlaceholders})
-           AND (LOWER(TRIM(status)) = '${PENDING}' OR LOWER(TRIM(status)) = '${APPROVED}')
-           AND (is_deleted IS NULL OR is_deleted = false)`,
-        userEmails
-      );
-      relevantRecs = rrResult.rows;
+    // Stage 2 — depends on the userIds / userEmails arrays from stage 1.
+    // Each branch can still run in parallel with the others. Empty-input
+    // branches resolve to a synthesized "zero" shape so we don't issue a
+    // pointless query.
+    const userIdPlaceholders = userIds.length > 0
+      ? userIds.map((_: string, i: number) => `$${i + 1}`).join(", ")
+      : "";
+    const emailPlaceholders = userEmails.length > 0
+      ? userEmails.map((_: string, i: number) => `$${i + 1}`).join(", ")
+      : "";
+    const nePlaceholders = nonExcludeEmails.length > 0
+      ? nonExcludeEmails.map((_: string, i: number) => `$${i + 1}`).join(", ")
+      : "";
+
+    const [
+      groupsResult,
+      recResult,
+      neRecResult,
+      aclResult,
+      grantsResult,
+      assetsResult,
+      ctResult,
+      rrResult,
+    ] = await Promise.all([
+      userIds.length > 0
+        ? pool.query(
+            `SELECT id, leaders, is_corporate_group
+             FROM groups
+             WHERE owner_id IN (${userIdPlaceholders})
+               AND (is_deleted IS NULL OR is_deleted = false)`,
+            userIds,
+          )
+        : Promise.resolve({ rows: [] as Array<{ id: number; leaders: string | null; is_corporate_group: boolean | null }> }),
+      userEmails.length > 0
+        ? pool.query(
+            `SELECT
+               COALESCE(SUM(CASE WHEN LOWER(TRIM(status)) = '${PENDING}' THEN amount ELSE 0 END), 0) AS pending,
+               COALESCE(SUM(CASE WHEN LOWER(TRIM(status)) = '${APPROVED}' THEN amount ELSE 0 END), 0) AS approved,
+               COALESCE(SUM(CASE WHEN LOWER(TRIM(status)) = '${REJECTED}' THEN amount ELSE 0 END), 0) AS rejected,
+               COUNT(CASE WHEN LOWER(TRIM(status)) = '${APPROVED}' THEN 1 END) AS approved_count,
+               COUNT(CASE WHEN LOWER(TRIM(status)) = '${PENDING}' OR LOWER(TRIM(status)) = '${APPROVED}' THEN 1 END) AS approved_and_pending_count
+             FROM recommendations
+             WHERE LOWER(user_email) IN (${emailPlaceholders})
+               AND (is_deleted IS NULL OR is_deleted = false)`,
+            userEmails,
+          )
+        : Promise.resolve({ rows: [{ pending: 0, approved: 0, rejected: 0, approved_count: 0, approved_and_pending_count: 0 }] }),
+      nonExcludeEmails.length > 0
+        ? pool.query(
+            `SELECT
+               COALESCE(SUM(CASE WHEN LOWER(TRIM(status)) = '${PENDING}' THEN amount ELSE 0 END), 0) AS pending,
+               COALESCE(SUM(CASE WHEN LOWER(TRIM(status)) = '${APPROVED}' THEN amount ELSE 0 END), 0) AS approved
+             FROM recommendations
+             WHERE LOWER(user_email) IN (${nePlaceholders})
+               AND (is_deleted IS NULL OR is_deleted = false)`,
+            nonExcludeEmails,
+          )
+        : Promise.resolve({ rows: [{ pending: 0, approved: 0 }] }),
+      userIds.length > 0
+        ? pool.query(
+            `SELECT COALESCE(SUM(old_value - new_value), 0) AS total
+             FROM account_balance_change_logs
+             WHERE investment_name IS NOT NULL AND investment_name != ''
+               AND (transaction_status IS NULL OR transaction_status = '')
+               AND user_id IN (${userIdPlaceholders})
+               AND (is_deleted IS NULL OR is_deleted = false)`,
+            userIds,
+          )
+        : Promise.resolve({ rows: [{ total: 0 }] }),
+      userIds.length > 0
+        ? pool.query(
+            `SELECT amount
+             FROM pending_grants
+             WHERE (LOWER(TRIM(status)) = '${PENDING}'
+                OR (LOWER(TRIM(status)) = '${IN_TRANSIT}'
+                    AND user_id IN (${userIdPlaceholders})))
+               AND (is_deleted IS NULL OR is_deleted = false)`,
+            userIds,
+          )
+        : Promise.resolve({ rows: [] as Array<{ amount: string }> }),
+      userIds.length > 0
+        ? pool.query(
+            `SELECT COALESCE(SUM(approximate_amount), 0) AS total
+             FROM asset_based_payment_requests
+             WHERE (LOWER(TRIM(status)) = '${PENDING}'
+                OR (LOWER(TRIM(status)) = '${IN_TRANSIT}'
+                    AND user_id IN (${userIdPlaceholders})))
+               AND (is_deleted IS NULL OR is_deleted = false)`,
+            userIds,
+          )
+        : Promise.resolve({ rows: [{ total: 0 }] }),
+      userEmails.length > 0
+        ? pool.query(
+            `SELECT r.campaign_id, c.is_active, SUM(r.amount) AS total_amount
+             FROM recommendations r
+             JOIN campaigns c ON r.campaign_id = c.id AND (c.is_deleted IS NULL OR c.is_deleted = false)
+             WHERE LOWER(r.user_email) IN (${emailPlaceholders})
+               AND (LOWER(TRIM(r.status)) = '${APPROVED}' OR LOWER(TRIM(r.status)) = '${PENDING}')
+               AND r.amount > 0
+               AND r.user_email IS NOT NULL AND r.user_email != ''
+               AND (r.is_deleted IS NULL OR r.is_deleted = false)
+             GROUP BY r.campaign_id, c.is_active`,
+            userEmails,
+          )
+        : Promise.resolve({ rows: [] as Array<{ campaign_id: number; is_active: boolean; total_amount: string }> }),
+      userEmails.length > 0
+        ? pool.query(
+            `SELECT campaign_id, amount, status
+             FROM recommendations
+             WHERE LOWER(user_email) IN (${emailPlaceholders})
+               AND (LOWER(TRIM(status)) = '${PENDING}' OR LOWER(TRIM(status)) = '${APPROVED}')
+               AND (is_deleted IS NULL OR is_deleted = false)`,
+            userEmails,
+          )
+        : Promise.resolve({ rows: [] as Array<{ campaign_id: number; amount: number; status: string }> }),
+    ]);
+
+    let groupCount = groupsResult.rows.length;
+    let leadersCount = 0;
+    let corporateCount = groupsResult.rows.filter((g) => g.is_corporate_group === true).length;
+    const groupIds: number[] = groupsResult.rows.map((g) => g.id);
+
+    for (const group of groupsResult.rows) {
+      if (group.leaders) {
+        try {
+          const parsed = JSON.parse(group.leaders);
+          if (Array.isArray(parsed)) {
+            leadersCount += parsed.length;
+          }
+        } catch {
+          // skip
+        }
+      }
     }
+
+    // Stage 3 — only depends on groupIds from stage 2.
+    let membersCount = 0;
+    if (groupIds.length > 0) {
+      const gidPlaceholders = groupIds.map((_: number, i: number) => `$${i + 1}`).join(", ");
+      const membersResult = await pool.query(
+        `SELECT COUNT(*) AS total
+         FROM requests
+         WHERE group_to_follow_id IN (${gidPlaceholders})
+           AND status = $${groupIds.length + 1}
+           AND (is_deleted IS NULL OR is_deleted = false)`,
+        [...groupIds, ACCEPTED],
+      );
+      membersCount = parseInt(membersResult.rows[0].total) || 0;
+    }
+
+    const recStats = {
+      pending: parseFloat(recResult.rows[0].pending) || 0,
+      approved: parseFloat(recResult.rows[0].approved) || 0,
+      rejected: parseFloat(recResult.rows[0].rejected) || 0,
+      approvedCount: parseInt(recResult.rows[0].approved_count) || 0,
+      approvedAndPendingCount: parseInt(recResult.rows[0].approved_and_pending_count) || 0,
+    };
+
+    const nonExcludeRecStats = {
+      pending: parseFloat(neRecResult.rows[0].pending) || 0,
+      approved: parseFloat(neRecResult.rows[0].approved) || 0,
+    };
+
+    const totalAccountChangeLogs = parseFloat(aclResult.rows[0].total) || 0;
+    const grantsTotal = grantsResult.rows.reduce((sum, r) => {
+      const val = parseFloat(r.amount);
+      return sum + (isNaN(val) ? 0 : val);
+    }, 0);
+    const totalAssets = parseFloat(assetsResult.rows[0].total) || 0;
+
+    const campaignTotals = ctResult.rows.map((r) => ({
+      campaignId: r.campaign_id,
+      isActive: r.is_active === true,
+      totalAmount: parseFloat(r.total_amount) || 0,
+    }));
+
+    const over25k = campaignTotals.filter((x) => x.isActive && x.totalAmount > 25000).length;
+    const over50k = campaignTotals.filter((x) => x.isActive && x.totalAmount > 50000).length;
+    const totalActive = campaignTotals
+      .filter((x) => x.isActive)
+      .reduce((sum, x) => sum + x.totalAmount, 0);
+    const totalClosed = campaignTotals.reduce((sum, x) => sum + x.totalAmount, 0);
+
+    const relevantRecs = rrResult.rows;
 
     const themeStats = allThemes.map((theme) => {
       let pendingTotal = 0;
