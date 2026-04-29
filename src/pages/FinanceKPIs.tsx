@@ -179,10 +179,10 @@ function CumulativeBalanceCard() {
         <div className="min-w-0">
           <CardTitle className="flex items-center gap-2 text-base">
             <TrendingUp className="h-4 w-4 text-[#405189]" />
-            Cumulative Money Added to Accounts
+            Total CataCap Assets Over Time
           </CardTitle>
           <p className="text-xs text-muted-foreground mt-1">
-            Total deposits into user account balances over time ({granularityLabel(data?.granularity)} buckets)
+            User account balances + pending/approved recommendations, snapshot at end of each {granularityLabel(data?.granularity).replace(/ly$/, "")} period
           </p>
         </div>
         <div className="shrink-0">
@@ -192,7 +192,7 @@ function CumulativeBalanceCard() {
       <CardContent className="p-5">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
           <div className="rounded-md bg-[#405189]/5 px-4 py-3">
-            <p className="text-xs text-muted-foreground">Cumulative total (current)</p>
+            <p className="text-xs text-muted-foreground">Total CataCap Assets (current)</p>
             <p
               className="text-xl font-bold tabular-nums text-[#405189]"
               data-testid="text-cumulative-total"
@@ -201,7 +201,7 @@ function CumulativeBalanceCard() {
             </p>
           </div>
           <div className="rounded-md bg-[#0ab39c]/5 px-4 py-3">
-            <p className="text-xs text-muted-foreground">Added in selected range</p>
+            <p className="text-xs text-muted-foreground">Change in selected range</p>
             <p
               className="text-xl font-bold tabular-nums text-[#0ab39c]"
               data-testid="text-period-added"
