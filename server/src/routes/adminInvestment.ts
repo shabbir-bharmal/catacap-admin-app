@@ -1538,7 +1538,7 @@ router.put("/:id/status", async (req: Request, res: Response) => {
       const dateStr = `${String(now.getMonth() + 1).padStart(2, "0")}/${String(now.getDate()).padStart(2, "0")}/${now.getFullYear()}`;
 
       try {
-        await sendTemplateEmail(11, "investments@catacap.org", {
+        await sendTemplateEmail(19, "investments@catacap.org", {
           logoUrl,
           date: dateStr,
           investmentLink: `${requestOrigin}/investments/${campaign.property}`,
