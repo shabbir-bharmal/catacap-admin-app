@@ -289,7 +289,6 @@ const PERSONALIZED_THANK_YOU_MAX_CHARS = 1000;
 const EMAIL_PREVIEW_CATEGORIES: { category: number; label: string }[] = [
   { category: 4, label: "DAF Donation Instructions" },
   { category: 5, label: "Foundation Donation Instructions" },
-  { category: 6, label: "Donation Receipt" },
   { category: 8, label: "Donation Confirmation" },
   { category: 29, label: "DAF Donation Instructions (ImpactAssets)" },
 ];
@@ -1320,11 +1319,7 @@ export default function AdminInvestmentEdit() {
     const today = dayjs().format("MMMM D, YYYY");
     const personalizedHtml = (formData.personalizedThankYou || "").trim();
     const personalizedSection = personalizedHtml
-      ? `<div style="margin-top:16px; padding:16px; background:#eef7f0; border-radius:8px; color:#1f2937;">
-          <div style="font-weight:700; font-size:15px; margin-bottom:10px;">Thank you from Investment Owner</div>
-          ${personalizedHtml}
-          <hr style="margin-top:16px; border:none; border-top:1px solid #d1d5db;" />
-        </div>`
+      ? `<b style="color:#000;">Thank you from Investment Owner</b><br/>${personalizedHtml}<hr style="border:none; border-top:1px solid #d1d5db;" />`
       : "";
     return {
       firstName: "Sample Donor",
