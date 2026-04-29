@@ -98,6 +98,7 @@ You are a senior software engineer working with Node.js (Express), React (Vite),
 - Follow existing API structure, business logic, validation, and data flow
 - Use @schema.sql for database mapping (snake_case)
 - The `/Back-End` folder contains .NET reference code only and must NOT be modified; all code changes must be made only in the Node.js (`server/`) and React (`src/`) code
+- Any database schema or data change executed via direct `pool` calls (e.g. `pool.query`, `client.query`, runtime `ensure*` helpers in `server/src/db.ts`, ad-hoc one-off scripts) must FIRST be written as a SQL migration file under `releases/<DD_MM_YYYY>/migrations/` and documented in that release's `docs.txt` (schema, intent, idempotency, rollback). Migrations must be idempotent (`IF NOT EXISTS`, guarded `DO` blocks, etc.) and wrapped in a transaction. Do not apply schema/data changes that exist only in code or only in the live database — the migration file is the source of truth and must land in the same change set.
 
 ## Architecture
 - Use modular structure (controller, service, etc.)
