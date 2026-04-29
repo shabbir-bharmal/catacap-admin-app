@@ -475,6 +475,43 @@ async function ensureInvestmentInstruments(
   }
 }
 
+async function ensureCampaignsOwnerGroupColumns(
+  client: pg.PoolClient,
+): Promise<void> {
+  try {
+    await client.query(`
+      ALTER TABLE campaigns
+        ADD COLUMN IF NOT EXISTS owner_group_id        INTEGER,
+        ADD COLUMN IF NOT EXISTS auto_enroll_investors BOOLEAN NOT NULL DEFAULT FALSE
+    `);
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.table_constraints
+          WHERE table_schema = 'public'
+            AND table_name = 'campaigns'
+            AND constraint_name = 'campaigns_owner_group_id_fkey'
+        ) THEN
+          ALTER TABLE campaigns
+            ADD CONSTRAINT campaigns_owner_group_id_fkey
+            FOREIGN KEY (owner_group_id) REFERENCES groups(id);
+        END IF;
+      END $$;
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_campaigns_owner_group_id
+        ON campaigns (owner_group_id)
+        WHERE owner_group_id IS NOT NULL
+    `);
+  } catch (err: any) {
+    console.warn(
+      "ensureCampaignsOwnerGroupColumns: could not ensure owner_group columns:",
+      err?.message || err,
+    );
+  }
+}
+
 async function ensureAdminPerformanceIndexes(
   client: pg.PoolClient,
 ): Promise<void> {
@@ -634,6 +671,7 @@ export async function testConnection(): Promise<void> {
     await ensureSchedulerTables(client);
     await ensureInvestmentInstruments(client);
     await ensureAdminPerformanceIndexes(client);
+    await ensureCampaignsOwnerGroupColumns(client);
     await backfillSchedulerLogIds(client);
     await backfillSoftDeleteTimestamps(client);
     await fixIncorrectBackfillDates(client);

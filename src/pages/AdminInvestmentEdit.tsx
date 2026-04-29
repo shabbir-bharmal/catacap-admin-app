@@ -165,6 +165,8 @@ interface FormData {
   property: string;
   stage: string;
   privateGroupID: string;
+  ownerGroupId: string;
+  autoEnrollInvestors: boolean;
   associatedFundId: number | null;
   isActive: boolean;
   isPartOfFund: boolean;
@@ -224,6 +226,8 @@ const defaultFormData: FormData = {
   property: "",
   stage: "",
   privateGroupID: "",
+  ownerGroupId: "",
+  autoEnrollInvestors: false,
   associatedFundId: null,
   isActive: true,
   isPartOfFund: false,
@@ -938,6 +942,8 @@ export default function AdminInvestmentEdit() {
       property: data.property ?? "",
       stage: data.stage != null ? String(data.stage) : "",
       privateGroupID: data.groupForPrivateAccessDto?.id ? String(data.groupForPrivateAccessDto.id) : "",
+      ownerGroupId: data.ownerGroupId != null ? String(data.ownerGroupId) : "",
+      autoEnrollInvestors: !!data.autoEnrollInvestors,
       associatedFundId: data.associatedFundId ?? null,
       isActive: !!data.isActive,
       isPartOfFund: data.isPartOfFund ?? false,
@@ -1175,6 +1181,8 @@ export default function AdminInvestmentEdit() {
         groupForPrivateAccessDto: formData.privateGroupID
           ? groups.find((item) => Number(item.id) === Number(formData.privateGroupID))
           : undefined,
+        ownerGroupId: formData.ownerGroupId ? Number(formData.ownerGroupId) : null,
+        autoEnrollInvestors: !!formData.autoEnrollInvestors,
         associatedFundId: formData.isPartOfFund ? formData.associatedFundId : null,
         isActive: formData.isActive,
         isPartOfFund: formData.isPartOfFund,
@@ -2490,6 +2498,40 @@ export default function AdminInvestmentEdit() {
                         {groups.map((g) => <SelectItem key={g.id} value={String(g.id)}>{g.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
+                  </div>
+
+                  {/* Owning Group (admin: campaign-owns-group + auto-enrol) */}
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">Owning Group</Label>
+                    <Select value={formData.ownerGroupId || "null"} onValueChange={(val) => upd("ownerGroupId", val === "null" ? "" : val)}>
+                      <SelectTrigger data-testid="select-owner-group"><SelectValue placeholder="No owning group" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="null">No owning group</SelectItem>
+                        {groups.map((g) => <SelectItem key={g.id} value={String(g.id)}>{g.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      The group this campaign belongs to. Investors can be auto-added as members below.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Auto-enrol investors into the owning group */}
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    id="autoEnrollInvestors"
+                    checked={formData.autoEnrollInvestors}
+                    disabled={!formData.ownerGroupId}
+                    onCheckedChange={(checked) => upd("autoEnrollInvestors", !!checked)}
+                    data-testid="checkbox-auto-enroll-investors"
+                  />
+                  <div className="space-y-0.5">
+                    <Label htmlFor="autoEnrollInvestors" className="text-sm font-normal cursor-pointer">
+                      Auto-enrol investors as members of the owning group
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      When enabled, every new investor in this campaign is added to the owning group as an accepted member (existing members are unaffected).
+                    </p>
                   </div>
                 </div>
 

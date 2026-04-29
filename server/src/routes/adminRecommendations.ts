@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter, buildSortClause } from "../utils/softDelete.js";
 import { restoreOwningUsersForRecordsInTx } from "../utils/userRestore.js";
+import { autoEnrollInvestorIfApplicable } from "../utils/autoEnrollGroupMembership.js";
 import ExcelJS from "exceljs";
 
 const router = Router();
@@ -316,6 +317,8 @@ router.put("/:id", async (req: Request, res: Response) => {
         `UPDATE recommendations SET rejection_memo = $1, rejected_by = $2, rejection_date = NOW() WHERE id = $3`,
         [rejectionMemo, loginUserId, id]
       );
+    } else if (data.status === "approved" && recommendation.status !== "approved") {
+      await autoEnrollInvestorIfApplicable(client, user.id, recommendation.camp_id);
     }
 
     await client.query("COMMIT");
