@@ -374,8 +374,8 @@ export default function AdminCompletedInvestments() {
     if (!selectedInvestment) errs.investment = "Please select an investment";
     if (!formDetails.trim()) errs.investmentDetail = "Please enter investment details";
     if (!formDate) errs.lastInvestment = "Please select the date of last investment";
-    if (formInvestmentTypeIds.length === 0) errs.investmentTypeValue = "Please select at least one type of investment";
-    if (formInvestmentTypeIds.includes(-1) && !formCustomType.trim()) errs.typeOfInvestment = "Please specify the type of investment";
+    if (formInvestmentTypeIds.length === 0) errs.investmentTypeValue = "Please select at least one investment instrument";
+    if (formInvestmentTypeIds.includes(-1) && !formCustomType.trim()) errs.typeOfInvestment = "Please specify the investment instrument";
     if (formAmount === "" || isNaN(Number(formAmount))) {
       errs.manualAmount = "Please enter a valid amount";
     } else if (Number(formAmount) <= 0) {
@@ -439,8 +439,8 @@ export default function AdminCompletedInvestments() {
     const errs: Record<string, string> = {};
     if (!editDetails.trim()) errs.detail = "Please enter investment details";
     if (!editDate) errs.date = "Please select the date of last investment";
-    if (editTypeIds.length === 0) errs.type = "Please select at least one type of investment";
-    if (editTypeIds.includes(-1) && !editCustomType.trim()) errs.customType = "Please specify the type of investment";
+    if (editTypeIds.length === 0) errs.type = "Please select at least one investment instrument";
+    if (editTypeIds.includes(-1) && !editCustomType.trim()) errs.customType = "Please specify the investment instrument";
     if (editAmount === "" || isNaN(Number(editAmount))) {
       errs.amount = "Please enter a valid amount";
     } else if (Number(editAmount) <= 0) {
@@ -716,7 +716,7 @@ export default function AdminCompletedInvestments() {
                     </div>
                   </div>
                 </div>
-                {/* Row 2: Type of Investment | Amount | Transaction Type | Note */}
+                {/* Row 2: Investment Instruments | Amount | Transaction Type | Note */}
                 <div className="flex items-start gap-3 flex-wrap">
                   <div className="w-[240px]">
                     <MultiSelectTypesById
@@ -726,7 +726,7 @@ export default function AdminCompletedInvestments() {
                         setFormInvestmentTypeIds(v);
                         if (v.length > 0) setErrors((prev) => ({ ...prev, investmentTypeValue: undefined }));
                       }}
-                      placeholder="Select the Type of Investment"
+                      placeholder="Select Investment Instruments"
                       testId="select-investment-type"
                     />
                     {errors.investmentTypeValue && <p className="text-xs text-red-500 mt-0.5">{errors.investmentTypeValue}</p>}
@@ -734,7 +734,7 @@ export default function AdminCompletedInvestments() {
                   {formInvestmentTypeIds.includes(-1) && (
                     <div className="w-[200px]">
                       <Input
-                        placeholder="Enter the Type of Investment"
+                        placeholder="Enter Investment Instrument"
                         value={formCustomType}
                         onChange={(e) => {
                           setFormCustomType(e.target.value);
@@ -846,7 +846,7 @@ export default function AdminCompletedInvestments() {
                     <SortHeader field="totalInvestmentAmount" sortField={sortField} sortDir={sortDir} handleSort={handleSort}>
                       Amount
                     </SortHeader>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">Type of Investment</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">Investment Instruments</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">Balance Sheet</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">Donors</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">Theme(s)</th>
@@ -1087,14 +1087,14 @@ export default function AdminCompletedInvestments() {
                     setEditTypeIds(v);
                     if (editErrors.type) setEditErrors((prev) => ({ ...prev, type: undefined }));
                   }}
-                  placeholder="Select the Type of Investment"
+                  placeholder="Select Investment Instruments"
                   testId="select-edit-investment-type"
                 />
                 {editErrors.type && <p className="text-xs text-red-500 mt-0.5">{editErrors.type}</p>}
                 {editTypeIds.includes(-1) && (
                   <div className="mt-2">
                     <Input
-                      placeholder="Enter the Type of Investment"
+                      placeholder="Enter Investment Instrument"
                       value={editCustomType}
                       onChange={(e) => {
                         setEditCustomType(e.target.value);

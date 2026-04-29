@@ -415,7 +415,7 @@ router.get("/export", async (_req: Request, res: Response) => {
 
     const headers = [
       "Date Of Last Investment", "CataCap Investment", "Stage", "CataCap Fund",
-      "Investment Detail", "Amount", "Transaction Type", "Type Of Investment",
+      "Investment Detail", "Amount", "Transaction Type", "Investment Instruments",
       "Donors", "Balance Sheet", "Themes",
     ];
     const headerRow = worksheet.addRow(headers);

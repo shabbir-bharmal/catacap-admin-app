@@ -116,3 +116,15 @@ You are a senior software engineer working with Node.js (Express), React (Vite),
 - First explain approach
 - Then implement
 - Provide verification steps
+
+## Domain Notes
+
+### Investment Instruments (campaigns lookup field)
+- **Source of truth**: `campaigns.investment_instruments` (TEXT, comma-separated lookup IDs) resolved against the `investment_instruments` lookup table.
+- **Canonical user-facing label**: "Investment Instruments" (singular: "Investment Instrument"). Older labels like "Type of Investment", "Investment Type", "Investment Types" referring to this field have been retired across all UI strings, validation/error messages, table column headers, view-detail labels, and Excel export headers.
+- **Do NOT confuse with**: `campaigns.investment_type_category` (Equity / Debt / Hybrid). That field is rendered in `AdminInvestmentEdit.tsx` Step 4 under the heading "Investment Type" and is intentionally a different concept; its label and Excel export header are kept as "Investment Type".
+- **Read/write paths** (all use `campaigns.investment_instruments` consistently):
+  - Admin GET single: `server/src/routes/adminInvestment.ts` exposes `investmentTypes: c.investment_instruments`.
+  - Admin save: `server/src/routes/adminInvestment.ts` writes `campaign.investmentTypes ?? existing.investment_instruments` back to the same column.
+  - Disbursal endpoints (`server/src/routes/campaign.ts`, `server/src/routes/adminDisbursalRequests.ts`) join `campaigns` and resolve names via `buildInvestmentTypeMap` / `resolveInvestmentTypeString`.
+- **History note (campaign id=229 investigation, task #347)**: The original .NET seed in `Back-End/Invest.Repo/Data/InvestmentTypeData.cs` only contained ids 1–11, ending with "Real Estate" (id=11). Ids 12+ ("Convertible Note", "Equity Fund", "SAFE", "Preferred Stock") were added on production after the seed. Campaign 229 currently stores `investment_instruments = "12"` which correctly resolves to "Convertible Note" — this matches the admin edit page. If a separate public-facing site (catacap.org) renders a different value, the divergence is in that site's own data path, not in this admin codebase.

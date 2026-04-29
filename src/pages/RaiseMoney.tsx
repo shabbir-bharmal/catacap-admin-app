@@ -507,7 +507,7 @@ export default function AdminRaiseMoney() {
       if (!formData.investmentWebsite.trim()) err("investmentWebsite", "Website is required");
       else if (!URL_REGEX.test(formData.investmentWebsite)) err("investmentWebsite", "Invalid website URL");
 
-      if (formData.investmentType.length === 0) err("investmentType", "Investment Type is required");
+      if (formData.investmentType.length === 0) err("investmentType", "Investment Instruments is required");
 
       const termsText = stripHtml(formData.investmentTerms);
       if (!termsText) err("investmentTerms", "Investment Terms is required");

@@ -220,7 +220,7 @@ router.get("/data", async (_req: Request, res: Response) => {
     const [sdgsResult, themesResult, typesResult, approvedByResult, tagsResult] = await Promise.all([
       pool.query(`SELECT id, name FROM sdgs ORDER BY id`),
       pool.query(`SELECT id, name FROM themes WHERE (is_deleted IS NULL OR is_deleted = false) ORDER BY id`),
-      pool.query(`SELECT id, name FROM investment_instruments ORDER BY id`),
+      pool.query(`SELECT id, name FROM investment_instruments ORDER BY name ASC`),
       pool.query(`SELECT id, name FROM approvers WHERE (is_deleted IS NULL OR is_deleted = false) ORDER BY id`),
       pool.query(`SELECT id, tag FROM investment_tags WHERE (is_deleted IS NULL OR is_deleted = false) ORDER BY id`),
     ]);
@@ -409,7 +409,7 @@ router.get("/export", async (_req: Request, res: Response) => {
     const worksheet = workbook.addWorksheet("Campaigns");
 
     const headers = [
-      "Id", "Name", "Description", "Themes", "Approved By", "SDGs", "Type of Investment",
+      "Id", "Name", "Description", "Themes", "Approved By", "SDGs", "Investment Instruments",
       "Terms", "Minimum Investment", "Website", "Contact Info FullName", "Contact Info Address1", "Contact Info Address2",
       "Investment Owner email", "Investment Informational Email", "Contact Info Phone Number", "Country", "Other Country Address", "City", "State", "ZipCode",
       "Tell us a bit about your network", "ImpactAssetsFundingStatus",

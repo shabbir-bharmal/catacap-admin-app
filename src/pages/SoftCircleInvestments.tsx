@@ -420,7 +420,7 @@ export default function SoftCircleInvestments() {
                 )}
               </div>
               <div className="border-t border-border pt-4 space-y-3">
-                <Field label="Investment Types" value={viewApp.investmentTypes} />
+                <Field label="Investment Instruments" value={viewApp.investmentTypes} />
                 <Field label="Impact Themes" value={viewApp.investmentThemes} />
                 <Field label="Theme Description" value={viewApp.themeDescription} />
                 <Field label="Investment Terms" value={viewApp.investmentTerms} />
