@@ -31,6 +31,7 @@ interface GroupData {
   groupName: string;
   identifier: string;
   groupLeaders: string[];
+  groupOwner: string;
   memberCount: number;
   memberInvestedTotal: number;
   investmentCount: number;
@@ -139,6 +140,7 @@ export default function GroupsPage() {
               .map((l) => l.trim())
               .filter(Boolean)
             : [],
+          groupOwner: (item.groupOwner || "").trim(),
           memberCount: item.member ?? 0,
           memberInvestedTotal: item.memberInvestedTotal ?? 0,
           investmentCount: item.investment ?? 0,
@@ -329,7 +331,7 @@ export default function GroupsPage() {
                     <SortHeader field="groupName" sortField={sortField} sortDir={sortDir} handleSort={handleSort}>
                       Group Name
                     </SortHeader>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Group Leader(s)</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Group Owner</th>
                     <SortHeader field="memberCount" sortField={sortField} sortDir={sortDir} handleSort={handleSort} className="text-center">
                       Member Count
                     </SortHeader>
@@ -371,8 +373,8 @@ export default function GroupsPage() {
                           </span>
                         </td>
                         <td className="px-4 py-3">
-                          <span className="text-sm" data-testid={`text-groupleader-${group.id}`}>
-                            {group.groupLeaders.length > 0 ? group.groupLeaders.join(", ") : "—"}
+                          <span className="text-sm" data-testid={`text-groupowner-${group.id}`}>
+                            {group.groupOwner || "—"}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-center">

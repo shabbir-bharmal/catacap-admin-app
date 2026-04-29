@@ -25,6 +25,8 @@ export interface GroupApiItem {
     isPrivateGroup: boolean;
     featuredGroup: boolean;
     leader: string;
+    groupOwner: string;
+    groupOwnerId: string | null;
     member: number;
     memberInvestedTotal?: number;
     investment: number;
