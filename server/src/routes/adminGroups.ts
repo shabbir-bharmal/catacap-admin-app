@@ -1055,6 +1055,7 @@ router.put("/update-group-investments", async (req: Request, res: Response) => {
       const unsubscribeUrl = requestOrigin ? `${requestOrigin}/settings` : "";
 
       const groupPicturePath = extractStoragePath(group.picture_file_name) || null;
+      const groupLogoUrl = resolveFileUrl(group.picture_file_name, "groups") || "";
 
       const formatTargetAmount = (val: any): string => {
         if (val == null || val === "") return "";
@@ -1114,10 +1115,14 @@ router.put("/update-group-investments", async (req: Request, res: Response) => {
               }
 
               if (member.email) {
+                const exploreInvestmentUrl = `${requestOrigin}/investments/${campaign.property || campaign.id}`;
                 sendTemplateEmail(12, member.email, {
                   groupName: group.name,
                   investmentName: campaign.name,
-                  investmentLink: `${requestOrigin}/investments/${campaign.property || campaign.id}`,
+                  // legacy alias kept for any older template revisions still referencing it
+                  investmentLink: exploreInvestmentUrl,
+                  exploreInvestmentUrl,
+                  groupLogoUrl,
                   firstName: member.first_name || "Member",
                   groupPageUrl,
                   targetAmount: formatTargetAmount(campaign.target),
