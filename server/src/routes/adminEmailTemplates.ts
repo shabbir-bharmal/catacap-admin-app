@@ -53,6 +53,7 @@ const EmailTemplateCategoryMap: Record<number, { name: string; label: string }> 
   37: { name: "WelcomeSeriesEmail2", label: "Welcome Series – Email 2 (Capital With Purpose)" },
   38: { name: "WelcomeSeriesEmail3", label: "Welcome Series – Email 3 (Your Capital, Your Cause, Your Community)" },
   39: { name: "InvestmentUpdateNotification", label: "Investment Update Notification" },
+  40: { name: "InvestmentUpdateSentConfirmation", label: "Investment Update Sent Confirmation" },
 };
 
 function getCategoryName(category: number): string {

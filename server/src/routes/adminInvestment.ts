@@ -2796,9 +2796,16 @@ async function buildInvestmentUpdateEmail(
     .replace(/\{\{updateDescription\}\}/g, sanitizeDescriptionForEmail(update.description || ""))
     .replace(/\{\{updateImageHtml\}\}/g, "");
 
-  // Spec: CC is the single Investment Owner email. Prefer the owning user's
-  // account email; fall back to the contact_info / informational email only
-  // when no owner user is set, so we never CC more than one address.
+  // The Investment Owner is no longer CC'd on per-investor emails. They now
+  // receive a single dedicated "Investment Update Sent Confirmation" email
+  // (see resolveInvestmentOwnerEmail + the send-email route below).
+  return { subject, bodyHtml, campaignUrl, ccList: [] };
+}
+
+// Resolves the Investment Owner email for a campaign using the same
+// precedence as the previous CC logic: owning user's account email first,
+// then contact_info_email_address, then investment_informational_email.
+async function resolveInvestmentOwnerEmail(campaign: any): Promise<string | null> {
   let ownerEmail: string | null = null;
   if (campaign.user_id) {
     try {
@@ -2811,7 +2818,7 @@ async function buildInvestmentUpdateEmail(
         ownerEmail = String(candidate).trim();
       }
     } catch (ownerErr) {
-      console.error("Failed to fetch investment owner email for CC:", ownerErr);
+      console.error("Failed to fetch investment owner email:", ownerErr);
     }
   }
   if (!ownerEmail && campaign.contact_info_email_address && String(campaign.contact_info_email_address).includes("@")) {
@@ -2820,7 +2827,7 @@ async function buildInvestmentUpdateEmail(
   if (!ownerEmail && campaign.investment_informational_email && String(campaign.investment_informational_email).includes("@")) {
     ownerEmail = String(campaign.investment_informational_email).trim();
   }
-  return { subject, bodyHtml, campaignUrl, ccList: ownerEmail ? [ownerEmail] : [] };
+  return ownerEmail;
 }
 
 // Returns a rendered preview of the "Investment Update Notification" email so
@@ -2880,7 +2887,10 @@ router.get("/:id/updates/:updateId/email-preview", async (req: Request, res: Res
       subject: built.subject.replace(/\{\{firstName\}\}/g, "{first name}"),
       bodyHtml: built.bodyHtml.replace(/\{\{firstName\}\}/g, "there"),
       from: fromHeader,
-      cc: built.ccList,
+      // Per Apr 2026 spec: the Investment Owner is no longer CC'd on
+      // per-investor emails. They receive a separate confirmation email
+      // ("Investment Update Sent Confirmation") once per send.
+      cc: [],
       recipientCount: investorsCount.rows[0]?.count || 0,
     });
   } catch (err: any) {
@@ -2890,8 +2900,11 @@ router.get("/:id/updates/:updateId/email-preview", async (req: Request, res: Res
 });
 
 // Send the "Investment Update Notification" email to all investors of this
-// campaign with the Investment Owner CC'd. Uses the Resend client directly
-// (not sendTemplateEmail) so we can override sender + add CC for this flow.
+// campaign. Uses the Resend client directly (not sendTemplateEmail) so we
+// can override sender and attach the update file. After the per-investor
+// loop completes, a single dedicated "Investment Update Sent Confirmation"
+// email is sent to the Investment Owner (and support@catacap.org) so the
+// owner gets one clear confirmation per send instead of one CC per investor.
 router.post("/:id/updates/:updateId/send-email", async (req: Request, res: Response) => {
   try {
     const campaignId = parseInt(String(req.params.id), 10);
@@ -2947,7 +2960,6 @@ router.post("/:id/updates/:updateId/send-email", async (req: Request, res: Respo
     const fromAddress = cfg.defaultFromAddress || "support@catacap.org";
     const senderName = cfg.defaultEmailSenderName || "CataCap Support";
     const fromHeader = `${senderName} <${fromAddress}>`;
-    const ccList = built.ccList;
 
     const investorsResult = await pool.query(
       `SELECT DISTINCT u.id, u.email, COALESCE(u.first_name, '') AS first_name
@@ -3003,7 +3015,6 @@ router.post("/:id/updates/:updateId/send-email", async (req: Request, res: Respo
         const { error } = await resend.emails.send({
           from: fromHeader,
           to: [recipient],
-          cc: ccList.length > 0 ? ccList : undefined,
           subject,
           html: body,
           attachments,
@@ -3020,12 +3031,114 @@ router.post("/:id/updates/:updateId/send-email", async (req: Request, res: Respo
       }
     }
 
+    // ── Owner confirmation email ─────────────────────────────────────────
+    // Send a single dedicated "Investment Update Sent Confirmation" email
+    // to the Investment Owner (and support@catacap.org) once per send,
+    // replacing the previous owner-CC behavior on per-investor emails.
+    let ownerConfirmationSent = false;
+    let ownerConfirmationRecipients = 0;
+    try {
+      const ownerEmail = await resolveInvestmentOwnerEmail(campaign);
+      const supportEmail = "support@catacap.org";
+      const recipients: string[] = [];
+      const seen = new Set<string>();
+      const addRecipient = (raw: string | null | undefined) => {
+        if (!raw) return;
+        const trimmed = String(raw).trim();
+        if (!trimmed || !trimmed.includes("@")) return;
+        const key = trimmed.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        recipients.push(trimmed);
+      };
+      addRecipient(ownerEmail);
+      addRecipient(supportEmail);
+
+      if (!ownerEmail) {
+        console.warn(
+          `[EMAIL] Investment Update ${update.id}: could not resolve owner email for campaign ${campaign.id} — sending confirmation only to ${supportEmail}.`
+        );
+      }
+
+      if (recipients.length === 0) {
+        console.error(
+          `[EMAIL] Investment Update ${update.id}: no recipients available for owner confirmation email.`
+        );
+      } else {
+        const confirmationTpl = await pool.query(
+          `SELECT subject, body_html
+             FROM email_templates
+            WHERE name = 'Investment Update Sent Confirmation'
+              AND category = 40
+              AND status = 2 AND (is_deleted IS NULL OR is_deleted = false)
+            LIMIT 1`
+        );
+        if (confirmationTpl.rows.length === 0) {
+          console.error(
+            `[EMAIL] Email template 'Investment Update Sent Confirmation' is missing — owner confirmation NOT sent for update ${update.id}.`
+          );
+        } else {
+          const confirmationVars: Record<string, string> = {
+            updateSubject: update.subject || "",
+            campaignName: campaign.name || "",
+            campaignUrl: built.campaignUrl,
+          };
+          const renderTemplate = (text: string) =>
+            String(text || "").replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (_m, rawKey: string) => {
+              const key = String(rawKey).trim();
+              return Object.prototype.hasOwnProperty.call(confirmationVars, key)
+                ? confirmationVars[key]
+                : "";
+            });
+
+          let confirmationSubject = renderTemplate(confirmationTpl.rows[0].subject);
+          const confirmationBody = renderTemplate(confirmationTpl.rows[0].body_html);
+
+          let confirmationRecipients = recipients;
+          if (testOverride) {
+            confirmationSubject = `[TEST] ${confirmationSubject} (Original recipients: ${recipients.join(", ")})`;
+            confirmationRecipients = [testOverride];
+          }
+
+          try {
+            const { error: confErr } = await resend.emails.send({
+              from: fromHeader,
+              to: confirmationRecipients,
+              subject: confirmationSubject,
+              html: confirmationBody,
+            });
+            if (confErr) {
+              console.error(
+                `[EMAIL] Resend error for owner confirmation (update ${update.id}):`,
+                confErr
+              );
+            } else {
+              ownerConfirmationSent = true;
+              ownerConfirmationRecipients = confirmationRecipients.length;
+            }
+          } catch (confSendErr) {
+            console.error(
+              `[EMAIL] Failed sending owner confirmation email for update ${update.id}:`,
+              confSendErr
+            );
+          }
+        }
+      }
+    } catch (ownerConfErr) {
+      console.error(
+        `[EMAIL] Unexpected error preparing owner confirmation email for update ${update.id}:`,
+        ownerConfErr
+      );
+    }
+
     res.json({
       success: true,
       message: `Email sent to ${sent} investor(s)${failed ? `, ${failed} failed` : ""}.`,
       sent,
       failed,
-      ccCount: ccList.length,
+      ccCount: 0,
+      ownerConfirmationSent,
+      ownerConfirmationRecipients,
     });
   } catch (err: any) {
     console.error("Error sending campaign update email:", err);
