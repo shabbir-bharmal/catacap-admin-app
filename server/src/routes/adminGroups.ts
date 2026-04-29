@@ -1056,6 +1056,19 @@ router.put("/update-group-investments", async (req: Request, res: Response) => {
 
       const groupPicturePath = extractStoragePath(group.picture_file_name) || null;
       const groupLogoUrl = resolveFileUrl(group.picture_file_name, "groups") || "";
+      const escapeHtml = (s: string) =>
+        String(s ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      const groupNameSafe = escapeHtml(group.name || "");
+      const groupPageHrefSafe = escapeHtml(groupPageUrl);
+      const groupLogoSrcSafe = escapeHtml(groupLogoUrl);
+      const groupHeaderBranding = groupLogoUrl
+        ? `<a href="${groupPageHrefSafe}" target="_blank" style="text-decoration:none;"><img src="${groupLogoSrcSafe}" alt="${groupNameSafe}" width="150" height="75" style="display:block; max-height:75px; width:auto; max-width:200px; object-fit:contain;"></a>`
+        : `<a href="${groupPageHrefSafe}" target="_blank" style="text-decoration:none;"><span style="display:inline-block; font-family:Georgia,'Times New Roman',serif; font-size:22px; font-weight:700; color:#16a34a; line-height:1.2;">${groupNameSafe}</span></a>`;
 
       const formatTargetAmount = (val: any): string => {
         if (val == null || val === "") return "";
@@ -1123,6 +1136,7 @@ router.put("/update-group-investments", async (req: Request, res: Response) => {
                   investmentLink: exploreInvestmentUrl,
                   exploreInvestmentUrl,
                   groupLogoUrl,
+                  groupHeaderBranding,
                   firstName: member.first_name || "Member",
                   groupPageUrl,
                   targetAmount: formatTargetAmount(campaign.target),
