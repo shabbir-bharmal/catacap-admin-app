@@ -1,0 +1,236 @@
+Migration: 2026_04_29_admin_performance_indexes.sql
+Release date: 2026-04-29
+Feature: Admin pages performance — read-path indexes
+
+Overview
+--------
+Adds 21 B-tree / expression indexes that cover the foreign-key and join
+columns used by the most frequent admin queries. Before this migration
+the database only had PRIMARY KEY indexes on these tables, which forced
+PostgreSQL to do sequential scans on every join, filter, and aggregation
+that the admin app performs.
+
+The migration is purely additive: no table data is modified, no columns
+or constraints are added, dropped, or renamed. Every statement uses
+`CREATE INDEX IF NOT EXISTS` so the migration is safe to run repeatedly
+and safe to run on environments that already have some of the indexes
+(e.g. environments where the on-startup helper
+`ensureAdminPerformanceIndexes` in `server/src/db.ts` has already
+created them).
+
+Indexes added
+-------------
+
+recommendations
+  idx_recommendations_campaign_id        ON recommendations (campaign_id)
+  idx_recommendations_lower_email        ON recommendations (LOWER(user_email))
+  idx_recommendations_status             ON recommendations (status)
+
+users
+  idx_users_lower_email                  ON users (LOWER(email))
+
+user_roles
+  idx_user_roles_role_id                 ON user_roles (role_id)
+  idx_user_roles_user_id                 ON user_roles (user_id)
+
+requests
+  idx_requests_group_status              ON requests (group_to_follow_id, status)
+  idx_requests_owner                     ON requests (request_owner_id)
+
+pending_grants / pending_grant_notes
+  idx_pending_grants_user_id             ON pending_grants (user_id)
+  idx_pending_grants_campaign_id         ON pending_grants (campaign_id)
+  idx_pending_grant_notes_grant_id       ON pending_grant_notes (pending_grant_id)
+
+investment_notes
+  idx_investment_notes_campaign_id       ON investment_notes (campaign_id)
+
+account balances
+  idx_acl_user_id                        ON account_balance_change_logs (user_id)
+  idx_acl_group_id                       ON account_balance_change_logs (group_id)
+  idx_gab_user_id                        ON group_account_balances (user_id)
+  idx_gab_group_id                       ON group_account_balances (group_id)
+
+campaign_groups / campaigns
+  idx_campaign_groups_groups_id          ON campaign_groups (groups_id)
+  idx_campaigns_deleted_by               ON campaigns (deleted_by)
+  idx_campaigns_private_access_group     ON campaigns (group_for_private_access_id)
+
+groups / asset_based_payment_requests
+  idx_groups_owner_id                    ON groups (owner_id)
+  idx_asset_based_payment_requests_user_id
+                                         ON asset_based_payment_requests (user_id)
+
+Why each index
+--------------
+
+* `recommendations(campaign_id)` — Investments list aggregates total raised
+  and unique investors per campaign by grouping recommendations on
+  `campaign_id`. Used in dashboard, finance, and the per-campaign edit
+  page.
+
+* `recommendations(LOWER(user_email))` — Dashboard summary, finance, and
+  the top-donors / recent-investments queries all join on
+  `LOWER(r.user_email) = LOWER(u.email)`. Without an expression index
+  matching the join expression, PostgreSQL cannot use any index for the
+  join.
+
+* `recommendations(status)` — Pending / approved status filtering shows up
+  in nearly every recommendation query.
+
+* `users(LOWER(email))` — Companion to `recommendations(LOWER(user_email))`
+  for the same join.
+
+* `user_roles(role_id)` and `user_roles(user_id)` — Every admin query that
+  filters users by role joins through `user_roles` in both directions.
+
+* `requests(group_to_follow_id, status)` — Groups list counts members per
+  group with `WHERE group_to_follow_id = ? AND status = 'accepted'`.
+
+* `requests(request_owner_id)` — Used by the per-user join when fetching
+  group memberships.
+
+* `pending_grants(user_id)` and `pending_grants(campaign_id)` — Pending
+  Grants list filters / aggregates by both user and campaign.
+
+* `pending_grant_notes(pending_grant_id)` — Each row of the Pending Grants
+  list runs an `EXISTS(...)` for notes; the FK lookup is now index-backed.
+
+* `investment_notes(campaign_id)` — Investments list flags campaigns that
+  have notes via a single grouped lookup.
+
+* `account_balance_change_logs(user_id|group_id)` and
+  `group_account_balances(user_id|group_id)` — Consolidated Finances and
+  the per-user account history both filter on these FKs.
+
+* `campaign_groups(groups_id)` — The PK of `campaign_groups` already
+  covers `(campaigns_id, groups_id)`, but lookups by group alone needed
+  the reverse index.
+
+* `campaigns(deleted_by)` — `LEFT JOIN users du ON c.deleted_by = du.id`
+  appears in the Investments list and the per-campaign edit / restore
+  flows.
+
+* `campaigns(group_for_private_access_id)` — Groups list UNION pulls
+  campaigns that target a private group via this column.
+
+* `groups(owner_id)` — Consolidated Finances looks up groups by their
+  owner with `WHERE owner_id IN (...)`.
+
+* `asset_based_payment_requests(user_id)` — Same query also aggregates
+  asset-based payment requests by user.
+
+Operational notes
+-----------------
+
+* `LOWER(...)` indexes are PostgreSQL expression indexes. They are used
+  automatically when the query predicate matches the indexed expression
+  exactly (the application code already calls `LOWER(...)` consistently).
+
+* The dev-environment row counts are small enough that PostgreSQL's
+  planner may still pick a sequential scan over the new indexes for
+  some single-table aggregations — that is expected and correct
+  behaviour. The indexes pay off as soon as production-scale data
+  pushes those tables past the small-table threshold (and they
+  immediately help every `JOIN` and `WHERE foreign_key = ?` lookup
+  regardless of table size).
+
+* Index creation in this migration uses a normal transaction
+  (`BEGIN; ...; COMMIT;`) — the same pattern as the previous release
+  (`2026_04_27_event_link_targets.sql`). Tables affected are small
+  enough in this dataset that the brief write lock is acceptable. If
+  this migration is ever re-targeted at a much larger production table,
+  consider switching individual statements to
+  `CREATE INDEX CONCURRENTLY IF NOT EXISTS` (and removing the
+  surrounding transaction, as `CONCURRENTLY` cannot run inside one).
+
+Rollback
+--------
+See the commented-out `ROLLBACK` block at the bottom of the SQL file.
+The indexes are non-destructive read-path optimisations; dropping any
+of them only restores the slower query plan, no data is lost.
+
+================================================================
+
+Migration: 2026_04_29_disbursal_requests_metrics_columns.sql
+Release date: 2026-04-29
+Feature: Disbursal Requests — add missing metrics columns
+
+Overview
+--------
+Adds the four "metrics" columns to `disbursal_requests` that the admin
+Node.js endpoints in `server/src/routes/adminDisbursalRequests.ts`
+already SELECT but that were never created in the live PostgreSQL
+database. Their absence made every read against the admin
+disbursal-request list / detail / archived-list endpoints fail with
+`column d.tracks_metrics does not exist`, which the frontend then
+surfaced as "No disbursal requests found." on both the active and the
+archived (recycle-bin) Disbursal Requests pages.
+
+The column shapes mirror the .NET reference model in
+`Back-End/Invest.Core/Models/DisbursalRequest.cs`:
+
+  tracks_metrics       BOOLEAN NULL    -- bool?   TracksMetrics
+  metrics_report       TEXT    NULL    -- string? MetricsReport (file URL/path)
+  metrics_report_name  TEXT    NULL    -- string? MetricsReportName
+  metrics_pairs        TEXT    NULL    -- string? MetricsPairs (JSON-encoded)
+
+`metrics_pairs` is stored as TEXT (not JSONB) on purpose: the Node.js
+handler runs `JSON.parse` on the raw value and the .NET model also
+treats it as a plain `string?`. Keeping it TEXT matches both readers
+exactly and avoids accidentally rejecting a malformed payload at write
+time.
+
+What it does
+------------
+- Adds the four nullable columns above to `disbursal_requests` inside a
+  single transaction.
+- Existing rows are untouched: every existing disbursal reads back
+  `tracksMetrics: null`, `metricsReport: null`, `metricsReportName: null`,
+  `metricsPairs: null`, which is the same shape the API already produced
+  for "metrics not tracked yet" and which the frontend already handles.
+
+What it deliberately does NOT do
+--------------------------------
+- It does NOT backfill any data. There is no historical source for these
+  fields in this database, and the admin UI shows them as optional.
+- It does NOT add indexes — none of the admin queries filter or join on
+  these columns; they are SELECT-only payload fields.
+- It does NOT change the columns' types from the .NET reference (e.g.
+  using JSONB for `metrics_pairs`), to keep the wire shape and the
+  parser path identical to the .NET implementation.
+
+Why this fixes the user-visible bug
+-----------------------------------
+Both the active page (`GET /api/admin/disbursal-request`) and the
+archived page (`GET /api/admin/disbursal-request?isDeleted=true`) build
+their result set from the same single SQL query that SELECTs all four
+of these columns in its projection. PostgreSQL parses the projection
+before it considers the WHERE clause, so the missing columns made the
+query throw at parse time and the entire response collapse to an error,
+which the frontend rendered as "No disbursal requests found." on both
+the Disbursal Request page and the Archived Records → Disbursal
+Requests page. After the migration the SELECT succeeds, the active
+page lists the 4 active disbursals as expected, and the archived page
+lists the 1 archived disbursal that the recycle-bin summary already
+counted.
+
+Idempotency / safety
+--------------------
+- Every statement uses `ADD COLUMN IF NOT EXISTS`, so re-running the
+  migration on an environment that already has any/all of the columns
+  is a no-op.
+- Wrapped in a single `BEGIN; ... COMMIT;` so a partial failure rolls
+  back cleanly.
+- No FK, UNIQUE, NOT NULL, or DEFAULT clauses are used — the
+  `ALTER TABLE ... ADD COLUMN` form Postgres uses here is metadata-only
+  and does not rewrite the table, so the migration is fast on large
+  tables too.
+
+Rollback
+--------
+A commented rollback block at the bottom of the SQL file shows how to
+drop the four columns. Apply the rollback BEFORE rolling the
+application code back to a build that does not reference these
+columns; otherwise the API will start raising the same
+"column does not exist" error again.
