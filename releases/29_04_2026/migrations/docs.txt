@@ -149,3 +149,88 @@ Rollback
 See the commented-out `ROLLBACK` block at the bottom of the SQL file.
 The indexes are non-destructive read-path optimisations; dropping any
 of them only restores the slower query plan, no data is lost.
+
+================================================================
+
+Migration: 2026_04_29_disbursal_requests_metrics_columns.sql
+Release date: 2026-04-29
+Feature: Disbursal Requests — add missing metrics columns
+
+Overview
+--------
+Adds the four "metrics" columns to `disbursal_requests` that the admin
+Node.js endpoints in `server/src/routes/adminDisbursalRequests.ts`
+already SELECT but that were never created in the live PostgreSQL
+database. Their absence made every read against the admin
+disbursal-request list / detail / archived-list endpoints fail with
+`column d.tracks_metrics does not exist`, which the frontend then
+surfaced as "No disbursal requests found." on both the active and the
+archived (recycle-bin) Disbursal Requests pages.
+
+The column shapes mirror the .NET reference model in
+`Back-End/Invest.Core/Models/DisbursalRequest.cs`:
+
+  tracks_metrics       BOOLEAN NULL    -- bool?   TracksMetrics
+  metrics_report       TEXT    NULL    -- string? MetricsReport (file URL/path)
+  metrics_report_name  TEXT    NULL    -- string? MetricsReportName
+  metrics_pairs        TEXT    NULL    -- string? MetricsPairs (JSON-encoded)
+
+`metrics_pairs` is stored as TEXT (not JSONB) on purpose: the Node.js
+handler runs `JSON.parse` on the raw value and the .NET model also
+treats it as a plain `string?`. Keeping it TEXT matches both readers
+exactly and avoids accidentally rejecting a malformed payload at write
+time.
+
+What it does
+------------
+- Adds the four nullable columns above to `disbursal_requests` inside a
+  single transaction.
+- Existing rows are untouched: every existing disbursal reads back
+  `tracksMetrics: null`, `metricsReport: null`, `metricsReportName: null`,
+  `metricsPairs: null`, which is the same shape the API already produced
+  for "metrics not tracked yet" and which the frontend already handles.
+
+What it deliberately does NOT do
+--------------------------------
+- It does NOT backfill any data. There is no historical source for these
+  fields in this database, and the admin UI shows them as optional.
+- It does NOT add indexes — none of the admin queries filter or join on
+  these columns; they are SELECT-only payload fields.
+- It does NOT change the columns' types from the .NET reference (e.g.
+  using JSONB for `metrics_pairs`), to keep the wire shape and the
+  parser path identical to the .NET implementation.
+
+Why this fixes the user-visible bug
+-----------------------------------
+Both the active page (`GET /api/admin/disbursal-request`) and the
+archived page (`GET /api/admin/disbursal-request?isDeleted=true`) build
+their result set from the same single SQL query that SELECTs all four
+of these columns in its projection. PostgreSQL parses the projection
+before it considers the WHERE clause, so the missing columns made the
+query throw at parse time and the entire response collapse to an error,
+which the frontend rendered as "No disbursal requests found." on both
+the Disbursal Request page and the Archived Records → Disbursal
+Requests page. After the migration the SELECT succeeds, the active
+page lists the 4 active disbursals as expected, and the archived page
+lists the 1 archived disbursal that the recycle-bin summary already
+counted.
+
+Idempotency / safety
+--------------------
+- Every statement uses `ADD COLUMN IF NOT EXISTS`, so re-running the
+  migration on an environment that already has any/all of the columns
+  is a no-op.
+- Wrapped in a single `BEGIN; ... COMMIT;` so a partial failure rolls
+  back cleanly.
+- No FK, UNIQUE, NOT NULL, or DEFAULT clauses are used — the
+  `ALTER TABLE ... ADD COLUMN` form Postgres uses here is metadata-only
+  and does not rewrite the table, so the migration is fast on large
+  tables too.
+
+Rollback
+--------
+A commented rollback block at the bottom of the SQL file shows how to
+drop the four columns. Apply the rollback BEFORE rolling the
+application code back to a build that does not reference these
+columns; otherwise the API will start raising the same
+"column does not exist" error again.
