@@ -218,6 +218,7 @@ export interface GroupLeader {
     linkedinUrl: string;
     pictureFileName?: string | null;
     isOwner?: boolean;
+    email?: string | null;
 }
 
 export interface GroupLeadersSectionProps {

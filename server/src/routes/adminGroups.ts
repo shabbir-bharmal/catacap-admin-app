@@ -2362,7 +2362,7 @@ async function processGroupMembers(jsonData: string | null, ownerId?: string): P
 
   const placeholders = userIds.map((_: any, i: number) => `$${i + 1}`).join(", ");
   const usersResult = await pool.query(
-    `SELECT id, COALESCE(first_name, '') || ' ' || COALESCE(last_name, '') as full_name, picture_file_name
+    `SELECT id, COALESCE(first_name, '') || ' ' || COALESCE(last_name, '') as full_name, picture_file_name, email
      FROM users WHERE id IN (${placeholders}) AND (is_deleted IS NULL OR is_deleted = false)`,
     userIds
   );
@@ -2380,6 +2380,7 @@ async function processGroupMembers(jsonData: string | null, ownerId?: string): P
       roleAndTitle: m.RoleAndTitle || m.roleAndTitle,
       description: m.Description || m.description,
       fullName: user?.full_name || null,
+      email: user?.email || null,
       pictureFileName: resolveFileUrl(user?.picture_file_name, "users") || null,
     };
 

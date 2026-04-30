@@ -201,6 +201,9 @@ export function GroupLeadersSection({ apiGroupId, leaders, setLeaders, cardClass
                                         </Avatar>
                                         <div className="min-w-0">
                                             <p className="font-medium text-sm" data-testid={`text-leader-name-${leader.id}`}>{leader.name}</p>
+                                            {leader.email && (
+                                                <p className="text-xs text-muted-foreground truncate" data-testid={`text-leader-email-${leader.id}`}>{leader.email}</p>
+                                            )}
                                             <p className="text-xs text-muted-foreground">{leader.role || (leader.isOwner ? "Owner" : "")}</p>
                                         </div>
                                     </div>
