@@ -4,6 +4,7 @@ import pool from "../db.js";
 import { parsePagination, softDeleteFilter, buildSortClause } from "../utils/softDelete.js";
 import { restoreOwningUsersForRecordsInTx } from "../utils/userRestore.js";
 import { autoEnrollInvestorIfApplicable } from "../utils/autoEnrollGroupMembership.js";
+import { applyMatchGrants } from "../utils/matchingGrants.js";
 import ExcelJS from "exceljs";
 
 const router = Router();
@@ -321,7 +322,28 @@ router.put("/:id", async (req: Request, res: Response) => {
       await autoEnrollInvestorIfApplicable(client, user.id, recommendation.camp_id);
     }
 
+    const wasNewlyApproved =
+      data.status === "approved" && recommendation.status !== "approved";
+
     await client.query("COMMIT");
+
+    // Fire matching AFTER commit so the investor's recommendation is
+    // permanently recorded before any matching attempt runs.
+    if (wasNewlyApproved && recommendation.camp_id) {
+      applyMatchGrants({
+        campaignId: recommendation.camp_id,
+        investorUserId: user.id,
+        triggeringRecommendationId: id,
+        investmentAmount: parseFloat(data.amount || recommendation.amount) || 0,
+        investorEmail: recommendation.user_email || "",
+        campaignName: recommendation.campaign_name || "",
+      }).catch((err) =>
+        console.error(
+          "applyMatchGrants fire-and-forget error:",
+          err?.message || err,
+        ),
+      );
+    }
 
     const rejectingUserResult = await pool.query(
       `SELECT first_name FROM users WHERE id = $1`,

@@ -25,7 +25,8 @@ import {
   ClipboardList,
   FileText,
   Archive,
-  BarChart3
+  BarChart3,
+  GitMerge
 } from "lucide-react";
 
 export const sidebarConfig = [
@@ -98,6 +99,12 @@ export const sidebarConfig = [
             url: "/other-assets",
             icon: Wallet,
             permission: { module: "other-assets", action: "view" }
+          },
+          {
+            title: "Matching",
+            url: "/matching",
+            icon: GitMerge,
+            permission: { module: "recommendations", action: "view" }
           }
         ]
       },

@@ -55,3 +55,77 @@ Migrations
      COMMIT;
      (Also remove the ensure* call from server/src/db.ts and the helper
      module server/src/utils/investmentNotifications.ts if reverting code.)
+
+2) 2026_04_30_campaign_match_grants.sql
+   Schema:
+     CREATE TABLE campaign_match_grants (
+       id                  SERIAL PRIMARY KEY,
+       name                TEXT NOT NULL DEFAULT '',
+       donor_user_id       VARCHAR(450) NOT NULL REFERENCES users(id),
+       total_cap           NUMERIC(15,2) NULL,
+       amount_used         NUMERIC(15,2) NOT NULL DEFAULT 0,
+       match_type          TEXT NOT NULL DEFAULT 'full'  CHECK IN ('full','capped'),
+       per_investment_cap  NUMERIC(15,2) NULL,
+       is_active           BOOLEAN NOT NULL DEFAULT TRUE,
+       notes               TEXT NULL,
+       created_at          TIMESTAMP NOT NULL DEFAULT NOW(),
+       updated_at          TIMESTAMP NOT NULL DEFAULT NOW()
+     );
+
+     CREATE TABLE campaign_match_grant_campaigns (
+       id              SERIAL PRIMARY KEY,
+       match_grant_id  INTEGER NOT NULL REFERENCES campaign_match_grants(id) ON DELETE CASCADE,
+       campaign_id     INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+       UNIQUE (match_grant_id, campaign_id)
+     );
+
+     CREATE TABLE campaign_match_grant_activity (
+       id                              SERIAL PRIMARY KEY,
+       match_grant_id                  INTEGER NOT NULL REFERENCES campaign_match_grants(id) ON DELETE CASCADE,
+       campaign_id                     INTEGER NULL,
+       triggered_by_user_id            VARCHAR(450) NULL,
+       triggered_by_recommendation_id  INTEGER NULL,
+       donor_recommendation_id         INTEGER NULL,
+       amount                          NUMERIC(15,2) NOT NULL,
+       created_at                      TIMESTAMP NOT NULL DEFAULT NOW()
+     );
+
+   Intent:
+     Per-campaign investment matching. When a recommendation for a campaign
+     is approved, any active match grant covering that campaign automatically
+     draws on the donor's wallet (up to total_cap / per_investment_cap limits)
+     and creates an approved recommendation on behalf of the donor.
+
+     Type notes:
+       users.id        -> character varying(450)  => donor_user_id/triggered_by_user_id = VARCHAR(450)
+       campaigns.id    -> integer                 => campaign_id = INTEGER
+       recommendations.id -> integer              => FK references = INTEGER
+
+     Wiring:
+       - GET    /api/admin/matching            -> list all grants with utilization
+       - POST   /api/admin/matching            -> create new grant
+       - PUT    /api/admin/matching/:id        -> update grant (replaces campaign list)
+       - DELETE /api/admin/matching/:id        -> delete grant (cascades to campaigns + activity)
+       - GET    /api/admin/matching/:id/activity -> activity log for a grant
+       - GET    /api/admin/matching/donor-search?q= -> user search for donor picker
+       - Matching fires fire-and-forget AFTER COMMIT in:
+           server/src/routes/adminRecommendations.ts PUT /:id
+           (when status transitions to "approved" for the first time)
+       - Helper: server/src/utils/matchingGrants.ts -> applyMatchGrants()
+       - Sidebar: "Matching" under "Donations to Invest" group (GitMerge icon)
+       - Frontend page: src/pages/AdminMatching.tsx -> /matching route
+
+   Idempotency:
+     - All CREATE TABLE/INDEX wrapped in IF NOT EXISTS
+     - Foreign keys added inside guarded DO $$ blocks checking
+       information_schema.table_constraints
+     - Whole script wrapped in BEGIN/COMMIT
+
+   Rollback:
+     BEGIN;
+       DROP TABLE IF EXISTS campaign_match_grant_activity;
+       DROP TABLE IF EXISTS campaign_match_grant_campaigns;
+       DROP TABLE IF EXISTS campaign_match_grants;
+     COMMIT;
+     (Also remove adminMatching.ts route, matchingGrants.ts helper,
+     AdminMatching.tsx page, and revert adminRecommendations.ts trigger.)
