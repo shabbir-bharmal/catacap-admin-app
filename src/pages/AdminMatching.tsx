@@ -83,8 +83,8 @@ async function fetchActivity(grantId: number): Promise<ActivityEntry[]> {
   return data.items || [];
 }
 async function fetchCampaignOptions(): Promise<Campaign[]> {
-  const { data } = await axiosInstance.get("/api/admin/investment?perPage=500&currentPage=1");
-  return (data.items || []).map((c: any) => ({ id: c.id, name: c.name }));
+  const { data } = await axiosInstance.get("/api/admin/investment/names?stage=11");
+  return (data || []).map((c: any) => ({ id: Number(c.id), name: c.name }));
 }
 async function searchDonors(q: string): Promise<DonorOption[]> {
   if (q.length < 2) return [];

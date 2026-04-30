@@ -172,6 +172,17 @@ router.get("/names", async (req: Request, res: Response) => {
         ]
       );
       res.json(result.rows.map((r: any) => ({ id: Number(r.id), name: r.name })));
+    } else if (stage === 11) {
+      // Active investable campaigns: Private (1) or Public (2) and is_active = true
+      const result = await pool.query(
+        `SELECT id, name FROM campaigns
+         WHERE stage IN ($1, $2) AND is_active = true
+         AND TRIM(COALESCE(name, '')) != ''
+         AND (is_deleted IS NULL OR is_deleted = false)
+         ORDER BY name ASC`,
+        [InvestmentStageEnum.Private, InvestmentStageEnum.Public]
+      );
+      res.json(result.rows.map((r: any) => ({ id: Number(r.id), name: r.name })));
     } else {
       res.status(400).json({ success: false, message: "Invalid investment stage." });
     }
