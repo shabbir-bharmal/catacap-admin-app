@@ -173,6 +173,21 @@ function CumulativeBalanceCard() {
     return data.series.reduce((sum, p) => sum + p.added, 0);
   }, [data]);
 
+  // Y-axis domain: for "all" use [0, auto]; for ranged views, zoom to the
+  // data so the actual variation is visible (otherwise the line gets squashed
+  // against the top of a $0–$6M scale and you can't see the climb).
+  const yDomain = useMemo<[number | "auto", number | "auto"]>(() => {
+    if (range === "all" || chartData.length === 0) return [0, "auto"];
+    const values = chartData.map((p) => p.cumulative);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const span = max - min;
+    const padding = span > 0 ? span * 0.1 : Math.max(max * 0.02, 1);
+    return [Math.max(0, min - padding), max + padding];
+  }, [range, chartData]);
+
+  const periodStart = data?.baselineCumulative ?? 0;
+
   return (
     <Card data-testid="card-kpi-cumulative-balance">
       <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0 border-b px-5 py-4">
@@ -190,7 +205,16 @@ function CumulativeBalanceCard() {
         </div>
       </CardHeader>
       <CardContent className="p-5">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+          <div className="rounded-md bg-muted/40 px-4 py-3">
+            <p className="text-xs text-muted-foreground">At start of period</p>
+            <p
+              className="text-xl font-bold tabular-nums text-foreground"
+              data-testid="text-period-start"
+            >
+              {currency_format(periodStart)}
+            </p>
+          </div>
           <div className="rounded-md bg-[#405189]/5 px-4 py-3">
             <p className="text-xs text-muted-foreground">Total CataCap Assets (current)</p>
             <p
@@ -206,6 +230,7 @@ function CumulativeBalanceCard() {
               className="text-xl font-bold tabular-nums text-[#0ab39c]"
               data-testid="text-period-added"
             >
+              {periodAdded >= 0 ? "+" : ""}
               {currency_format(periodAdded)}
             </p>
           </div>
@@ -239,9 +264,11 @@ function CumulativeBalanceCard() {
                   tick={{ fontSize: 11 }}
                   tickFormatter={(v: number) => compactCurrency(v)}
                   width={70}
+                  domain={yDomain}
+                  allowDataOverflow={false}
                 />
                 <Tooltip
-                  formatter={(value: number) => [currency_format(value), "Cumulative"]}
+                  formatter={(value: number) => [currency_format(value), "Total Assets"]}
                   labelFormatter={(label: string) => label}
                   contentStyle={{
                     background: "hsl(var(--popover))",
