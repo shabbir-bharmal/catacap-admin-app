@@ -95,18 +95,24 @@ router.get("/", async (req: Request, res: Response) => {
     }
 
     const memberPlaceholders = groupIds.map((_: any, i: number) => `$${i + 1}`).join(", ");
-    const memberResult = await pool.query(
-      `SELECT group_to_follow_id, COUNT(*) as cnt
+    // Pull the raw user IDs per group so we can dedupe owner / leaders against
+    // accepted request members (someone can be both an owner and a member).
+    const memberRowsResult = await pool.query(
+      `SELECT group_to_follow_id, request_owner_id
        FROM requests
        WHERE group_to_follow_id IN (${memberPlaceholders})
          AND status = 'accepted'
-         AND (is_deleted IS NULL OR is_deleted = false)
-       GROUP BY group_to_follow_id`,
+         AND (is_deleted IS NULL OR is_deleted = false)`,
       groupIds
     );
-    const memberCounts: Record<number, number> = {};
-    for (const row of memberResult.rows) {
-      memberCounts[row.group_to_follow_id] = parseInt(row.cnt);
+    const memberUserIdsByGroup: Record<number, Set<string>> = {};
+    for (const row of memberRowsResult.rows) {
+      if (!memberUserIdsByGroup[row.group_to_follow_id]) {
+        memberUserIdsByGroup[row.group_to_follow_id] = new Set<string>();
+      }
+      if (row.request_owner_id) {
+        memberUserIdsByGroup[row.group_to_follow_id].add(row.request_owner_id);
+      }
     }
 
     const memberInvestedResult = await pool.query(
@@ -163,19 +169,28 @@ router.get("/", async (req: Request, res: Response) => {
 
     let result = groups.map((g: any) => {
       let leaderNames: string[] = [];
+      const leaderUserIds: string[] = [];
       if (g.leaders) {
         try {
           const parsed = JSON.parse(g.leaders);
-          leaderNames = parsed
-            .map((l: any) => {
-              const uid = l.UserId || l.userId;
-              return uid && userNameLookup[uid] ? userNameLookup[uid] : null;
-            })
-            .filter(Boolean);
+          for (const l of parsed) {
+            const uid = l.UserId || l.userId;
+            if (uid) {
+              leaderUserIds.push(uid);
+              if (userNameLookup[uid]) leaderNames.push(userNameLookup[uid]);
+            }
+          }
         } catch {}
       }
 
       const ownerName = g.owner_id ? (userNameLookup[g.owner_id] || "") : "";
+
+      // Member count = distinct user IDs across accepted requests + owner + leaders.
+      // Using a Set dedupes the case where the owner or a leader also has an
+      // accepted request row.
+      const allMemberIds = new Set<string>(memberUserIdsByGroup[g.id] || []);
+      if (g.owner_id) allMemberIds.add(g.owner_id);
+      for (const uid of leaderUserIds) allMemberIds.add(uid);
 
       const campaigns = campaignsByGroup[g.id] || [];
       const activeCampaigns = campaigns.filter((c: any) => c.is_active === true);
@@ -196,7 +211,7 @@ router.get("/", async (req: Request, res: Response) => {
         leader: leaderNames.join(", "),
         groupOwner: ownerName,
         groupOwnerId: g.owner_id || null,
-        member: memberCounts[g.id] || 0,
+        member: allMemberIds.size,
         memberInvestedTotal: memberInvestedTotals[g.id] || 0,
         groupThemes: g.group_themes,
         investment: allCampaignIds.size,
@@ -352,7 +367,8 @@ router.get("/export", async (req: Request, res: Response) => {
   try {
     const groupsResult = await pool.query(
       `SELECT g.id, g.name, g.identifier, g.is_deactivated, g.is_corporate_group,
-              g.is_private_group, g.featured_group, g.leaders, g.group_themes
+              g.is_private_group, g.featured_group, g.leaders, g.group_themes,
+              g.owner_id
        FROM groups g
        WHERE (g.is_deleted IS NULL OR g.is_deleted = false)
        ORDER BY g.id DESC`
@@ -386,21 +402,27 @@ router.get("/export", async (req: Request, res: Response) => {
       }
     }
 
-    let memberCounts: Record<number, number> = {};
+    // Per-group set of user IDs of accepted-request members. We later union
+    // owner_id and leader IDs into this set so the count includes them once.
+    const memberUserIdsByGroup: Record<number, Set<string>> = {};
     let memberInvestedTotals: Record<number, number> = {};
     if (groupIds.length > 0) {
       const memberPlaceholders = groupIds.map((_: any, i: number) => `$${i + 1}`).join(", ");
-      const memberResult = await pool.query(
-        `SELECT group_to_follow_id, COUNT(*) as cnt
+      const memberRowsResult = await pool.query(
+        `SELECT group_to_follow_id, request_owner_id
          FROM requests
          WHERE group_to_follow_id IN (${memberPlaceholders})
            AND status = 'accepted'
-           AND (is_deleted IS NULL OR is_deleted = false)
-         GROUP BY group_to_follow_id`,
+           AND (is_deleted IS NULL OR is_deleted = false)`,
         groupIds
       );
-      for (const row of memberResult.rows) {
-        memberCounts[row.group_to_follow_id] = parseInt(row.cnt);
+      for (const row of memberRowsResult.rows) {
+        if (!memberUserIdsByGroup[row.group_to_follow_id]) {
+          memberUserIdsByGroup[row.group_to_follow_id] = new Set<string>();
+        }
+        if (row.request_owner_id) {
+          memberUserIdsByGroup[row.group_to_follow_id].add(row.request_owner_id);
+        }
       }
 
       const memberInvestedResult = await pool.query(
@@ -482,17 +504,24 @@ router.get("/export", async (req: Request, res: Response) => {
 
     for (const g of sortedGroups) {
       let leaderNames: string[] = [];
+      const leaderUserIds: string[] = [];
       if (g.leaders) {
         try {
           const parsed = JSON.parse(g.leaders);
-          leaderNames = parsed
-            .map((l: any) => {
-              const uid = l.UserId || l.userId;
-              return uid && leaderNameLookup[uid] ? leaderNameLookup[uid] : null;
-            })
-            .filter(Boolean);
+          for (const l of parsed) {
+            const uid = l.UserId || l.userId;
+            if (uid) {
+              leaderUserIds.push(uid);
+              if (leaderNameLookup[uid]) leaderNames.push(leaderNameLookup[uid]);
+            }
+          }
         } catch {}
       }
+
+      // Member count = distinct user IDs across accepted requests + owner + leaders.
+      const allMemberIds = new Set<string>(memberUserIdsByGroup[g.id] || []);
+      if (g.owner_id) allMemberIds.add(g.owner_id);
+      for (const uid of leaderUserIds) allMemberIds.add(uid);
 
       const campaigns = campaignsByGroup[g.id] || [];
       const activeCampaigns = campaigns.filter((c: any) => c.is_active === true);
@@ -517,7 +546,7 @@ router.get("/export", async (req: Request, res: Response) => {
         g.name || "",
         url,
         leaderNames.join(", "),
-        memberCounts[g.id] || 0,
+        allMemberIds.size,
         memInvested,
         allCampaignIds.size,
         g.is_private_group ? "Private" : "Public",
