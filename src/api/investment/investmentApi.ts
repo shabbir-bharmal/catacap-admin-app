@@ -279,6 +279,11 @@ export interface CampaignUpdateAttachmentItem {
     fileUrl: string | null;
 }
 
+export interface CampaignUpdateImpactHighlight {
+    label: string;
+    value: string;
+}
+
 export interface CampaignUpdateItem {
     id: number;
     campaignId: number;
@@ -291,6 +296,7 @@ export interface CampaignUpdateItem {
     attachments: CampaignUpdateAttachmentItem[];
     startDate: string | null;
     endDate: string | null;
+    impactHighlights: CampaignUpdateImpactHighlight[] | null;
     createdAt: string;
     updatedAt: string;
 }
@@ -306,6 +312,7 @@ export interface CampaignUpdatePayload {
     attachments?: CampaignUpdateAttachmentInput[];
     startDate?: string | null;
     endDate?: string | null;
+    impactHighlights?: CampaignUpdateImpactHighlight[];
 }
 
 export interface CampaignUpdateEmailLogItem {

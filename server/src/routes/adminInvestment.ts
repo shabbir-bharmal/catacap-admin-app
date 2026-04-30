@@ -2549,6 +2549,36 @@ function truncate(text: string | null | undefined, max = 240): string {
   return plain.slice(0, max - 1) + "…";
 }
 
+// Normalises the optional `impactHighlights` payload coming from the
+// admin Update modal. The frontend always sends a 3-element array of
+// { label, value } objects (empty rows included). We accept anything
+// the client gave us, coerce label/value to strings, hard-cap each to
+// 200 chars, and either persist a 3-row JSON array or NULL when every
+// row is blank. Returns NULL for any non-array / unknown input so
+// callers don't have to special-case it.
+const IMPACT_HIGHLIGHTS_SLOTS = 3;
+const IMPACT_HIGHLIGHTS_FIELD_MAX = 200;
+function normalizeImpactHighlights(
+  raw: any
+): { label: string; value: string }[] | null {
+  if (!Array.isArray(raw)) return null;
+  const rows: { label: string; value: string }[] = [];
+  for (let i = 0; i < IMPACT_HIGHLIGHTS_SLOTS; i++) {
+    const entry = raw[i];
+    const label =
+      entry && typeof entry === "object"
+        ? String(entry.label ?? "").trim().slice(0, IMPACT_HIGHLIGHTS_FIELD_MAX)
+        : "";
+    const value =
+      entry && typeof entry === "object"
+        ? String(entry.value ?? "").trim().slice(0, IMPACT_HIGHLIGHTS_FIELD_MAX)
+        : "";
+    rows.push({ label, value });
+  }
+  const hasAny = rows.some((r) => r.label || r.value);
+  return hasAny ? rows : null;
+}
+
 async function getCampaignForUpdates(campaignId: number): Promise<any | null> {
   const result = await pool.query(
     `SELECT id, name, stage, property, image_file_name, tile_image_file_name,
@@ -2745,7 +2775,9 @@ router.get("/:id/updates", async (req: Request, res: Response) => {
               short_subject AS "shortSubject", short_description AS "shortDescription",
               attach_file AS "attachFile", attach_file_name AS "attachFileName",
               start_date AS "startDate",
-              end_date AS "endDate", created_at AS "createdAt", updated_at AS "updatedAt"
+              end_date AS "endDate",
+              impact_highlights AS "impactHighlights",
+              created_at AS "createdAt", updated_at AS "updatedAt"
        FROM campaign_updates
        WHERE campaign_id = $1 AND (is_deleted IS NULL OR is_deleted = false)
        ORDER BY id DESC`,
@@ -2801,7 +2833,7 @@ router.post("/:id/updates", async (req: Request, res: Response) => {
       return;
     }
 
-    const { subject, description, shortDescription, startDate, endDate, attachments } =
+    const { subject, description, shortDescription, startDate, endDate, attachments, impactHighlights } =
       req.body || {};
     if (!subject || !String(subject).trim()) {
       res.status(400).json({ success: false, message: "Subject is required." });
@@ -2814,6 +2846,7 @@ router.post("/:id/updates", async (req: Request, res: Response) => {
 
     const finalShortDescription =
       (shortDescription && String(shortDescription).trim()) || truncate(description, 240);
+    const normalizedHighlights = normalizeImpactHighlights(impactHighlights);
 
     // Insert the update row and its attachments in a single transaction
     // so a partial failure (e.g. attachment upload error) cannot leave a
@@ -2829,13 +2862,15 @@ router.post("/:id/updates", async (req: Request, res: Response) => {
       // Legacy single-attachment columns are no longer written. All
       // attachments live in `campaign_update_attachments`.
       const insertResult = await txClient.query(
-        `INSERT INTO campaign_updates (campaign_id, subject, description, short_subject, short_description, attach_file, attach_file_name, start_date, end_date)
-         VALUES ($1, $2, $3, NULL, $4, NULL, NULL, $5, $6)
+        `INSERT INTO campaign_updates (campaign_id, subject, description, short_subject, short_description, attach_file, attach_file_name, start_date, end_date, impact_highlights)
+         VALUES ($1, $2, $3, NULL, $4, NULL, NULL, $5, $6, $7)
          RETURNING id, campaign_id AS "campaignId", subject, description,
                    short_subject AS "shortSubject", short_description AS "shortDescription",
                    attach_file AS "attachFile", attach_file_name AS "attachFileName",
                    start_date AS "startDate",
-                   end_date AS "endDate", created_at AS "createdAt", updated_at AS "updatedAt"`,
+                   end_date AS "endDate",
+                   impact_highlights AS "impactHighlights",
+                   created_at AS "createdAt", updated_at AS "updatedAt"`,
         [
           campaignId,
           String(subject).trim(),
@@ -2843,6 +2878,7 @@ router.post("/:id/updates", async (req: Request, res: Response) => {
           finalShortDescription,
           startDate || null,
           endDate || null,
+          normalizedHighlights ? JSON.stringify(normalizedHighlights) : null,
         ]
       );
       created = insertResult.rows[0];
@@ -2954,7 +2990,7 @@ router.put("/:id/updates/:updateId", async (req: Request, res: Response) => {
       return;
     }
 
-    const { subject, description, shortDescription, startDate, endDate, attachments } =
+    const { subject, description, shortDescription, startDate, endDate, attachments, impactHighlights } =
       req.body || {};
     if (!subject || !String(subject).trim()) {
       res.status(400).json({ success: false, message: "Subject is required." });
@@ -2967,6 +3003,18 @@ router.put("/:id/updates/:updateId", async (req: Request, res: Response) => {
 
     const finalShortDescription =
       (shortDescription && String(shortDescription).trim()) || truncate(description, 240);
+
+    // Backward-compat for impact highlights: when the caller doesn't
+    // send the field at all, leave the existing column value alone.
+    // When it sends the field (even as `null` / `[]`), normalise and
+    // overwrite — including back to NULL if every row was blanked.
+    const impactHighlightsProvided = Object.prototype.hasOwnProperty.call(
+      req.body || {},
+      "impactHighlights"
+    );
+    const normalizedHighlights = impactHighlightsProvided
+      ? normalizeImpactHighlights(impactHighlights)
+      : null;
 
     // Backward-compat: only touch attachments when the caller explicitly
     // sends the field. Omitted = "no change" (so older clients that
@@ -2996,23 +3044,31 @@ router.put("/:id/updates/:updateId", async (req: Request, res: Response) => {
       // Legacy single-attachment columns are no longer written. They are
       // cleared on edit so a Save can never resurrect the old single-file
       // path after the admin has switched to the multi-attachment list.
+      // `impact_highlights` is only overwritten when the caller sent the
+      // field; otherwise the existing column value is preserved.
       const updateResult = await txClient.query(
         `UPDATE campaign_updates
            SET subject = $1, description = $2, short_subject = NULL, short_description = $3,
                attach_file = NULL, attach_file_name = NULL,
-               start_date = $4, end_date = $5, updated_at = NOW()
-         WHERE id = $6 AND campaign_id = $7
+               start_date = $4, end_date = $5,
+               impact_highlights = CASE WHEN $6::boolean THEN $7::jsonb ELSE impact_highlights END,
+               updated_at = NOW()
+         WHERE id = $8 AND campaign_id = $9
          RETURNING id, campaign_id AS "campaignId", subject, description,
                    short_subject AS "shortSubject", short_description AS "shortDescription",
                    attach_file AS "attachFile", attach_file_name AS "attachFileName",
                    start_date AS "startDate",
-                   end_date AS "endDate", created_at AS "createdAt", updated_at AS "updatedAt"`,
+                   end_date AS "endDate",
+                   impact_highlights AS "impactHighlights",
+                   created_at AS "createdAt", updated_at AS "updatedAt"`,
         [
           String(subject).trim(),
           description || null,
           finalShortDescription,
           startDate || null,
           endDate || null,
+          impactHighlightsProvided,
+          normalizedHighlights ? JSON.stringify(normalizedHighlights) : null,
           updateId,
           campaignId,
         ]

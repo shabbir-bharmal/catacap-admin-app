@@ -820,6 +820,16 @@ async function ensureCampaignUpdateExtras(client: pg.PoolClient): Promise<void> 
       ON campaign_update_attachments (campaign_update_id)
   `);
 
+  // Up to three free-form { label, value } pairs entered by an admin
+  // in the New / Edit Update modal. NULL = no highlights; otherwise a
+  // JSON array of three objects (unused rows are stored as
+  // { "label": "", "value": "" } so slot ordering is stable).
+  // Migration: releases/2026_04_30/migrations/2026_04_30_campaign_update_impact_highlights.sql
+  await client.query(`
+    ALTER TABLE campaign_updates
+      ADD COLUMN IF NOT EXISTS impact_highlights JSONB
+  `);
+
   // Tag user_notifications rows produced by Investment Update fan-outs
   // with the originating campaign_update_id. Nullable for back-compat
   // with all other notification sources, and for legacy update

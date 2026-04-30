@@ -597,6 +597,14 @@ export default function AdminInvestmentEdit() {
         mimeType: string;
         sizeBytes: number;
       };
+  // Three free-form (label, value) slots rendered in the New / Edit
+  // Update modal under "Impact Highlights". The slot count is fixed so
+  // the form layout stays stable; persistence treats all-blank rows as
+  // "no highlights" (NULL on the server).
+  const IMPACT_HIGHLIGHTS_SLOTS = 3;
+  const emptyImpactHighlights = (): { label: string; value: string }[] =>
+    Array.from({ length: IMPACT_HIGHLIGHTS_SLOTS }, () => ({ label: "", value: "" }));
+
   const [updateForm, setUpdateForm] = useState<{
     subject: string;
     description: string;
@@ -604,7 +612,16 @@ export default function AdminInvestmentEdit() {
     startDate: string;
     endDate: string;
     attachments: UpdateFormAttachment[];
-  }>({ subject: "", description: "", shortDescription: "", startDate: "", endDate: "", attachments: [] });
+    impactHighlights: { label: string; value: string }[];
+  }>({
+    subject: "",
+    description: "",
+    shortDescription: "",
+    startDate: "",
+    endDate: "",
+    attachments: [],
+    impactHighlights: emptyImpactHighlights(),
+  });
   const [emailLogsTarget, setEmailLogsTarget] = useState<CampaignUpdateItem | null>(null);
   const [emailLogs, setEmailLogs] = useState<CampaignUpdateEmailLogItem[]>([]);
   const [emailLogsLoading, setEmailLogsLoading] = useState(false);
@@ -691,7 +708,15 @@ export default function AdminInvestmentEdit() {
   }, [currentStep, resolvedNumericId, updatesDisabled, loadCampaignUpdates]);
 
   const resetUpdateForm = () => {
-    setUpdateForm({ subject: "", description: "", shortDescription: "", startDate: "", endDate: "", attachments: [] });
+    setUpdateForm({
+      subject: "",
+      description: "",
+      shortDescription: "",
+      startDate: "",
+      endDate: "",
+      attachments: [],
+      impactHighlights: emptyImpactHighlights(),
+    });
     setUpdateFormErrors({});
     setEditingUpdateId(null);
   };
@@ -720,6 +745,21 @@ export default function AdminInvestmentEdit() {
   const openEditUpdateForm = (item: CampaignUpdateItem) => {
     setEditingUpdateId(item.id);
     const existing = (item.attachments || []).map(mapExistingAttachment);
+    // Always render exactly IMPACT_HIGHLIGHTS_SLOTS rows; pad / truncate
+    // whatever the server returned so the form layout stays stable
+    // even for legacy updates with no `impact_highlights` value.
+    const loadedHighlights = emptyImpactHighlights();
+    if (Array.isArray(item.impactHighlights)) {
+      for (let i = 0; i < IMPACT_HIGHLIGHTS_SLOTS; i++) {
+        const row = item.impactHighlights[i];
+        if (row && typeof row === "object") {
+          loadedHighlights[i] = {
+            label: typeof row.label === "string" ? row.label : "",
+            value: typeof row.value === "string" ? row.value : "",
+          };
+        }
+      }
+    }
     setUpdateForm({
       subject: item.subject || "",
       description: item.description || "",
@@ -727,6 +767,7 @@ export default function AdminInvestmentEdit() {
       startDate: item.startDate || "",
       endDate: item.endDate || "",
       attachments: existing,
+      impactHighlights: loadedHighlights,
     });
     setUpdateFormErrors({});
     setUpdateFormOpen(true);
@@ -855,6 +896,12 @@ export default function AdminInvestmentEdit() {
         startDate: updateForm.startDate || null,
         endDate: updateForm.endDate || null,
         attachments: attachmentsPayload,
+        // Always send all three slots, trimmed; the backend treats an
+        // all-blank array as NULL so empty rows don't pollute the DB.
+        impactHighlights: updateForm.impactHighlights.map((h) => ({
+          label: (h.label || "").trim(),
+          value: (h.value || "").trim(),
+        })),
       };
       if (editingUpdateId) {
         const result = await updateCampaignUpdate(resolvedNumericId, editingUpdateId, payload);
@@ -3758,6 +3805,47 @@ export default function AdminInvestmentEdit() {
                   data-testid="input-update-short-description"
                 />
                 <p className="text-[11px] text-muted-foreground">Used as the in-app notification body.</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm">Impact Highlights</Label>
+                <p className="text-[11px] text-muted-foreground">
+                  Up to three custom (Label, Value) pairs shown alongside this update. Leave blank to skip.
+                </p>
+                <div className="space-y-2">
+                  {updateForm.impactHighlights.map((row, idx) => (
+                    <div
+                      key={idx}
+                      className="grid grid-cols-1 sm:grid-cols-2 gap-2"
+                      data-testid={`row-update-impact-highlight-${idx}`}
+                    >
+                      <Input
+                        value={row.label}
+                        maxLength={200}
+                        placeholder={`Custom Label ${idx + 1}`}
+                        aria-label={`Impact highlight ${idx + 1} label`}
+                        onChange={(e) => {
+                          const next = updateForm.impactHighlights.slice();
+                          next[idx] = { ...next[idx], label: e.target.value };
+                          setUpdateForm((p) => ({ ...p, impactHighlights: next }));
+                        }}
+                        data-testid={`input-update-impact-highlight-label-${idx}`}
+                      />
+                      <Input
+                        value={row.value}
+                        maxLength={200}
+                        placeholder={`Custom Value ${idx + 1}`}
+                        aria-label={`Impact highlight ${idx + 1} value`}
+                        onChange={(e) => {
+                          const next = updateForm.impactHighlights.slice();
+                          next[idx] = { ...next[idx], value: e.target.value };
+                          setUpdateForm((p) => ({ ...p, impactHighlights: next }));
+                        }}
+                        data-testid={`input-update-impact-highlight-value-${idx}`}
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <div className="space-y-1.5">

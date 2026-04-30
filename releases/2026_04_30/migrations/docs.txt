@@ -1,0 +1,50 @@
+Migration: 2026_04_30_campaign_update_impact_highlights.sql
+Release date: 2026-04-30
+Feature: Investment Updates — Impact Highlights field
+
+Overview
+--------
+Adds a single JSONB column `impact_highlights` to the
+`campaign_updates` table. It stores up to three free-form
+{ label, value } pairs that an admin enters in the New Update /
+Edit Update modal on the admin Investment edit page (Updates tab).
+
+Storage shape
+-------------
+  impact_highlights = [
+    { "label": "Jobs created",  "value": "12" },
+    { "label": "Revenue (ARR)", "value": "$1.2M" },
+    { "label": "",              "value": ""    }
+  ]
+
+The frontend modal always renders exactly three rows; unused rows
+are persisted as { "label": "", "value": "" } so slot order is
+stable across edits. NULL = "no highlights at all" (legacy rows
+created before this migration).
+
+Idempotency
+-----------
+- `ADD COLUMN IF NOT EXISTS` so the migration is safe to re-run.
+- No backfill: existing rows are left at NULL.
+
+Backend touch points
+--------------------
+- server/src/db.ts: `ensureCampaignUpdateExtras` now also runs
+  the same ADD COLUMN IF NOT EXISTS on startup so dev / preview
+  environments stay in sync with the schema.
+- server/src/routes/adminInvestment.ts:
+    GET  /:id/updates             — selects and returns
+                                    `impact_highlights` AS "impactHighlights".
+    POST /:id/updates             — accepts `impactHighlights` in the
+                                    request body and persists it.
+    PUT  /:id/updates/:updateId   — same; field is updated atomically
+                                    with the rest of the row.
+
+Frontend touch points
+---------------------
+- src/api/investment/investmentApi.ts:
+    `CampaignUpdateItem.impactHighlights`,
+    `CampaignUpdatePayload.impactHighlights`.
+- src/pages/AdminInvestmentEdit.tsx:
+    New "Impact Highlights" section in the New / Edit Update modal,
+    rendering three (Custom Label, Custom Value) input pairs.
