@@ -150,7 +150,7 @@ router.get("/", async (req: Request, res: Response) => {
           perInvestmentCap: g.per_investment_cap != null ? parseFloat(g.per_investment_cap) : null,
           isActive: g.is_active,
           notes: g.notes || "",
-          expiresAt: g.expires_at ? g.expires_at.toISOString() : null,
+          expiresAt: g.expires_at || null,
           createdAt: g.created_at,
           updatedAt: g.updated_at,
           timesUsed: parseInt(g.times_used) || 0,
