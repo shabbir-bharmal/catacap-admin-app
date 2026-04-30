@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter, handleMissingTableError } from "../utils/softDelete.js";
 import { restoreOwningUsersForRecordsInTx } from "../utils/userRestore.js";
+<<<<<<< HEAD
 import {
   uploadNoteAttachments,
   rollbackUploadedAttachments,
@@ -10,6 +11,9 @@ import {
   buildAttachmentPublicUrl,
   type UploadedAttachment,
 } from "../utils/noteAttachments.js";
+=======
+import { autoEnrollInvestorIfApplicable } from "../utils/autoEnrollGroupMembership.js";
+>>>>>>> origin/main
 import ExcelJS from "exceljs";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
@@ -326,6 +330,8 @@ router.put("/:id/status", async (req: Request, res: Response) => {
             asset.uid,
           ]
         );
+
+        await autoEnrollInvestorIfApplicable(client, asset.uid, asset.camp_id);
 
         if (recAmount > 0) {
           await client.query(

@@ -108,11 +108,6 @@ export function GroupLeadersSection({ apiGroupId, leaders, setLeaders, cardClass
                     : l
             );
         } else {
-            if (leaders.length >= 2) {
-                toast({ title: "Maximum reached", description: "Maximum two group leaders are allowed.", variant: "destructive" });
-                setSavingLeader(false);
-                return;
-            }
             updated = [...leaders, {
                 id: selectedLeaderUser!.id,
                 name: selectedLeaderUser!.fullName,
@@ -174,14 +169,12 @@ export function GroupLeadersSection({ apiGroupId, leaders, setLeaders, cardClass
                     <div className="flex items-start justify-between gap-4 mb-4">
                         <div>
                             <h5 className="text-base font-semibold" data-testid="text-leaders-heading">Group Leaders</h5>
-                            <p className="text-xs text-muted-foreground mt-0.5">(Maximum two group leaders are allowed.)</p>
                         </div>
                         <Button
                             variant="outline"
                             size="sm"
                             className="border-[#405189] text-[#405189] uppercase tracking-wider text-xs font-semibold shrink-0"
                             onClick={openAddLeaderDialog}
-                            disabled={leaders.length >= 2}
                             data-testid="button-add-leader"
                         >
                             <Plus className="w-3.5 h-3.5 mr-1" />

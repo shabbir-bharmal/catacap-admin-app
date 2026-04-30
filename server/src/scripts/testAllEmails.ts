@@ -147,7 +147,7 @@ const templateConfigs: Record<number, TemplateConfig> = {
   <li><b>Log in </b>to your <a href='https://www.fidelitycharitable.org' target='_blank'>Fidelity Charitable</a> account</li>
   <li><b>Initiate a donation </b>using the following details:</li>
   <ul style='list-style-type: disc; padding-left: 10px; margin-left: 0;'>
-    <li><b>Donation Recipient:</b> Impactree Foundation</li>
+    <li><b>Donation Recipient:</b> CataCap</li>
     <li><b>Project Name/ Grant Purpose:</b> CataCap</li>
     <li><b>Amount:</b> $1,500.00</li>
     <li><b>EIN:</b> 86-2370923</li>
@@ -171,7 +171,7 @@ const templateConfigs: Record<number, TemplateConfig> = {
       donationRecipientSection: `<ol>
   <li>Prepare your foundation check using the following details:</li>
   <ul style='list-style-type:disc;'>
-    <li><b>Donation Recipient:</b> Impactree Foundation</li>
+    <li><b>Donation Recipient:</b> CataCap</li>
     <li><b>Amount:</b> $1,500.00</li>
     <li><b>EIN:</b> 86-2370923</li>
     <li><b>Email:</b> <a href='mailto:support@catacap.org'>support@catacap.org</a></li>
@@ -470,7 +470,7 @@ const templateConfigs: Record<number, TemplateConfig> = {
   <li><b>Log in </b>to your <a href='https://www.fidelitycharitable.org' target='_blank'>Fidelity Charitable</a> account</li>
   <li><b>Initiate a donation </b>using the following details:</li>
   <ul style='list-style-type: disc; padding-left: 10px; margin-left: 0;'>
-    <li><b>Donation Recipient:</b> Impactree Foundation</li>
+    <li><b>Donation Recipient:</b> CataCap</li>
     <li><b>Project Name/ Grant Purpose:</b> CataCap</li>
     <li><b>Amount:</b> $1,500.00</li>
     <li><b>EIN:</b> 86-2370923</li>
@@ -494,7 +494,7 @@ const templateConfigs: Record<number, TemplateConfig> = {
       donationRecipientSection: `<ol>
   <li>Prepare your foundation check using the following details:</li>
   <ul style='list-style-type:disc;'>
-    <li><b>Donation Recipient:</b> Impactree Foundation</li>
+    <li><b>Donation Recipient:</b> CataCap</li>
     <li><b>Amount:</b> $1,500.00</li>
     <li><b>EIN:</b> 86-2370923</li>
     <li><b>Email:</b> <a href='mailto:support@catacap.org'>support@catacap.org</a></li>

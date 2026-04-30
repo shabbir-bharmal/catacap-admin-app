@@ -1051,7 +1051,12 @@ router.get("/:id", async (req: Request, res: Response) => {
       metaTitle: c.meta_title,
       metaDescription: c.meta_description,
       groupForPrivateAccessId: c.group_for_private_access_id,
+<<<<<<< HEAD
       thankYouAttachments,
+=======
+      ownerGroupId: c.owner_group_id,
+      autoEnrollInvestors: c.auto_enroll_investors ?? false,
+>>>>>>> origin/main
     };
 
     res.json(campaign);
@@ -1267,12 +1272,13 @@ router.post("/", async (req: Request, res: Response) => {
         has_corporate_bank_account, has_personal_financial_benefit,
         personal_financial_benefit_description, has_regulatory_issues,
         regulatory_issues_description, is_in_good_legal_standing,
+        owner_group_id, auto_enroll_investors,
         created_date, modified_date
       ) VALUES (
         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
         $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,
         $39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,
-        $57,$58,$59,$60,$61,$62,NOW(),NOW()
+        $57,$58,$59,$60,$61,$62,$63,$64,NOW(),NOW()
       ) RETURNING id`,
       [
         campaign.name || null,
@@ -1337,6 +1343,8 @@ router.post("/", async (req: Request, res: Response) => {
         campaign.hasRegulatoryIssues ?? null,
         campaign.regulatoryIssuesDescription || null,
         campaign.isInGoodLegalStanding ?? null,
+        campaign.ownerGroupId === "" || campaign.ownerGroupId == null ? null : Number(campaign.ownerGroupId),
+        campaign.autoEnrollInvestors === true,
       ]
     );
 
@@ -1574,7 +1582,7 @@ router.put("/:id/status", async (req: Request, res: Response) => {
       const dateStr = `${String(now.getMonth() + 1).padStart(2, "0")}/${String(now.getDate()).padStart(2, "0")}/${now.getFullYear()}`;
 
       try {
-        await sendTemplateEmail(11, "investments@catacap.org", {
+        await sendTemplateEmail(19, "investments@catacap.org", {
           logoUrl,
           date: dateStr,
           investmentLink: `${requestOrigin}/investments/${campaign.property}`,
@@ -1670,6 +1678,14 @@ router.put("/:id", async (req: Request, res: Response) => {
     let finalAddedTotalAdminRaised = campaign.addedTotalAdminRaised;
     let finalIsActive = campaign.isActive;
     let finalGroupForPrivateAccessId = campaign.groupForPrivateAccessDto?.id || campaign.groupForPrivateAccessId || null;
+    let finalOwnerGroupId =
+      campaign.ownerGroupId === undefined
+        ? existing.owner_group_id
+        : (campaign.ownerGroupId === "" || campaign.ownerGroupId == null ? null : Number(campaign.ownerGroupId));
+    let finalAutoEnrollInvestors =
+      campaign.autoEnrollInvestors === undefined
+        ? existing.auto_enroll_investors
+        : campaign.autoEnrollInvestors === true;
 
     if (!isAdmin) {
       finalMinimumInvestment = existing.minimum_investment;
@@ -1679,6 +1695,8 @@ router.put("/:id", async (req: Request, res: Response) => {
       finalAddedTotalAdminRaised = existing.added_total_admin_raised;
       finalIsActive = existing.is_active;
       finalGroupForPrivateAccessId = existing.group_for_private_access_id;
+      finalOwnerGroupId = existing.owner_group_id;
+      finalAutoEnrollInvestors = existing.auto_enroll_investors;
     }
 
     let finalUserId = existing.user_id;
@@ -1714,9 +1732,15 @@ router.put("/:id", async (req: Request, res: Response) => {
         has_corporate_bank_account = $56, has_personal_financial_benefit = $57,
         personal_financial_benefit_description = $58, has_regulatory_issues = $59,
         regulatory_issues_description = $60, is_in_good_legal_standing = $61,
+        owner_group_id = $62, auto_enroll_investors = $63,
         modified_date = NOW()
+<<<<<<< HEAD
       WHERE id = $62`;
     const campaignUpdateParams: any[] = [
+=======
+      WHERE id = $64`,
+      [
+>>>>>>> origin/main
         campaign.name || existing.name,
         campaign.description ?? existing.description,
         campaign.themes ?? existing.themes,
@@ -1778,6 +1802,8 @@ router.put("/:id", async (req: Request, res: Response) => {
         Object.prototype.hasOwnProperty.call(campaign, "hasRegulatoryIssues") ? campaign.hasRegulatoryIssues : existing.has_regulatory_issues,
         Object.prototype.hasOwnProperty.call(campaign, "regulatoryIssuesDescription") ? campaign.regulatoryIssuesDescription : existing.regulatory_issues_description,
         Object.prototype.hasOwnProperty.call(campaign, "isInGoodLegalStanding") ? campaign.isInGoodLegalStanding : existing.is_in_good_legal_standing,
+        finalOwnerGroupId,
+        finalAutoEnrollInvestors,
         id,
       ];
 

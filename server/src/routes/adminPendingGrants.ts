@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter, handleMissingTableError } from "../utils/softDelete.js";
 import { restoreOwningUsersForRecordsInTx } from "../utils/userRestore.js";
+<<<<<<< HEAD
 import {
   uploadNoteAttachments,
   rollbackUploadedAttachments,
@@ -10,6 +11,9 @@ import {
   buildAttachmentPublicUrl,
   type UploadedAttachment,
 } from "../utils/noteAttachments.js";
+=======
+import { autoEnrollInvestorIfApplicable } from "../utils/autoEnrollGroupMembership.js";
+>>>>>>> origin/main
 import ExcelJS from "exceljs";
 
 const router = Router();
@@ -504,6 +508,8 @@ router.put("/:id", async (req: Request, res: Response) => {
             grant.uid,
           ]
         );
+
+        await autoEnrollInvestorIfApplicable(client, grant.uid, grant.camp_id);
 
         let amountToDeduct = finalInvestmentAmount;
 

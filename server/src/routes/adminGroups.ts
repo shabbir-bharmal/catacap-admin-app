@@ -54,7 +54,7 @@ router.get("/", async (req: Request, res: Response) => {
       `SELECT g.id, g.name, g.identifier, g.is_deactivated, g.is_corporate_group,
               g.is_private_group, g.featured_group, g.leaders, g.group_themes,
               g.meta_title, g.meta_description, g.deleted_at,
-              g.deleted_by
+              g.deleted_by, g.owner_id
        FROM groups g
        ${whereClause}`,
       values
@@ -68,28 +68,29 @@ router.get("/", async (req: Request, res: Response) => {
     const groups = groupsResult.rows;
     const groupIds = groups.map((g: any) => g.id);
 
-    const allLeaderIds: string[] = [];
+    const userIdsToResolve: string[] = [];
     for (const g of groups) {
+      if (g.owner_id) userIdsToResolve.push(g.owner_id);
       if (g.leaders) {
         try {
           const parsed = JSON.parse(g.leaders);
           for (const l of parsed) {
-            if (l.UserId || l.userId) allLeaderIds.push(l.UserId || l.userId);
+            if (l.UserId || l.userId) userIdsToResolve.push(l.UserId || l.userId);
           }
         } catch {}
       }
     }
 
-    let leaderNameLookup: Record<string, string> = {};
-    if (allLeaderIds.length > 0) {
-      const uniqueIds = [...new Set(allLeaderIds)];
+    let userNameLookup: Record<string, string> = {};
+    if (userIdsToResolve.length > 0) {
+      const uniqueIds = [...new Set(userIdsToResolve)];
       const placeholders = uniqueIds.map((_, i) => `$${i + 1}`).join(", ");
-      const leaderResult = await pool.query(
+      const userResult = await pool.query(
         `SELECT id, COALESCE(first_name, '') || ' ' || COALESCE(last_name, '') as full_name FROM users WHERE id IN (${placeholders})`,
         uniqueIds
       );
-      for (const row of leaderResult.rows) {
-        leaderNameLookup[row.id] = row.full_name;
+      for (const row of userResult.rows) {
+        userNameLookup[row.id] = (row.full_name || '').trim();
       }
     }
 
@@ -168,11 +169,13 @@ router.get("/", async (req: Request, res: Response) => {
           leaderNames = parsed
             .map((l: any) => {
               const uid = l.UserId || l.userId;
-              return uid && leaderNameLookup[uid] ? leaderNameLookup[uid] : null;
+              return uid && userNameLookup[uid] ? userNameLookup[uid] : null;
             })
             .filter(Boolean);
         } catch {}
       }
+
+      const ownerName = g.owner_id ? (userNameLookup[g.owner_id] || "") : "";
 
       const campaigns = campaignsByGroup[g.id] || [];
       const activeCampaigns = campaigns.filter((c: any) => c.is_active === true);
@@ -191,6 +194,8 @@ router.get("/", async (req: Request, res: Response) => {
         isPrivateGroup: g.is_private_group || false,
         featuredGroup: g.featured_group || false,
         leader: leaderNames.join(", "),
+        groupOwner: ownerName,
+        groupOwnerId: g.owner_id || null,
         member: memberCounts[g.id] || 0,
         memberInvestedTotal: memberInvestedTotals[g.id] || 0,
         groupThemes: g.group_themes,
@@ -207,6 +212,7 @@ router.get("/", async (req: Request, res: Response) => {
       result = result.filter(
         (u: any) =>
           (u.name || "").toLowerCase().includes(searchValue) ||
+          (u.groupOwner || "").toLowerCase().includes(searchValue) ||
           (u.leader || "").toLowerCase().includes(searchValue)
       );
     }
@@ -560,26 +566,21 @@ router.get("/leaders-and-champions", async (req: Request, res: Response) => {
     const groupOwnerId = ownerResult.rows[0]?.owner_id;
 
     if (type === "leaders") {
-      const groupAdminRoleResult = await pool.query(
-        `SELECT id FROM roles WHERE name = 'GroupAdmin'`
-      );
-      const groupAdminRoleId = groupAdminRoleResult.rows[0]?.id;
-
-      if (!groupAdminRoleId) {
-        res.json([]);
-        return;
-      }
-
+      // Search across ALL active, non-deleted users (no role gate, owner included).
+      // The group's owner can be added as a public Leader if desired.
       const result = await pool.query(
         `SELECT u.id, COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '') as "fullName", u.picture_file_name as "pictureFileName"
          FROM users u
          WHERE u.is_active = true
            AND (u.is_deleted IS NULL OR u.is_deleted = false)
-           AND EXISTS (SELECT 1 FROM user_roles ur WHERE ur.user_id = u.id AND ur.role_id = $1)
-           AND ($2::text IS NULL OR u.id != $2::text)
-           AND LOWER(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) LIKE $3`,
-        [groupAdminRoleId, groupOwnerId || null, `%${userName}%`]
+           AND LOWER(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) LIKE $1
+         ORDER BY u.first_name, u.last_name
+         LIMIT 50`,
+        [`%${userName}%`]
       );
+      // groupOwnerId is read above for parity with the champions branch but is no
+      // longer used as an exclusion filter here.
+      void groupOwnerId;
       res.json(result.rows.map((r: any) => ({ ...r, pictureFileName: resolveFileUrl(r.pictureFileName, "users") })));
     } else if (type === "champions") {
       const result = await pool.query(
@@ -1054,6 +1055,20 @@ router.put("/update-group-investments", async (req: Request, res: Response) => {
       const unsubscribeUrl = requestOrigin ? `${requestOrigin}/settings` : "";
 
       const groupPicturePath = extractStoragePath(group.picture_file_name) || null;
+      const groupLogoUrl = resolveFileUrl(group.picture_file_name, "groups") || "";
+      const escapeHtml = (s: string) =>
+        String(s ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      const groupNameSafe = escapeHtml(group.name || "");
+      const groupPageHrefSafe = escapeHtml(groupPageUrl);
+      const groupLogoSrcSafe = escapeHtml(groupLogoUrl);
+      const groupHeaderBranding = groupLogoUrl
+        ? `<a href="${groupPageHrefSafe}" target="_blank" style="text-decoration:none;"><img src="${groupLogoSrcSafe}" alt="${groupNameSafe}" width="150" height="75" style="display:block; max-height:75px; width:auto; max-width:200px; object-fit:contain;"></a>`
+        : `<a href="${groupPageHrefSafe}" target="_blank" style="text-decoration:none;"><span style="display:inline-block; font-family:Georgia,'Times New Roman',serif; font-size:22px; font-weight:700; color:#16a34a; line-height:1.2;">${groupNameSafe}</span></a>`;
 
       const formatTargetAmount = (val: any): string => {
         if (val == null || val === "") return "";
@@ -1117,10 +1132,15 @@ router.put("/update-group-investments", async (req: Request, res: Response) => {
               }
 
               if (member.email) {
+                const exploreInvestmentUrl = `${requestOrigin}/investments/${campaign.property || campaign.id}`;
                 sendTemplateEmail(12, member.email, {
                   groupName: group.name,
                   investmentName: campaign.name,
-                  investmentLink: `${requestOrigin}/investments/${campaign.property || campaign.id}`,
+                  // legacy alias kept for any older template revisions still referencing it
+                  investmentLink: exploreInvestmentUrl,
+                  exploreInvestmentUrl,
+                  groupLogoUrl,
+                  groupHeaderBranding,
                   firstName: member.first_name || "Member",
                   groupPageUrl,
                   targetAmount: formatTargetAmount(campaign.target),

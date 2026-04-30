@@ -451,8 +451,15 @@ router.get("/kpis/account-balance-cumulative", async (req: Request, res: Respons
   try {
     const range = String(req.query.range || "all").toLowerCase();
     const granularityRaw = String(req.query.granularity || "").toLowerCase();
-    const { periodFilter, periodParams, baselineFilter, baselineParams, days } =
-      buildRangeFilter(range, "change_date");
+
+    let days: number | null;
+    if (range === "ytd") {
+      const now = new Date();
+      const jan1 = Date.UTC(now.getUTCFullYear(), 0, 1);
+      days = Math.max(1, Math.floor((Date.now() - jan1) / 86400000));
+    } else {
+      days = RANGE_TO_DAYS[range] ?? null;
+    }
 
     let granularity = granularityRaw;
     if (!VALID_GRANULARITIES.has(granularity)) {
@@ -462,50 +469,133 @@ router.get("/kpis/account-balance-cumulative", async (req: Request, res: Respons
     }
 
     const truncUnit = granularity === "day" ? "day" : granularity === "week" ? "week" : "month";
+    const stepInterval = `INTERVAL '1 ${truncUnit}'`;
 
-    const periodResult = await pool.query(
-      `SELECT date_trunc('${truncUnit}', change_date) AS bucket,
-              COALESCE(SUM(GREATEST(new_value - old_value, 0)), 0) AS added
-       FROM account_balance_change_logs
-       WHERE (is_deleted IS NULL OR is_deleted = false)
-         AND new_value > old_value
-         AND change_date IS NOT NULL
-         ${periodFilter}
-       GROUP BY bucket
-       ORDER BY bucket ASC`,
-      periodParams,
-    );
-
-    let baselineCumulative = 0;
-    if (baselineFilter !== null) {
-      const baselineResult = await pool.query(
-        `SELECT COALESCE(SUM(GREATEST(new_value - old_value, 0)), 0) AS total
-         FROM account_balance_change_logs
-         WHERE (is_deleted IS NULL OR is_deleted = false)
-           AND new_value > old_value
-           AND change_date IS NOT NULL
-           ${baselineFilter}`,
-        baselineParams,
+    // Determine the range start date.
+    let rangeStart: Date;
+    if (days === null) {
+      const earliestResult = await pool.query(
+        `SELECT LEAST(
+           (SELECT MIN(change_date) FROM account_balance_change_logs WHERE is_deleted IS NULL OR is_deleted = false),
+           (SELECT MIN(date_created) FROM recommendations WHERE is_deleted IS NULL OR is_deleted = false)
+         ) AS earliest`,
       );
-      baselineCumulative = parseFloat(baselineResult.rows[0]?.total) || 0;
+      const e = earliestResult.rows[0]?.earliest;
+      rangeStart = e ? new Date(e) : new Date(Date.now() - 365 * 24 * 3600 * 1000);
+    } else {
+      rangeStart = new Date(Date.now() - days * 24 * 3600 * 1000);
     }
 
-    let runningTotal = baselineCumulative;
-    const series = periodResult.rows.map((row: { bucket: Date; added: string }) => {
-      const added = parseFloat(row.added) || 0;
-      runningTotal += added;
+    // For each bucket-end snapshot:
+    //   balance = current_total_balance - SUM(net deltas with change_date >= bucket_end)
+    //   recs    = SUM(amount where date_created < bucket_end AND donor user
+    //                AND (status pending/approved
+    //                     OR (status rejected AND rejection_date >= bucket_end)))
+    //   assets  = balance + recs
+    // First row is a buffer bucket BEFORE the range start to act as baseline.
+    const result = await pool.query(
+      `WITH donor_emails AS (
+         SELECT DISTINCT LOWER(u.email) AS email
+         FROM users u
+         JOIN user_roles ur ON u.id = ur.user_id
+         JOIN roles r ON ur.role_id = r.id
+         WHERE r.name = $2
+           AND (u.is_deleted IS NULL OR u.is_deleted = false)
+       ),
+       current_balance AS (
+         SELECT COALESCE(SUM(u.account_balance), 0)::float8 AS total
+         FROM users u
+         JOIN user_roles ur ON u.id = ur.user_id
+         JOIN roles r ON ur.role_id = r.id
+         WHERE r.name = $2
+           AND (u.is_deleted IS NULL OR u.is_deleted = false)
+       ),
+       deltas AS (
+         SELECT change_date, (new_value - old_value) AS delta
+         FROM account_balance_change_logs
+         WHERE (is_deleted IS NULL OR is_deleted = false)
+           AND change_date IS NOT NULL
+       ),
+       filtered_recs AS (
+         SELECT r.amount, r.date_created, r.rejection_date,
+                LOWER(TRIM(r.status)) AS status
+         FROM recommendations r
+         JOIN donor_emails de ON LOWER(r.user_email) = de.email
+         WHERE (r.is_deleted IS NULL OR r.is_deleted = false)
+           AND r.date_created IS NOT NULL
+       ),
+       buckets AS (
+         SELECT generate_series(
+           date_trunc('${truncUnit}', $1::timestamp) - ${stepInterval},
+           date_trunc('${truncUnit}', NOW()),
+           ${stepInterval}
+         ) AS bucket_start
+       )
+       SELECT
+         b.bucket_start,
+         ((SELECT total FROM current_balance) - COALESCE((
+            SELECT SUM(delta) FROM deltas
+            WHERE change_date >= b.bucket_start + ${stepInterval}
+          ), 0)::float8) AS balance,
+         COALESCE((
+            SELECT SUM(amount) FROM filtered_recs
+            WHERE date_created < b.bucket_start + ${stepInterval}
+              AND (
+                status IN ('pending','approved')
+                OR (status = 'rejected' AND rejection_date >= b.bucket_start + ${stepInterval})
+              )
+          ), 0)::float8 AS recs
+       FROM buckets b
+       ORDER BY b.bucket_start ASC`,
+      [rangeStart.toISOString(), USER_ROLE],
+    );
+
+    if (result.rows.length === 0) {
+      return res.json({
+        range,
+        granularity,
+        baselineCumulative: 0,
+        currentCumulative: 0,
+        series: [],
+      });
+    }
+
+    // Clamp at 0: change_logs don't fully reconcile to current users.account_balance
+    // (some early adjustments were never logged), so the back-computed historical
+    // balance can go slightly negative for the earliest months. Negative aggregate
+    // assets are impossible in reality, so we floor the chart at 0.
+    const allRows = result.rows.map((r: { bucket_start: Date; balance: string; recs: string }) => {
+      const balance = parseFloat(String(r.balance)) || 0;
+      const recs = parseFloat(String(r.recs)) || 0;
       return {
-        date: new Date(row.bucket).toISOString().slice(0, 10),
-        added,
-        cumulative: runningTotal,
+        bucket: new Date(r.bucket_start),
+        assets: Math.max(0, balance + recs),
       };
     });
+
+    // First row = baseline (buffer bucket before the range)
+    const baseline = allRows[0];
+    const realRows = allRows.slice(1);
+
+    let prevAssets = baseline.assets;
+    const series = realRows.map((row) => {
+      const added = row.assets - prevAssets;
+      prevAssets = row.assets;
+      return {
+        date: row.bucket.toISOString().slice(0, 10),
+        added,
+        cumulative: row.assets,
+      };
+    });
+
+    const currentCumulative =
+      series.length > 0 ? series[series.length - 1].cumulative : baseline.assets;
 
     res.json({
       range,
       granularity,
-      baselineCumulative,
-      currentCumulative: runningTotal,
+      baselineCumulative: baseline.assets,
+      currentCumulative,
       series,
     });
   } catch (err) {

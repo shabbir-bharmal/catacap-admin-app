@@ -234,3 +234,98 @@ drop the four columns. Apply the rollback BEFORE rolling the
 application code back to a build that does not reference these
 columns; otherwise the API will start raising the same
 "column does not exist" error again.
+
+================================================================
+Migration: 2026_04_29_campaigns_owner_group_id.sql
+Release date: 2026-04-29
+Feature: Campaign owning group + auto-enrol flag
+================================================================
+
+Overview
+--------
+Adds two columns to `campaigns` so an admin can designate a single
+"owning" group for a campaign and (independently) opt-in to having
+every investor in that campaign automatically added to the owning
+group as an accepted member.
+
+Columns added
+-------------
+  campaigns.owner_group_id        INTEGER  NULL  FK -> groups(id)
+  campaigns.auto_enroll_investors BOOLEAN  NOT NULL DEFAULT FALSE
+
+Plus:
+  CONSTRAINT  campaigns_owner_group_id_fkey
+              FOREIGN KEY (owner_group_id) REFERENCES groups(id)
+  INDEX       idx_campaigns_owner_group_id  ON campaigns (owner_group_id)
+              WHERE owner_group_id IS NOT NULL  (partial; only the
+              minority of campaigns that have an owning group)
+
+Why
+---
+Membership in a CataCap group is recorded in the `requests` table
+(request_owner_id, group_to_follow_id, status='accepted',
+is_deleted=false). The members count and the "member invested total"
+shown on the Groups admin page are computed from that table. To make
+"campaign owns group" work without a side-table, the owning-group link
+lives directly on `campaigns`, and the auto-enrol behaviour is a
+single boolean on the same row.
+
+Application wiring
+------------------
+
+Admin UI (Investment edit page):
+  src/pages/AdminInvestmentEdit.tsx
+    - "Owning Group" dropdown (next to "Private Groups")
+    - "Auto-enrol investors as members of the owning group" checkbox
+      (disabled until an owning group is selected)
+    - Both fields are admin-only on the server (the existing isAdmin
+      gate on PUT /api/admin/investment/:id keeps non-admin requests
+      from changing them).
+
+Backend CRUD (server/src/routes/adminInvestment.ts):
+  - GET  /api/admin/investment/:id  returns ownerGroupId and
+    autoEnrollInvestors.
+  - POST /api/admin/investment      writes both columns.
+  - PUT  /api/admin/investment/:id  writes both columns, gated by
+    the admin role check (non-admins keep the existing values).
+
+Auto-enrol fire points (server/src/utils/autoEnrollGroupMembership.ts
+exports `autoEnrollInvestorIfApplicable(client, userId, campaignId)`,
+which is idempotent and uses the caller's transaction):
+
+  server/src/routes/adminPendingGrants.ts
+    Right after `INSERT INTO recommendations (... 'pending' ...)`
+    inside the DAF/grant processing transaction.
+
+  server/src/routes/adminOtherAssets.ts
+    Right after `INSERT INTO recommendations (... 'pending' ...)`
+    inside the other-asset processing transaction.
+
+  server/src/routes/adminRecommendations.ts
+    Inside `PUT /api/admin/recommendations/:id` when the status
+    transitions to 'approved' (the existing 'rejected' branch is
+    unchanged).
+
+The helper inserts at most one `requests` row per (user, owning
+group) and only when the campaign has owner_group_id IS NOT NULL
+AND auto_enroll_investors = TRUE. A user that is already an accepted
+member is a no-op.
+
+Runtime safety net
+------------------
+`server/src/db.ts` defines `ensureCampaignsOwnerGroupColumns(client)`
+and runs it on app startup (right after `ensureAdminPerformanceIndexes`).
+The helper is the same idempotent ALTER + DO + CREATE INDEX block as
+this migration, so any environment that boots the app without having
+applied the SQL file picks up the columns automatically. Wrapped in a
+try/catch so a failure to ALTER (e.g. permissions) does not crash the
+worker — it logs a warning and the regular admin endpoints will surface
+a clear error.
+
+Rollback
+--------
+Uncomment the rollback block at the bottom of the .sql file. Drop
+order is: index → constraint → auto_enroll_investors → owner_group_id.
+The application code tolerates the columns being missing (the runtime
+helper will try to re-add them, and the campaign read/write paths
+treat both fields as nullable on the wire).

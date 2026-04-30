@@ -74,10 +74,7 @@ function buildDafDonationRecipientSection(
     ? `<a href='${dafProviderLink}' target='_blank'>${dafProviderName}</a>`
     : dafProviderName;
 
-  const donationRecipient =
-    dafProviderName === "DAFgiving360: Charles Schwab"
-      ? "CataCap"
-      : "Impactree Foundation";
+  const donationRecipient = "CataCap";
 
   return `<ol>
   <li><b>Log in </b>to your ${dafLink} account</li>
@@ -100,7 +97,7 @@ function buildFoundationDonationRecipientSection(
   return `<ol>
   <li>Prepare your foundation check using the following details:</li>
   <ul style='list-style-type:disc;'>
-    <li><b>Donation Recipient:</b> Impactree Foundation</li>
+    <li><b>Donation Recipient:</b> CataCap</li>
     <li><b>Amount:</b> ${formattedAmount}</li>
     <li><b>EIN:</b> 86-2370923</li>
     <li><b>Email:</b> <a href='mailto:support@catacap.org'>support@catacap.org</a></li>
