@@ -1632,6 +1632,15 @@ router.put("/:id", async (req: Request, res: Response) => {
     let finalStage = campaign.stage;
     let finalProperty = campaign.property;
     let finalAddedTotalAdminRaised = campaign.addedTotalAdminRaised;
+    if (finalAddedTotalAdminRaised !== undefined && finalAddedTotalAdminRaised !== null) {
+      const raw = String(finalAddedTotalAdminRaised).trim();
+      if (raw === "") {
+        finalAddedTotalAdminRaised = null;
+      } else {
+        const parsed = Number(raw);
+        finalAddedTotalAdminRaised = Number.isFinite(parsed) ? Math.trunc(parsed) : null;
+      }
+    }
     let finalIsActive = campaign.isActive;
     let finalGroupForPrivateAccessId = campaign.groupForPrivateAccessDto?.id || campaign.groupForPrivateAccessId || null;
     let finalOwnerGroupId =
@@ -1887,7 +1896,17 @@ router.put("/:id", async (req: Request, res: Response) => {
       },
     });
   } catch (err: any) {
-    console.error("Error updating investment:", err);
+    console.error("Error updating investment:", {
+      message: err?.message,
+      code: err?.code,
+      detail: err?.detail,
+      hint: err?.hint,
+      table: err?.table,
+      column: err?.column,
+      constraint: err?.constraint,
+      where: err?.where,
+      stack: err?.stack,
+    });
     res.status(500).json({ success: false, message: err.message });
   }
 });

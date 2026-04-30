@@ -2572,7 +2572,7 @@ export default function AdminInvestmentEdit() {
                 {/* Total raised outside of CataCap */}
                 <div className="space-y-1.5" ref={raisedRef}>
                   <Label htmlFor="addedTotalAdminRaised" className="text-sm">Total raised outside of CataCap <span className="text-[#f06548]">*</span></Label>
-                  <Input id="addedTotalAdminRaised" type="number" min={0} value={formData.addedTotalAdminRaised} onChange={(e) => upd("addedTotalAdminRaised", e.target.value.replace(/[^0-9.]/g, ""))} onWheel={(e) => e.currentTarget.blur()} onKeyDown={(e) => { if (["e", "E", "+", "-"].includes(e.key)) e.preventDefault(); }} placeholder="Enter total raised to Date" className={fe("addedTotalAdminRaised")} data-testid="input-admin-raised" />
+                  <Input id="addedTotalAdminRaised" type="number" min={0} step={1} value={formData.addedTotalAdminRaised} onChange={(e) => upd("addedTotalAdminRaised", e.target.value.replace(/[^0-9]/g, ""))} onWheel={(e) => e.currentTarget.blur()} onKeyDown={(e) => { if (["e", "E", "+", "-", "."].includes(e.key)) e.preventDefault(); }} placeholder="Enter total raised to Date" className={fe("addedTotalAdminRaised")} data-testid="input-admin-raised" />
                   {errors.addedTotalAdminRaised && <p className="text-[#f06548] text-xs">Total raised outside of CataCap is required.</p>}
                 </div>
               </CardContent>
