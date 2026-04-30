@@ -1,5 +1,6 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
+import pg from "pg";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter, buildSortClause, handleMissingTableError } from "../utils/softDelete.js";
 import { sendTemplateEmail } from "../utils/emailService.js";
@@ -2500,6 +2501,179 @@ async function getCampaignForUpdates(campaignId: number): Promise<any | null> {
   return result.rows[0] || null;
 }
 
+interface CampaignUpdateAttachmentRow {
+  id: number;
+  filePath: string;
+  fileName: string | null;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  sortOrder: number;
+  fileUrl: string | null;
+}
+
+// Loads all attachment rows for one or more campaign_updates.id values.
+// Returns a map keyed by campaign_update_id so callers can attach the
+// list to each update without an N+1 query.
+async function loadAttachmentsForUpdates(
+  updateIds: number[]
+): Promise<Map<number, CampaignUpdateAttachmentRow[]>> {
+  const map = new Map<number, CampaignUpdateAttachmentRow[]>();
+  if (updateIds.length === 0) return map;
+  const result = await pool.query(
+    `SELECT id, campaign_update_id, file_path, file_name, mime_type,
+            size_bytes, sort_order
+       FROM campaign_update_attachments
+      WHERE campaign_update_id = ANY($1::int[])
+      ORDER BY sort_order ASC, id ASC`,
+    [updateIds]
+  );
+  for (const row of result.rows) {
+    const list = map.get(row.campaign_update_id) || [];
+    list.push({
+      id: row.id,
+      filePath: row.file_path,
+      fileName: row.file_name,
+      mimeType: row.mime_type,
+      sizeBytes: row.size_bytes != null ? Number(row.size_bytes) : null,
+      sortOrder: row.sort_order,
+      fileUrl: resolveFileUrl(row.file_path, "campaigns"),
+    });
+    map.set(row.campaign_update_id, list);
+  }
+  return map;
+}
+
+// Inserts/keeps/removes attachment rows for an update so the persisted
+// list matches `desired`. Each desired entry is one of:
+//   { id }                                – existing attachment to keep
+//   { data, name }                        – new upload (data is a data: URL)
+// Anything else / null is ignored.
+//
+// All DB writes use the supplied transactional client so the caller can
+// atomically commit/rollback together with the parent campaign_updates
+// row. Blob mutations are *not* transactional, so we report them back:
+//   - `uploadedBlobPaths` – paths just uploaded; caller must delete on rollback
+//   - `removedBlobPaths`  – paths whose DB row was deleted; caller must
+//                           delete only AFTER a successful commit
+async function syncCampaignUpdateAttachments(
+  client: pg.PoolClient,
+  updateId: number,
+  desired: any[]
+): Promise<{
+  rows: CampaignUpdateAttachmentRow[];
+  uploadedBlobPaths: string[];
+  removedBlobPaths: string[];
+}> {
+  const uploadedBlobPaths: string[] = [];
+  const removedBlobPaths: string[] = [];
+
+  const existingResult = await client.query(
+    `SELECT id, file_path FROM campaign_update_attachments
+      WHERE campaign_update_id = $1`,
+    [updateId]
+  );
+  const existingById = new Map<number, { id: number; file_path: string }>();
+  for (const r of existingResult.rows) existingById.set(Number(r.id), r);
+
+  const keepIds = new Set<number>();
+  const newUploads: { data: string; name: string }[] = [];
+
+  for (const item of desired) {
+    if (!item) continue;
+    if (typeof item.id === "number" && existingById.has(item.id)) {
+      keepIds.add(item.id);
+      continue;
+    }
+    const data = typeof item.data === "string" ? item.data : null;
+    if (data && data.startsWith("data:")) {
+      newUploads.push({
+        data,
+        name: item.name ? String(item.name).trim() || "attachment" : "attachment",
+      });
+    }
+  }
+
+  // Drop DB rows the client removed; defer blob deletion until commit.
+  const toDelete = [...existingById.values()].filter((r) => !keepIds.has(r.id));
+  for (const row of toDelete) {
+    await client.query(
+      `DELETE FROM campaign_update_attachments WHERE id = $1`,
+      [row.id]
+    );
+    if (row.file_path) removedBlobPaths.push(row.file_path);
+  }
+
+  // Determine starting sort_order for newly inserted rows so they appear
+  // after any kept ones.
+  let nextSort = 0;
+  if (keepIds.size > 0) {
+    const maxSortResult = await client.query(
+      `SELECT COALESCE(MAX(sort_order), -1) AS max_sort
+         FROM campaign_update_attachments
+        WHERE campaign_update_id = $1`,
+      [updateId]
+    );
+    nextSort = (maxSortResult.rows[0]?.max_sort ?? -1) + 1;
+  }
+
+  for (const upload of newUploads) {
+    // Uploads are not transactional. If the upload itself fails, no blob
+    // exists yet, so just rethrow. If the INSERT fails after the upload,
+    // we've already tracked the path and the caller will clean it up
+    // during rollback.
+    const uploaded = await uploadBase64Image(upload.data, "campaigns");
+    uploadedBlobPaths.push(uploaded.filePath);
+    await client.query(
+      `INSERT INTO campaign_update_attachments
+          (campaign_update_id, file_path, file_name, mime_type, size_bytes, sort_order)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        updateId,
+        uploaded.filePath,
+        upload.name,
+        uploaded.mimeType || null,
+        uploaded.sizeBytes || null,
+        nextSort++,
+      ]
+    );
+  }
+
+  const finalResult = await client.query(
+    `SELECT id, campaign_update_id, file_path, file_name, mime_type,
+            size_bytes, sort_order
+       FROM campaign_update_attachments
+      WHERE campaign_update_id = $1
+      ORDER BY sort_order ASC, id ASC`,
+    [updateId]
+  );
+  const rows: CampaignUpdateAttachmentRow[] = finalResult.rows.map((row) => ({
+    id: row.id,
+    filePath: row.file_path,
+    fileName: row.file_name,
+    mimeType: row.mime_type,
+    sizeBytes: row.size_bytes != null ? Number(row.size_bytes) : null,
+    sortOrder: row.sort_order,
+    fileUrl: resolveFileUrl(row.file_path, "campaigns"),
+  }));
+
+  return { rows, uploadedBlobPaths, removedBlobPaths };
+}
+
+// Best-effort blob deletion used after a tx commits / rolls back.
+async function bestEffortDeleteBlobs(paths: string[], context: string) {
+  for (const p of paths) {
+    if (!p) continue;
+    try {
+      await deleteStorageFile(p);
+    } catch (err) {
+      console.error(
+        `[campaign_update_attachments] ${context} failed to delete blob ${p}:`,
+        err
+      );
+    }
+  }
+}
+
 router.get("/:id/updates", async (req: Request, res: Response) => {
   try {
     const campaignId = parseInt(String(req.params.id), 10);
@@ -2520,10 +2694,24 @@ router.get("/:id/updates", async (req: Request, res: Response) => {
       [campaignId]
     );
 
-    const items = result.rows.map((r: any) => ({
-      ...r,
-      attachFileUrl: r.attachFile ? resolveFileUrl(r.attachFile, "campaigns") : null,
-    }));
+    const ids = result.rows.map((r: any) => r.id);
+    const attachmentsByUpdate = await loadAttachmentsForUpdates(ids);
+
+    const items = result.rows.map((r: any) => {
+      const attachments = attachmentsByUpdate.get(r.id) || [];
+      const first = attachments[0];
+      return {
+        ...r,
+        // Legacy single-attachment fields are derived from the first
+        // attachment so existing callers / table cells keep working.
+        attachFile: first ? first.filePath : r.attachFile,
+        attachFileName: first ? first.fileName : r.attachFileName,
+        attachFileUrl: first
+          ? first.fileUrl
+          : (r.attachFile ? resolveFileUrl(r.attachFile, "campaigns") : null),
+        attachments,
+      };
+    });
 
     res.json({ success: true, items });
   } catch (err: any) {
@@ -2555,7 +2743,7 @@ router.post("/:id/updates", async (req: Request, res: Response) => {
       return;
     }
 
-    const { subject, description, shortDescription, startDate, endDate, attachFile, attachFileName } =
+    const { subject, description, shortDescription, startDate, endDate, attachments } =
       req.body || {};
     if (!subject || !String(subject).trim()) {
       res.status(400).json({ success: false, message: "Subject is required." });
@@ -2566,51 +2754,67 @@ router.post("/:id/updates", async (req: Request, res: Response) => {
       return;
     }
 
-    // attachFile may be a data URL (new upload), an existing storage path, an
-    // object { data, name } when the client sends the original filename, or
-    // null/empty to clear the attachment.
-    let attachFilePath: string | null = null;
-    let storedAttachFileName: string | null = null;
-    let attachPayload: any = attachFile;
-    if (attachPayload && typeof attachPayload === "object" && !Array.isArray(attachPayload)) {
-      storedAttachFileName = attachPayload.name ? String(attachPayload.name).trim() : null;
-      attachPayload = attachPayload.data;
-    }
-    if (attachPayload && typeof attachPayload === "string") {
-      if (attachPayload.startsWith("data:")) {
-        const uploaded = await uploadBase64Image(attachPayload, "campaigns");
-        attachFilePath = uploaded.filePath;
-      } else if (attachPayload.trim() !== "") {
-        attachFilePath = attachPayload.trim();
-      }
-    }
-    if (!storedAttachFileName && attachFileName) {
-      storedAttachFileName = String(attachFileName).trim() || null;
-    }
-
     const finalShortDescription =
       (shortDescription && String(shortDescription).trim()) || truncate(description, 240);
 
-    const insertResult = await pool.query(
-      `INSERT INTO campaign_updates (campaign_id, subject, description, short_subject, short_description, attach_file, attach_file_name, start_date, end_date)
-       VALUES ($1, $2, $3, NULL, $4, $5, $6, $7, $8)
-       RETURNING id, campaign_id AS "campaignId", subject, description,
-                 short_subject AS "shortSubject", short_description AS "shortDescription",
-                 attach_file AS "attachFile", attach_file_name AS "attachFileName",
-                 start_date AS "startDate",
-                 end_date AS "endDate", created_at AS "createdAt", updated_at AS "updatedAt"`,
-      [
-        campaignId,
-        String(subject).trim(),
-        description || null,
-        finalShortDescription,
-        attachFilePath,
-        storedAttachFileName,
-        startDate || null,
-        endDate || null,
-      ]
-    );
-    const created = insertResult.rows[0];
+    // Insert the update row and its attachments in a single transaction
+    // so a partial failure (e.g. attachment upload error) cannot leave a
+    // stub update row behind. Blob mutations are tracked separately and
+    // cleaned up after commit / rollback.
+    const txClient = await pool.connect();
+    let created: any;
+    let createdAttachments: CampaignUpdateAttachmentRow[] = [];
+    let pendingUploadedBlobs: string[] = [];
+    try {
+      await txClient.query("BEGIN");
+
+      // Legacy single-attachment columns are no longer written. All
+      // attachments live in `campaign_update_attachments`.
+      const insertResult = await txClient.query(
+        `INSERT INTO campaign_updates (campaign_id, subject, description, short_subject, short_description, attach_file, attach_file_name, start_date, end_date)
+         VALUES ($1, $2, $3, NULL, $4, NULL, NULL, $5, $6)
+         RETURNING id, campaign_id AS "campaignId", subject, description,
+                   short_subject AS "shortSubject", short_description AS "shortDescription",
+                   attach_file AS "attachFile", attach_file_name AS "attachFileName",
+                   start_date AS "startDate",
+                   end_date AS "endDate", created_at AS "createdAt", updated_at AS "updatedAt"`,
+        [
+          campaignId,
+          String(subject).trim(),
+          description || null,
+          finalShortDescription,
+          startDate || null,
+          endDate || null,
+        ]
+      );
+      created = insertResult.rows[0];
+
+      const syncResult = await syncCampaignUpdateAttachments(
+        txClient,
+        created.id,
+        Array.isArray(attachments) ? attachments : []
+      );
+      createdAttachments = syncResult.rows;
+      pendingUploadedBlobs = syncResult.uploadedBlobPaths;
+
+      await txClient.query("COMMIT");
+    } catch (txErr: any) {
+      try {
+        await txClient.query("ROLLBACK");
+      } catch (_rollbackErr) {
+        /* ignore */
+      }
+      // Roll back blob uploads we made before the transaction failed so
+      // we don't leak orphaned objects in storage.
+      await bestEffortDeleteBlobs(pendingUploadedBlobs, "POST rollback");
+      console.error("Failed to create campaign update:", txErr);
+      res
+        .status(500)
+        .json({ success: false, message: txErr?.message || "Failed to create update." });
+      return;
+    } finally {
+      txClient.release();
+    }
 
     // Defer notification fan-out until the start_date is reached. If start_date
     // is null or in the past/today, fire immediately; otherwise the daily
@@ -2636,9 +2840,9 @@ router.post("/:id/updates", async (req: Request, res: Response) => {
       for (const row of investorsResult.rows) {
         try {
           await pool.query(
-            `INSERT INTO user_notifications (title, description, url_to_redirect, is_read, target_user_id, picture_file_name)
-             VALUES ($1, $2, $3, false, $4, $5)`,
-            [notifTitle, notifDescription, redirectUrl, row.user_id, notifPicture]
+            `INSERT INTO user_notifications (title, description, url_to_redirect, is_read, target_user_id, picture_file_name, campaign_update_id)
+             VALUES ($1, $2, $3, false, $4, $5, $6)`,
+            [notifTitle, notifDescription, redirectUrl, row.user_id, notifPicture, created.id]
           );
         } catch (notifErr) {
           console.error(
@@ -2655,14 +2859,16 @@ router.post("/:id/updates", async (req: Request, res: Response) => {
       console.error("Campaign update notification fan-out failed:", fanOutErr);
     }
 
+    const firstAttachment = createdAttachments[0];
     res.json({
       success: true,
       message: "Update created successfully.",
       item: {
         ...created,
-        attachFileUrl: created.attachFile
-          ? resolveFileUrl(created.attachFile, "campaigns")
-          : null,
+        attachFile: firstAttachment ? firstAttachment.filePath : null,
+        attachFileName: firstAttachment ? firstAttachment.fileName : null,
+        attachFileUrl: firstAttachment ? firstAttachment.fileUrl : null,
+        attachments: createdAttachments,
       },
     });
   } catch (err: any) {
@@ -2689,9 +2895,8 @@ router.put("/:id/updates/:updateId", async (req: Request, res: Response) => {
       res.status(404).json({ success: false, message: "Update not found." });
       return;
     }
-    const existing = existingResult.rows[0];
 
-    const { subject, description, shortDescription, startDate, endDate, attachFile, attachFileName } =
+    const { subject, description, shortDescription, startDate, endDate, attachments } =
       req.body || {};
     if (!subject || !String(subject).trim()) {
       res.status(400).json({ success: false, message: "Subject is required." });
@@ -2702,63 +2907,109 @@ router.put("/:id/updates/:updateId", async (req: Request, res: Response) => {
       return;
     }
 
-    let attachFilePath: string | null = existing.attach_file || null;
-    let storedAttachFileName: string | null = existing.attach_file_name || null;
-    let attachPayload: any = attachFile;
-    let providedFileName: string | null = null;
-    if (attachPayload && typeof attachPayload === "object" && !Array.isArray(attachPayload)) {
-      providedFileName = attachPayload.name ? String(attachPayload.name).trim() : null;
-      attachPayload = attachPayload.data;
-    }
-    if (attachPayload === null || attachPayload === "") {
-      attachFilePath = null;
-      storedAttachFileName = null;
-    } else if (typeof attachPayload === "string" && attachPayload.startsWith("data:")) {
-      const uploaded = await uploadBase64Image(attachPayload, "campaigns");
-      attachFilePath = uploaded.filePath;
-      storedAttachFileName = providedFileName || (attachFileName ? String(attachFileName).trim() : null);
-    } else if (typeof attachPayload === "string" && attachPayload.trim() !== "") {
-      attachFilePath = attachPayload.trim();
-      if (providedFileName || attachFileName) {
-        storedAttachFileName = providedFileName || String(attachFileName).trim();
-      }
-    }
-
     const finalShortDescription =
       (shortDescription && String(shortDescription).trim()) || truncate(description, 240);
 
-    const updateResult = await pool.query(
-      `UPDATE campaign_updates
-         SET subject = $1, description = $2, short_subject = NULL, short_description = $3,
-             attach_file = $4, attach_file_name = $5, start_date = $6, end_date = $7, updated_at = NOW()
-       WHERE id = $8 AND campaign_id = $9
-       RETURNING id, campaign_id AS "campaignId", subject, description,
-                 short_subject AS "shortSubject", short_description AS "shortDescription",
-                 attach_file AS "attachFile", attach_file_name AS "attachFileName",
-                 start_date AS "startDate",
-                 end_date AS "endDate", created_at AS "createdAt", updated_at AS "updatedAt"`,
-      [
-        String(subject).trim(),
-        description || null,
-        finalShortDescription,
-        attachFilePath,
-        storedAttachFileName,
-        startDate || null,
-        endDate || null,
-        updateId,
-        campaignId,
-      ]
+    // Backward-compat: only touch attachments when the caller explicitly
+    // sends the field. Omitted = "no change" (so older clients that
+    // don't know about the multi-attachment field don't accidentally
+    // wipe everything). An empty array still means "remove all".
+    const attachmentsProvided = Object.prototype.hasOwnProperty.call(
+      req.body || {},
+      "attachments"
     );
-    const updated = updateResult.rows[0];
+    const desiredAttachments: any[] | null = attachmentsProvided
+      ? Array.isArray(attachments)
+        ? attachments
+        : []
+      : null;
 
+    // Wrap the row update + attachment sync in a single transaction so a
+    // failure during attachment persistence doesn't leave partially
+    // applied content/attachment changes.
+    const txClient = await pool.connect();
+    let updated: any;
+    let savedAttachments: CampaignUpdateAttachmentRow[] = [];
+    let pendingUploadedBlobs: string[] = [];
+    let blobsToDeleteAfterCommit: string[] = [];
+    try {
+      await txClient.query("BEGIN");
+
+      // Legacy single-attachment columns are no longer written. They are
+      // cleared on edit so a Save can never resurrect the old single-file
+      // path after the admin has switched to the multi-attachment list.
+      const updateResult = await txClient.query(
+        `UPDATE campaign_updates
+           SET subject = $1, description = $2, short_subject = NULL, short_description = $3,
+               attach_file = NULL, attach_file_name = NULL,
+               start_date = $4, end_date = $5, updated_at = NOW()
+         WHERE id = $6 AND campaign_id = $7
+         RETURNING id, campaign_id AS "campaignId", subject, description,
+                   short_subject AS "shortSubject", short_description AS "shortDescription",
+                   attach_file AS "attachFile", attach_file_name AS "attachFileName",
+                   start_date AS "startDate",
+                   end_date AS "endDate", created_at AS "createdAt", updated_at AS "updatedAt"`,
+        [
+          String(subject).trim(),
+          description || null,
+          finalShortDescription,
+          startDate || null,
+          endDate || null,
+          updateId,
+          campaignId,
+        ]
+      );
+      updated = updateResult.rows[0];
+
+      if (desiredAttachments !== null) {
+        const syncResult = await syncCampaignUpdateAttachments(
+          txClient,
+          updateId,
+          desiredAttachments
+        );
+        savedAttachments = syncResult.rows;
+        pendingUploadedBlobs = syncResult.uploadedBlobPaths;
+        blobsToDeleteAfterCommit = syncResult.removedBlobPaths;
+      } else {
+        // Field omitted: leave existing attachment rows untouched.
+        const existing = await loadAttachmentsForUpdates([updateId]);
+        savedAttachments = existing.get(updateId) || [];
+      }
+
+      await txClient.query("COMMIT");
+    } catch (txErr: any) {
+      try {
+        await txClient.query("ROLLBACK");
+      } catch (_rollbackErr) {
+        /* ignore */
+      }
+      // Newly uploaded blobs from this attempt are now orphaned; remove
+      // them. Removed-attachment blobs are preserved because their DB
+      // rows were rolled back too.
+      await bestEffortDeleteBlobs(pendingUploadedBlobs, "PUT rollback");
+      console.error("Failed to update campaign update:", txErr);
+      res
+        .status(500)
+        .json({ success: false, message: txErr?.message || "Failed to save update." });
+      return;
+    } finally {
+      txClient.release();
+    }
+
+    // Commit succeeded; safe to drop the underlying objects for any
+    // attachments the admin removed.
+    await bestEffortDeleteBlobs(blobsToDeleteAfterCommit, "PUT post-commit");
+
+    const firstAttachment = savedAttachments[0];
     res.json({
       success: true,
       message: "Update saved successfully.",
       item: {
         ...updated,
-        attachFileUrl: updated.attachFile
-          ? resolveFileUrl(updated.attachFile, "campaigns")
-          : null,
+        attachFile: firstAttachment ? firstAttachment.filePath : null,
+        attachFileName: firstAttachment ? firstAttachment.fileName : null,
+        attachFileUrl: firstAttachment ? firstAttachment.fileUrl : null,
+        attachments: savedAttachments,
       },
     });
   } catch (err: any) {
@@ -2883,14 +3134,39 @@ router.get("/:id/updates/:updateId/email-preview", async (req: Request, res: Res
       return;
     }
 
+    // Mirror the recipient filter used by the actual send: investors with
+    // status Pending/Rejected (case-insensitive) are excluded so the preview
+    // shows the true number that will be emailed.
     const investorsCount = await pool.query(
-      `SELECT COUNT(DISTINCT ui.user_id)::int AS count
-         FROM user_investments ui
-         JOIN users u ON u.id = ui.user_id
-        WHERE ui.campaign_id = $1
-          AND ui.user_id IS NOT NULL
-          AND (ui.is_deleted IS NULL OR ui.is_deleted = false)
-          AND u.email IS NOT NULL AND u.email <> ''
+      `SELECT COUNT(DISTINCT u.id)::int AS count
+         FROM users u
+         JOIN (
+           -- Standard investors on this campaign whose recommendation is not Rejected
+           SELECT ui.user_id
+             FROM user_investments ui
+            WHERE ui.campaign_id = $1
+              AND ui.user_id IS NOT NULL
+              AND (ui.is_deleted IS NULL OR ui.is_deleted = false)
+              AND EXISTS (
+                SELECT 1 FROM recommendations r
+                 WHERE r.campaign_id = ui.campaign_id
+                   AND r.user_id    = ui.user_id
+                   AND (r.is_deleted IS NULL OR r.is_deleted = false)
+                   AND LOWER(COALESCE(r.status, '')) <> 'rejected'
+              )
+           UNION
+           -- Other-asset (asset_based_payment_requests) investors on this same
+           -- campaign whose request is currently "In Transit". They've committed
+           -- an asset toward this investment but no user_investments row exists
+           -- yet, so without this branch they'd never receive update emails.
+           SELECT abpr.user_id
+             FROM asset_based_payment_requests abpr
+            WHERE abpr.campaign_id = $1
+              AND abpr.user_id IS NOT NULL
+              AND (abpr.is_deleted IS NULL OR abpr.is_deleted = false)
+              AND LOWER(TRIM(COALESCE(abpr.status, ''))) = 'in transit'
+         ) src ON src.user_id = u.id
+        WHERE u.email IS NOT NULL AND u.email <> ''
           AND (u.opt_out_email_notifications IS NULL OR u.opt_out_email_notifications = false)`,
       [campaignId]
     );
@@ -2915,6 +3191,46 @@ router.get("/:id/updates/:updateId/email-preview", async (req: Request, res: Res
     });
   } catch (err: any) {
     console.error("Error building campaign update email preview:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Returns the per-update email send history (most recent first) so the
+// Updates tab can display a "Email send history" modal with Date / Time
+// (EST/EDT) / Recipient count for each Send action.
+router.get("/:id/updates/:updateId/email-logs", async (req: Request, res: Response) => {
+  try {
+    const campaignId = parseInt(String(req.params.id), 10);
+    const updateId = parseInt(String(req.params.updateId), 10);
+    if (!Number.isFinite(campaignId) || !Number.isFinite(updateId)) {
+      res.status(400).json({ success: false, message: "Invalid id." });
+      return;
+    }
+    const owns = await pool.query(
+      `SELECT 1 FROM campaign_updates
+        WHERE id = $1 AND campaign_id = $2 AND (is_deleted IS NULL OR is_deleted = false)
+        LIMIT 1`,
+      [updateId, campaignId]
+    );
+    if (owns.rows.length === 0) {
+      res.status(404).json({ success: false, message: "Update not found." });
+      return;
+    }
+    const result = await pool.query(
+      `SELECT l.id,
+              l.sent_at        AS "sentAt",
+              l.recipient_count AS "recipientCount",
+              l.sent_by_user_id AS "sentByUserId",
+              COALESCE(NULLIF(TRIM(CONCAT_WS(' ', u.first_name, u.last_name)), ''), u.email) AS "sentByName"
+         FROM campaign_update_email_logs l
+    LEFT JOIN users u ON u.id = l.sent_by_user_id
+        WHERE l.campaign_update_id = $1
+        ORDER BY l.sent_at DESC, l.id DESC`,
+      [updateId]
+    );
+    res.json({ success: true, items: result.rows });
+  } catch (err: any) {
+    console.error("Error fetching campaign update email logs:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -2981,44 +3297,103 @@ router.post("/:id/updates/:updateId/send-email", async (req: Request, res: Respo
     const senderName = cfg.defaultEmailSenderName || "CataCap Support";
     const fromHeader = `${senderName} <${fromAddress}>`;
 
+    // Recipients are pulled from two sources for this same campaign and then
+    // de-duplicated by user.id:
+    //   1. `user_investments` rows whose backing `recommendations.status` is
+    //      anything other than Rejected (case-insensitive). Pending investors
+    //      *are* included so they receive update emails as soon as they have
+    //      any non-rejected recommendation on the deal.
+    //   2. `asset_based_payment_requests` rows for this campaign whose status
+    //      is exactly "In Transit" (case-insensitive). These investors have
+    //      committed an asset toward the investment but typically have no
+    //      `user_investments` row yet, so without this branch they'd be
+    //      silently skipped on update sends.
+    // In both cases we still require a deliverable email and that the user
+    // hasn't opted out of email notifications.
     const investorsResult = await pool.query(
-      `SELECT DISTINCT u.id, u.email, COALESCE(u.first_name, '') AS first_name
-       FROM user_investments ui
-       JOIN users u ON u.id = ui.user_id
-       WHERE ui.campaign_id = $1
-         AND ui.user_id IS NOT NULL
-         AND (ui.is_deleted IS NULL OR ui.is_deleted = false)
-         AND u.email IS NOT NULL
-         AND u.email <> ''
-         AND (u.opt_out_email_notifications IS NULL OR u.opt_out_email_notifications = false)`,
+      `SELECT u.id, u.email, COALESCE(u.first_name, '') AS first_name
+         FROM users u
+         JOIN (
+           SELECT ui.user_id
+             FROM user_investments ui
+            WHERE ui.campaign_id = $1
+              AND ui.user_id IS NOT NULL
+              AND (ui.is_deleted IS NULL OR ui.is_deleted = false)
+              AND EXISTS (
+                SELECT 1 FROM recommendations r
+                 WHERE r.campaign_id = ui.campaign_id
+                   AND r.user_id    = ui.user_id
+                   AND (r.is_deleted IS NULL OR r.is_deleted = false)
+                   AND LOWER(COALESCE(r.status, '')) <> 'rejected'
+              )
+           UNION
+           SELECT abpr.user_id
+             FROM asset_based_payment_requests abpr
+            WHERE abpr.campaign_id = $1
+              AND abpr.user_id IS NOT NULL
+              AND (abpr.is_deleted IS NULL OR abpr.is_deleted = false)
+              AND LOWER(TRIM(COALESCE(abpr.status, ''))) = 'in transit'
+         ) src ON src.user_id = u.id
+        WHERE u.email IS NOT NULL
+          AND u.email <> ''
+          AND (u.opt_out_email_notifications IS NULL OR u.opt_out_email_notifications = false)`,
       [campaignId]
     );
+
+    // If filtering left us with no recipients, short-circuit: don't send,
+    // don't write a log row, and surface a clear message so the UI can
+    // display a non-blocking toast.
+    if (investorsResult.rows.length === 0) {
+      res.json({
+        success: true,
+        message:
+          "No eligible investors to email. No investors on this investment have a non-Rejected recommendation or an In Transit other-asset request, or all of them are opted out / have no email on file.",
+        sent: 0,
+        failed: 0,
+        recipientCount: 0,
+        ccCount: 0,
+        ownerConfirmationSent: false,
+        ownerConfirmationRecipients: 0,
+      });
+      return;
+    }
+
+    // Load the multi-attachment list and fetch each blob once so they can be
+    // attached as real email attachments to every outgoing message.
+    const attachmentRowsByUpdate = await loadAttachmentsForUpdates([update.id]);
+    const attachmentRows = attachmentRowsByUpdate.get(update.id) || [];
 
     const resend = new Resend(apiKey);
     const baseSubject = built.subject;
     const baseBody = built.bodyHtml.replace(/\{\{campaignUrl\}\}/g, built.campaignUrl);
 
-    // Fetch the attached file (PDF/DOC/image/etc.) once so it can be sent as a
-    // real email attachment to every recipient, instead of being inlined in
-    // the HTML body.
     let attachments: { filename: string; content: string }[] | undefined;
-    if (update.attach_file) {
-      try {
-        const fileUrl = resolveFileUrl(update.attach_file, "campaigns");
-        if (fileUrl) {
+    if (attachmentRows.length > 0) {
+      const collected: { filename: string; content: string }[] = [];
+      for (const att of attachmentRows) {
+        try {
+          const fileUrl = att.fileUrl || resolveFileUrl(att.filePath, "campaigns");
+          if (!fileUrl) continue;
           const fetchRes = await fetch(fileUrl);
-          if (fetchRes.ok) {
-            const buf = Buffer.from(await fetchRes.arrayBuffer());
-            const fallbackName = String(update.attach_file).split("/").pop() || "attachment";
-            const filename = (update.attach_file_name && String(update.attach_file_name).trim()) || fallbackName;
-            attachments = [{ filename, content: buf.toString("base64") }];
-          } else {
-            console.error(`[EMAIL] Failed to fetch attachment ${fileUrl}: HTTP ${fetchRes.status}`);
+          if (!fetchRes.ok) {
+            console.error(
+              `[EMAIL] Failed to fetch attachment ${fileUrl}: HTTP ${fetchRes.status}`
+            );
+            continue;
           }
+          const buf = Buffer.from(await fetchRes.arrayBuffer());
+          const fallbackName = String(att.filePath).split("/").pop() || "attachment";
+          const filename =
+            (att.fileName && String(att.fileName).trim()) || fallbackName;
+          collected.push({ filename, content: buf.toString("base64") });
+        } catch (attachErr) {
+          console.error(
+            "[EMAIL] Failed to load attachment for campaign update email:",
+            attachErr
+          );
         }
-      } catch (attachErr) {
-        console.error("[EMAIL] Failed to load attachment for campaign update email:", attachErr);
       }
+      if (collected.length > 0) attachments = collected;
     }
 
     const testOverride = process.env.TEST_EMAIL_OVERRIDE;
@@ -3048,6 +3423,29 @@ router.post("/:id/updates/:updateId/send-email", async (req: Request, res: Respo
       } catch (sendErr) {
         failed++;
         console.error(`[EMAIL] Failed sending update email to ${recipient}:`, sendErr);
+      }
+    }
+
+    // One log row per successful Send action capturing who triggered it
+    // and how many investors actually received the email. We use the
+    // delivered count (`sent`) — not the pre-send eligible count — so the
+    // history reflects reality even on partial Resend failures. If every
+    // attempt failed (sent === 0) we skip the log entirely so the
+    // history isn't polluted with no-op rows.
+    if (sent > 0) {
+      try {
+        const sentByUserId = (req as any).user?.id ? String((req as any).user.id) : null;
+        await pool.query(
+          `INSERT INTO campaign_update_email_logs
+              (campaign_update_id, campaign_id, sent_at, sent_by_user_id, recipient_count)
+           VALUES ($1, $2, NOW(), $3, $4)`,
+          [update.id, campaignId, sentByUserId, sent]
+        );
+      } catch (logErr) {
+        console.error(
+          `[EMAIL] Failed to insert campaign_update_email_logs row for update ${update.id}:`,
+          logErr
+        );
       }
     }
 
@@ -3156,6 +3554,7 @@ router.post("/:id/updates/:updateId/send-email", async (req: Request, res: Respo
       message: `Email sent to ${sent} investor(s)${failed ? `, ${failed} failed` : ""}.`,
       sent,
       failed,
+      recipientCount: investorsResult.rows.length,
       ccCount: 0,
       ownerConfirmationSent,
       ownerConfirmationRecipients,

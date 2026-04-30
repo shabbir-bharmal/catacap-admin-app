@@ -11,6 +11,7 @@ import {
   type UploadedAttachment,
 } from "../utils/noteAttachments.js";
 import { autoEnrollInvestorIfApplicable } from "../utils/autoEnrollGroupMembership.js";
+import { backfillCampaignUpdateNotifications } from "../utils/backfillCampaignUpdateNotifications.js";
 import ExcelJS from "exceljs";
 
 const router = Router();
@@ -573,6 +574,11 @@ router.put("/:id", async (req: Request, res: Response) => {
            VALUES ($1, $2, $3, $4, true)`,
           [grant.uid, `Manually, ${loginUserName}`, grant.campaign_name, grant.camp_id]
         );
+
+        // The investor just joined this campaign — give them in-app
+        // notifications for any past, still-active updates that fired
+        // before they showed up in user_investments.
+        await backfillCampaignUpdateNotifications(client, grant.uid, grant.camp_id);
       }
 
       await client.query(`UPDATE users SET is_active = true, is_free_user = false WHERE id = $1`, [grant.uid]);

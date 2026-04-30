@@ -11,6 +11,7 @@ import {
   type UploadedAttachment,
 } from "../utils/noteAttachments.js";
 import { autoEnrollInvestorIfApplicable } from "../utils/autoEnrollGroupMembership.js";
+import { backfillCampaignUpdateNotifications } from "../utils/backfillCampaignUpdateNotifications.js";
 import ExcelJS from "exceljs";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
@@ -357,6 +358,11 @@ router.put("/:id/status", async (req: Request, res: Response) => {
            VALUES ($1, $2, $3, $4, true)`,
           [asset.uid, paymentType, asset.campaign_name, asset.camp_id]
         );
+
+        // The investor just joined this campaign — give them in-app
+        // notifications for any past, still-active updates that fired
+        // before they showed up in user_investments.
+        await backfillCampaignUpdateNotifications(client, asset.uid, asset.camp_id);
       }
     } else if ((oldStatus === "Pending" || oldStatus === "In Transit") && newStatus === "Rejected") {
       await client.query(`UPDATE asset_based_payment_requests SET status = $1 WHERE id = $2`, [newStatus, id]);

@@ -36,7 +36,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import BannerCropper from "@/components/BannerCropper";
 import { MultiSelectPopover } from "@/components/MultiSelectPopover";
-import { CalendarIcon, ArrowLeft, Download, ChevronDown, Copy, QrCode, Mail, User, Briefcase, ImageIcon, Settings, ArrowRight, CheckCircle2, Check, Pencil, Trash2, HelpCircle, FileText } from "lucide-react";
+import { CalendarIcon, ArrowLeft, Download, ChevronDown, Copy, QrCode, Mail, User, Briefcase, ImageIcon, Settings, ArrowRight, CheckCircle2, Check, Pencil, Trash2, HelpCircle, FileText, Clock, X as XIcon } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { QRCodeCanvas } from "qrcode.react";
 
@@ -49,7 +49,7 @@ const STEPS = [
   { id: 5, label: "Updates", icon: Mail },
 ];
 
-import { fetchCountries, fetchInvestmentById, fetchInvestmentData, updateInvestment, exportInvestmentRecommendations, fetchAllInvestmentNameList, sendInvestmentQrCodeEmail, fetchInvestmentNotes, exportInvestmentNotesApi, downloadInvestmentDocument, fetchCampaignUpdates, createCampaignUpdate, updateCampaignUpdate, deleteCampaignUpdate, sendCampaignUpdateEmail, getCampaignUpdateEmailPreview, type CampaignUpdateItem } from "@/api/investment/investmentApi";
+import { fetchCountries, fetchInvestmentById, fetchInvestmentData, updateInvestment, exportInvestmentRecommendations, fetchAllInvestmentNameList, sendInvestmentQrCodeEmail, fetchInvestmentNotes, exportInvestmentNotesApi, downloadInvestmentDocument, fetchCampaignUpdates, createCampaignUpdate, updateCampaignUpdate, deleteCampaignUpdate, sendCampaignUpdateEmail, getCampaignUpdateEmailPreview, fetchCampaignUpdateEmailLogs, type CampaignUpdateItem, type CampaignUpdateAttachmentItem, type CampaignUpdateAttachmentInput, type CampaignUpdateEmailLogItem } from "@/api/investment/investmentApi";
 import { fetchActiveEmailTemplateByCategory, fetchEmailTemplatePreview } from "@/api/email-template/emailTemplateApi";
 import { fetchAllGroups, GroupUpdatePayload } from "@/api/group/groupApi";
 import { fetchAllAdminUsers, AdminUserItem } from "@/api/user/userApi";
@@ -573,16 +573,39 @@ export default function AdminInvestmentEdit() {
   const [deleteUpdateTarget, setDeleteUpdateTarget] = useState<CampaignUpdateItem | null>(null);
   const [updateFormOpen, setUpdateFormOpen] = useState(false);
   const [editingUpdateId, setEditingUpdateId] = useState<number | null>(null);
+  // Each form attachment is either an existing one (kept by id) or a new
+  // pending upload (data URL + filename + mime). The order in the list is the
+  // order shown in the dialog and persisted to the server.
+  type UpdateFormAttachment =
+    | {
+        kind: "existing";
+        id: number;
+        fileName: string;
+        fileUrl: string | null;
+        previewUrl: string | null;
+        mimeType: string | null;
+        sizeBytes: number | null;
+      }
+    | {
+        kind: "new";
+        tempId: string;
+        data: string;
+        fileName: string;
+        previewUrl: string | null;
+        mimeType: string;
+        sizeBytes: number;
+      };
   const [updateForm, setUpdateForm] = useState<{
     subject: string;
     description: string;
     shortDescription: string;
     startDate: string;
     endDate: string;
-    attachFile: string | null;
-    attachFilePreview: string | null;
-    attachFileName: string | null;
-  }>({ subject: "", description: "", shortDescription: "", startDate: "", endDate: "", attachFile: null, attachFilePreview: null, attachFileName: null });
+    attachments: UpdateFormAttachment[];
+  }>({ subject: "", description: "", shortDescription: "", startDate: "", endDate: "", attachments: [] });
+  const [emailLogsTarget, setEmailLogsTarget] = useState<CampaignUpdateItem | null>(null);
+  const [emailLogs, setEmailLogs] = useState<CampaignUpdateEmailLogItem[]>([]);
+  const [emailLogsLoading, setEmailLogsLoading] = useState(false);
   const [updateFormErrors, setUpdateFormErrors] = useState<Record<string, string>>({});
   const [updateStartOpen, setUpdateStartOpen] = useState(false);
   const [updateEndOpen, setUpdateEndOpen] = useState(false);
@@ -666,7 +689,7 @@ export default function AdminInvestmentEdit() {
   }, [currentStep, resolvedNumericId, updatesDisabled, loadCampaignUpdates]);
 
   const resetUpdateForm = () => {
-    setUpdateForm({ subject: "", description: "", shortDescription: "", startDate: "", endDate: "", attachFile: null, attachFilePreview: null, attachFileName: null });
+    setUpdateForm({ subject: "", description: "", shortDescription: "", startDate: "", endDate: "", attachments: [] });
     setUpdateFormErrors({});
     setEditingUpdateId(null);
   };
@@ -676,17 +699,32 @@ export default function AdminInvestmentEdit() {
     setUpdateFormOpen(true);
   };
 
+  // Maps a server-side attachment row into the dialog's "existing" entry.
+  const mapExistingAttachment = (a: CampaignUpdateAttachmentItem): UpdateFormAttachment => {
+    const isImage =
+      (a.mimeType && a.mimeType.startsWith("image/")) ||
+      (a.fileUrl && /\.(png|jpe?g|gif|webp)(\?|$)/i.test(a.fileUrl));
+    return {
+      kind: "existing",
+      id: a.id,
+      fileName: a.fileName || (a.filePath.split("/").pop() || "attachment"),
+      fileUrl: a.fileUrl,
+      previewUrl: isImage ? a.fileUrl : null,
+      mimeType: a.mimeType,
+      sizeBytes: a.sizeBytes,
+    };
+  };
+
   const openEditUpdateForm = (item: CampaignUpdateItem) => {
     setEditingUpdateId(item.id);
+    const existing = (item.attachments || []).map(mapExistingAttachment);
     setUpdateForm({
       subject: item.subject || "",
       description: item.description || "",
       shortDescription: item.shortDescription || "",
       startDate: item.startDate || "",
       endDate: item.endDate || "",
-      attachFile: item.attachFile || null,
-      attachFilePreview: (item.attachFileUrl && /\.(png|jpe?g|gif|webp)(\?|$)/i.test(item.attachFileUrl)) ? item.attachFileUrl : null,
-      attachFileName: (item as any).attachFileName || (item.attachFile ? String(item.attachFile).split("/").pop() || null : null),
+      attachments: existing,
     });
     setUpdateFormErrors({});
     setUpdateFormOpen(true);
@@ -705,41 +743,70 @@ export default function AdminInvestmentEdit() {
     "text/csv",
   ]);
 
-  const handleUpdateAttachFileChange = async (file: File | null) => {
-    if (!file) {
-      setUpdateForm((prev) => ({ ...prev, attachFile: null, attachFilePreview: null, attachFileName: null }));
-      return;
+  // Adds one or more files to the staged attachment list. Each file is
+  // independently validated and either appended or causes a per-file error
+  // message; valid files in the same selection still go through.
+  const handleUpdateAttachFilesAdd = async (files: FileList | File[] | null) => {
+    if (!files) return;
+    const list: File[] = Array.from(files as ArrayLike<File>);
+    if (list.length === 0) return;
+
+    const errors: string[] = [];
+    const newEntries: UpdateFormAttachment[] = [];
+
+    for (const file of list) {
+      if (!ALLOWED_ATTACH_MIME.has(file.type)) {
+        errors.push(`${file.name}: file type not allowed.`);
+        continue;
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        errors.push(`${file.name}: exceeds the 10MB limit.`);
+        continue;
+      }
+      try {
+        const isImage = file.type.startsWith("image/");
+        const fileForUpload: File = isImage
+          ? await compressImage(file, file.type || "image/jpeg")
+          : file;
+        const base64 = await toBase64(fileForUpload);
+        newEntries.push({
+          kind: "new",
+          tempId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          data: base64,
+          fileName: file.name,
+          previewUrl: isImage ? base64 : null,
+          mimeType: file.type,
+          sizeBytes: fileForUpload.size,
+        });
+      } catch (err) {
+        console.error("Failed to read attachment:", err);
+        errors.push(`${file.name}: failed to read file.`);
+      }
     }
-    if (!ALLOWED_ATTACH_MIME.has(file.type)) {
-      setUpdateFormErrors((prev) => ({ ...prev, attachFile: "Allowed file types: images, PDF, Word, Excel, PowerPoint, TXT, CSV." }));
-      return;
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      setUpdateFormErrors((prev) => ({ ...prev, attachFile: "File exceeds the 10MB limit." }));
-      return;
-    }
-    try {
-      // Images can still be compressed to keep upload sizes reasonable; other
-      // file types are sent as-is.
-      const isImage = file.type.startsWith("image/");
-      const fileForUpload: File = isImage
-        ? await compressImage(file, file.type || "image/jpeg")
-        : file;
-      const base64 = await toBase64(fileForUpload);
-      setUpdateForm((prev) => ({
-        ...prev,
-        attachFile: base64,
-        attachFilePreview: isImage ? base64 : null,
-        attachFileName: file.name,
-      }));
-      setUpdateFormErrors((prev) => {
-        const { attachFile: _ignore, ...rest } = prev;
-        return rest;
-      });
-    } catch (err) {
-      console.error("Failed to read attachment:", err);
-      setUpdateFormErrors((prev) => ({ ...prev, attachFile: "Failed to read attachment." }));
-    }
+
+    setUpdateForm((prev) => ({
+      ...prev,
+      attachments: [...prev.attachments, ...newEntries],
+    }));
+    setUpdateFormErrors((prev) => {
+      const next = { ...prev };
+      if (errors.length) {
+        next.attachments = errors.join(" ");
+      } else {
+        delete next.attachments;
+      }
+      return next;
+    });
+  };
+
+  // Removes the staged attachment at `index`. Existing rows are simply
+  // dropped from the list (their server-side row will be deleted on Save);
+  // newly added uploads are discarded.
+  const handleRemoveStagedAttachment = (index: number) => {
+    setUpdateForm((prev) => ({
+      ...prev,
+      attachments: prev.attachments.filter((_, i) => i !== index),
+    }));
   };
 
   const validateUpdateForm = (): boolean => {
@@ -773,15 +840,19 @@ export default function AdminInvestmentEdit() {
     if (!validateUpdateForm()) return;
     setUpdatesSubmitting(true);
     try {
+      const attachmentsPayload: CampaignUpdateAttachmentInput[] =
+        updateForm.attachments.map((a) =>
+          a.kind === "existing"
+            ? { id: a.id }
+            : { data: a.data, name: a.fileName || "attachment" }
+        );
       const payload = {
         subject: updateForm.subject.trim(),
         description: updateForm.description || null,
         shortDescription: updateForm.shortDescription.trim() || null,
         startDate: updateForm.startDate || null,
         endDate: updateForm.endDate || null,
-        attachFile: updateForm.attachFile
-          ? { data: updateForm.attachFile, name: updateForm.attachFileName || "attachment" }
-          : null,
+        attachments: attachmentsPayload,
       };
       if (editingUpdateId) {
         const result = await updateCampaignUpdate(resolvedNumericId, editingUpdateId, payload);
@@ -810,13 +881,79 @@ export default function AdminInvestmentEdit() {
     try {
       const result = await sendCampaignUpdateEmail(resolvedNumericId, item.id);
       if (result.success === false) throw new Error(result.message || "Failed to send email.");
-      toast({ title: "Email sent", description: result.message || "Email sent to investors." });
+      // 0 eligible recipients: server still returns success and intentionally
+      // skips writing a log row. Surface the message but don't pretend any
+      // emails went out.
+      if ((result.recipientCount ?? 0) === 0) {
+        toast({
+          title: "No emails sent",
+          description: result.message || "No eligible investors to email.",
+        });
+      } else {
+        toast({ title: "Email sent", description: result.message || "Email sent to investors." });
+      }
       setEmailUpdateTarget(null);
+      // Refresh the underlying list so the email-history modal opened next
+      // shows the new log row.
+      await loadCampaignUpdates();
     } catch (err: any) {
       console.error("Failed to send update email:", err);
       toast({ title: "Error", description: err?.response?.data?.message || err?.message || "Failed to send email.", variant: "destructive" });
     } finally {
       setSendingEmailUpdateId(null);
+    }
+  };
+
+  const openEmailLogsModal = async (item: CampaignUpdateItem) => {
+    if (!resolvedNumericId) return;
+    setEmailLogsTarget(item);
+    setEmailLogs([]);
+    setEmailLogsLoading(true);
+    try {
+      const items = await fetchCampaignUpdateEmailLogs(resolvedNumericId, item.id);
+      setEmailLogs(items);
+    } catch (err: any) {
+      console.error("Failed to load email send history:", err);
+      toast({
+        title: "Error",
+        description: err?.response?.data?.message || err?.message || "Failed to load email send history.",
+        variant: "destructive",
+      });
+    } finally {
+      setEmailLogsLoading(false);
+    }
+  };
+
+  // Renders a Date (M/D/YYYY) and a Time labelled with the current EST/EDT
+  // offset so admins always see Eastern Time regardless of their browser
+  // locale. The DST suffix is derived from the actual offset of the date in
+  // America/New_York via Intl.
+  const formatEasternDate = (iso: string): string => {
+    if (!iso) return "—";
+    try {
+      const d = new Date(iso);
+      return new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York",
+        year: "numeric",
+        month: "numeric",
+        day: "numeric",
+      }).format(d);
+    } catch {
+      return iso;
+    }
+  };
+  const formatEasternTime = (iso: string): string => {
+    if (!iso) return "—";
+    try {
+      const d = new Date(iso);
+      return new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      }).format(d);
+    } catch {
+      return iso;
     }
   };
 
@@ -3348,29 +3485,54 @@ export default function AdminInvestmentEdit() {
                           <tr key={item.id} className="border-b last:border-b-0 odd:bg-card even:bg-muted/30 hover:bg-muted/20 transition-colors" data-testid={`row-update-${item.id}`}>
                             <td className="px-4 py-3">
                               {(() => {
-                                const url = item.attachFileUrl;
-                                const name = (item as any).attachFileName || (item.attachFile ? String(item.attachFile).split("/").pop() : "");
-                                const isImg = !!url && /\.(png|jpe?g|gif|webp)(\?|$)/i.test(url);
-                                if (url && isImg) {
-                                  return <img src={url} alt={item.subject} className="h-12 w-12 object-cover rounded" />;
-                                }
-                                if (url) {
+                                const list = item.attachments || [];
+                                if (list.length === 0) {
                                   return (
-                                    <a
-                                      href={url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="flex items-center gap-2 text-sm text-primary hover:underline"
-                                      title={name || "Download attachment"}
-                                    >
-                                      <FileText className="h-4 w-4" />
-                                      <span className="truncate max-w-[140px]">{name || "Attachment"}</span>
-                                    </a>
+                                    <div className="h-12 w-12 flex items-center justify-center rounded bg-muted text-muted-foreground">
+                                      <ImageIcon className="h-4 w-4" />
+                                    </div>
                                   );
                                 }
+                                const first = list[0];
+                                const extra = list.length - 1;
+                                const url = first.fileUrl;
+                                const name = first.fileName || (first.filePath ? first.filePath.split("/").pop() : "");
+                                const isImg =
+                                  (first.mimeType && first.mimeType.startsWith("image/")) ||
+                                  (!!url && /\.(png|jpe?g|gif|webp)(\?|$)/i.test(url));
+                                const tooltipText = list
+                                  .map((a, i) => `${i + 1}. ${a.fileName || (a.filePath ? a.filePath.split("/").pop() : "Attachment")}`)
+                                  .join("\n");
                                 return (
-                                  <div className="h-12 w-12 flex items-center justify-center rounded bg-muted text-muted-foreground">
-                                    <ImageIcon className="h-4 w-4" />
+                                  <div className="flex items-center gap-2" title={tooltipText}>
+                                    {isImg && url ? (
+                                      <a href={url} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                                        <img src={url} alt={item.subject} className="h-12 w-12 object-cover rounded" />
+                                      </a>
+                                    ) : url ? (
+                                      <a
+                                        href={url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center gap-2 text-sm text-primary hover:underline"
+                                      >
+                                        <FileText className="h-4 w-4" />
+                                        <span className="truncate max-w-[140px]">{name || "Attachment"}</span>
+                                      </a>
+                                    ) : (
+                                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                        <FileText className="h-4 w-4" />
+                                        <span className="truncate max-w-[140px]">{name || "Attachment"}</span>
+                                      </div>
+                                    )}
+                                    {extra > 0 && (
+                                      <span
+                                        className="inline-flex items-center justify-center rounded-full bg-[#405189]/10 text-[#405189] text-[11px] font-semibold px-2 py-0.5"
+                                        data-testid={`badge-attachments-extra-${item.id}`}
+                                      >
+                                        +{extra}
+                                      </span>
+                                    )}
                                   </div>
                                 );
                               })()}
@@ -3392,7 +3554,17 @@ export default function AdminInvestmentEdit() {
                                 <Button
                                   size="icon"
                                   variant="outline"
-                                  className="h-8 w-8 rounded-r-none border-r-0 text-[#0ab39c] hover:text-[#0ab39c] hover:bg-[#0ab39c]/5"
+                                  className="h-8 w-8 rounded-r-none border-r-0 text-[#405189] hover:text-[#405189] hover:bg-[#405189]/5"
+                                  onClick={() => openEmailLogsModal(item)}
+                                  data-testid={`button-email-logs-${item.id}`}
+                                  title="Email send history"
+                                >
+                                  <Clock className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="outline"
+                                  className="h-8 w-8 rounded-none border-r-0 text-[#0ab39c] hover:text-[#0ab39c] hover:bg-[#0ab39c]/5"
                                   onClick={async () => {
                                     setEmailUpdateTarget(item);
                                     setEmailPreview(null);
@@ -3507,42 +3679,85 @@ export default function AdminInvestmentEdit() {
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-sm">Attach File</Label>
+                <Label className="text-sm">Attachments</Label>
                 <Input
                   type="file"
+                  multiple
                   accept="image/png,image/jpeg,image/jpg,image/gif,image/webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv"
-                  onChange={(e) => handleUpdateAttachFileChange(e.target.files?.[0] || null)}
+                  onChange={(e) => {
+                    handleUpdateAttachFilesAdd(e.target.files);
+                    // Reset the input so the same file can be re-selected after
+                    // it's removed from the list.
+                    if (e.target) e.target.value = "";
+                  }}
                   data-testid="input-update-attach-file"
                   className="cursor-pointer file:cursor-pointer"
                 />
-                <p className="text-[11px] text-muted-foreground">Images, PDF, Word, Excel, PowerPoint, TXT or CSV (max 10MB). Sent to investors as an email attachment.</p>
-                {(updateForm.attachFilePreview || updateForm.attachFileName) && (
-                  <div className="mt-2 flex items-center gap-3">
-                    {updateForm.attachFilePreview ? (
-                      <img
-                        src={updateForm.attachFilePreview}
-                        alt="Attachment preview"
-                        className="h-20 w-20 object-cover rounded border"
-                      />
-                    ) : (
-                      <div className="flex items-center gap-2 px-3 py-2 rounded border bg-muted/30 text-sm">
-                        <FileText className="h-4 w-4 text-muted-foreground" />
-                        <span className="truncate max-w-[220px]" title={updateForm.attachFileName || ""}>
-                          {updateForm.attachFileName || "Attachment"}
-                        </span>
-                      </div>
-                    )}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setUpdateForm((p) => ({ ...p, attachFile: null, attachFilePreview: null, attachFileName: null }))}
-                    >
-                      Remove
-                    </Button>
-                  </div>
+                <p className="text-[11px] text-muted-foreground">Images, PDF, Word, Excel, PowerPoint, TXT or CSV (max 10MB each). All files are sent to investors as real email attachments.</p>
+                {updateForm.attachments.length > 0 && (
+                  <ul className="mt-2 space-y-2" data-testid="list-update-attachments">
+                    {updateForm.attachments.map((att, idx) => {
+                      const key = att.kind === "existing" ? `e-${att.id}` : `n-${att.tempId}`;
+                      return (
+                        <li
+                          key={key}
+                          className="flex items-center gap-3 rounded border bg-muted/30 px-3 py-2"
+                          data-testid={`row-update-attachment-${idx}`}
+                        >
+                          {att.previewUrl ? (
+                            <img
+                              src={att.previewUrl}
+                              alt={att.fileName}
+                              className="h-10 w-10 object-cover rounded border shrink-0"
+                            />
+                          ) : (
+                            <div className="h-10 w-10 flex items-center justify-center rounded border bg-background shrink-0">
+                              <FileText className="h-4 w-4 text-muted-foreground" />
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm truncate" title={att.fileName}>
+                              {att.fileName || "Attachment"}
+                            </div>
+                            {att.kind === "new" ? (
+                              <div className="text-[11px] text-muted-foreground">
+                                {(att.sizeBytes / 1024).toFixed(1)} KB · pending upload
+                              </div>
+                            ) : att.sizeBytes ? (
+                              <div className="text-[11px] text-muted-foreground">
+                                {(att.sizeBytes / 1024).toFixed(1)} KB
+                              </div>
+                            ) : null}
+                          </div>
+                          {att.kind === "existing" && att.fileUrl && (
+                            <a
+                              href={att.fileUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-primary hover:underline shrink-0"
+                            >
+                              Open
+                            </a>
+                          )}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-[#f06548] hover:text-[#f06548] hover:bg-[#f06548]/10 shrink-0"
+                            onClick={() => handleRemoveStagedAttachment(idx)}
+                            data-testid={`button-remove-update-attachment-${idx}`}
+                            title="Remove attachment"
+                          >
+                            <XIcon className="h-4 w-4" />
+                          </Button>
+                        </li>
+                      );
+                    })}
+                  </ul>
                 )}
-                {updateFormErrors.attachFile && <p className="text-[#f06548] text-xs">{updateFormErrors.attachFile}</p>}
+                {updateFormErrors.attachments && (
+                  <p className="text-[#f06548] text-xs">{updateFormErrors.attachments}</p>
+                )}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -3738,6 +3953,78 @@ export default function AdminInvestmentEdit() {
                 data-testid="button-confirm-delete-update"
               >
                 {deletingUpdateId !== null ? "Deleting…" : "Delete"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Per-update email send history modal: triggered by the Clock icon
+            in the Updates table Actions column. Lists every Send action
+            most-recent first with Date / Time (EST/EDT) / Recipient count. */}
+        <Dialog
+          open={emailLogsTarget !== null}
+          onOpenChange={(open) => {
+            if (!open) {
+              setEmailLogsTarget(null);
+              setEmailLogs([]);
+            }
+          }}
+        >
+          <DialogContent className="w-[95vw] sm:w-full max-w-2xl p-4 sm:p-6">
+            <DialogHeader>
+              <DialogTitle>Email send history</DialogTitle>
+              {emailLogsTarget?.subject && (
+                <p className="text-sm text-muted-foreground">
+                  Update: <strong className="text-foreground">{emailLogsTarget.subject}</strong>
+                </p>
+              )}
+            </DialogHeader>
+            {emailLogsLoading ? (
+              <div className="space-y-2 py-2">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ) : emailLogs.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-6 text-center" data-testid="text-no-email-logs">
+                No emails have been sent for this update yet.
+              </p>
+            ) : (
+              <div className="overflow-x-auto rounded-md border">
+                <table className="w-full" data-testid="table-email-logs">
+                  <thead>
+                    <tr className="border-b bg-[#405189] text-white">
+                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Date</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Time</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Recipients</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {emailLogs.map((log) => (
+                      <tr
+                        key={log.id}
+                        className="border-b last:border-b-0 odd:bg-card even:bg-muted/30"
+                        data-testid={`row-email-log-${log.id}`}
+                      >
+                        <td className="px-4 py-2 text-sm whitespace-nowrap">{formatEasternDate(log.sentAt)}</td>
+                        <td className="px-4 py-2 text-sm whitespace-nowrap">{formatEasternTime(log.sentAt)}</td>
+                        <td className="px-4 py-2 text-sm text-right whitespace-nowrap">{log.recipientCount}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setEmailLogsTarget(null);
+                  setEmailLogs([]);
+                }}
+                data-testid="button-close-email-logs"
+              >
+                Close
               </Button>
             </DialogFooter>
           </DialogContent>

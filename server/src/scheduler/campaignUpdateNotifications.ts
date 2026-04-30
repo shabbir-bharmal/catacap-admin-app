@@ -51,9 +51,9 @@ export async function runCampaignUpdateNotifications(): Promise<void> {
       for (const row of investors.rows) {
         try {
           await pool.query(
-            `INSERT INTO user_notifications (title, description, url_to_redirect, is_read, target_user_id, picture_file_name)
-             VALUES ($1, $2, $3, false, $4, $5)`,
-            [title, description, redirectUrl, row.user_id, picture]
+            `INSERT INTO user_notifications (title, description, url_to_redirect, is_read, target_user_id, picture_file_name, campaign_update_id)
+             VALUES ($1, $2, $3, false, $4, $5, $6)`,
+            [title, description, redirectUrl, row.user_id, picture, u.id]
           );
           totalNotifs++;
         } catch (notifErr) {
