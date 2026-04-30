@@ -453,6 +453,36 @@
   @apply text-foreground;
 }
 
+/* Quill editor integration overrides */
+.rich-text-editor-content.ql-container {
+  border: 0 !important;
+  font-family: inherit;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.rich-text-editor-content .ql-editor {
+  min-height: 120px;
+  padding: 0.5rem 0.75rem;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 0.875rem;
+}
+
+.rich-text-editor-content .ql-editor.ql-blank::before {
+  left: 0.75rem;
+  right: 0.75rem;
+  font-style: normal;
+  color: rgb(156 163 175);
+  font-size: 0.875rem;
+}
+
+.rich-text-editor-content .ql-editor a {
+  color: inherit;
+  text-decoration: underline;
+}
+
 .rich-text-editor-content ul,
 .rich-text-content ul,
 .investment-description ul {

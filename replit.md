@@ -13,6 +13,7 @@ React 18 + TypeScript + Vite admin panel for the CataCap platform. Handles inves
 - **Forms:** React Hook Form + Zod
 - **Date Formatting:** dayjs (shared helpers in `src/helpers/format.ts`)
 - **HTTP Client:** Axios with JWT interceptors
+- **Rich Text Editor:** Quill 2.0.3 + quill-mention 6.1.1 (custom `RichTextEditor` component in `src/components/RichTextEditor.tsx`; styles imported globally in `src/main.tsx`; the `Mention` module is registered explicitly in the component because the bare `quill-mention` import is class-only)
 - **Backend:** Node.js Express server (TypeScript, tsx)
 - **Database:** Supabase PostgreSQL (via `SUPABASE_DB_URL`)
 
