@@ -383,19 +383,21 @@ router.put("/:id", async (req: Request, res: Response) => {
       return;
     }
 
-    // Adjust reservation if cap changed
-    if (newCapVal !== oldReserved) {
-      // Return old unused first
+    // Adjust reservation if cap OR donor changed
+    const donorChanged =
+      b.donorUserId && b.donorUserId !== g.donor_user_id;
+    if (donorChanged || newCapVal !== oldReserved) {
+      // Always return unused funds to the OLD donor first
       if (oldReserved > 0) {
         await returnUnusedFunds(
           client,
-          g.donor_user_id,
+          g.donor_user_id,           // always the OLD donor
           oldReserved,
           amountUsed,
           grantName || g.name || `Grant #${id}`,
         );
       }
-      // Reserve new amount if cap is set and grant is active
+      // Reserve new amount from the NEW (or unchanged) donor
       if (newCap != null && newCap > 0 && b.isActive !== false) {
         await reserveCapFromWallet(
           client,

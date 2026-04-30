@@ -181,8 +181,32 @@ async function applySingleGrant(opts: {
           newBalance,
         ],
       );
+    } else {
+      // ── Escrow model: no wallet change, but still log the activity ──
+      const escrowDonorRes = await client.query(
+        `SELECT account_balance, user_name FROM users WHERE id = $1`,
+        [grant.donor_user_id],
+      );
+      if (escrowDonorRes.rows.length > 0) {
+        const escrowBalance = parseFloat(escrowDonorRes.rows[0].account_balance) || 0;
+        await client.query(
+          `INSERT INTO account_balance_change_logs
+             (user_id, payment_type, investment_name, campaign_id,
+              old_value, user_name, new_value, change_date, comment)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8)`,
+          [
+            grant.donor_user_id,
+            `Match grant – escrow applied`,
+            campaignName,
+            campaignId,
+            escrowBalance,
+            escrowDonorRes.rows[0].user_name || "",
+            escrowBalance,
+            `$${matchAmount.toFixed(2)} matched from escrow via grant "${grant.name || `Grant #${grant.id}`}"`,
+          ],
+        );
+      }
     }
-    // Escrow model: money was already reserved at grant creation — no wallet change.
 
     // ── Create approved recommendation for donor ──────────────────────
     const recResult = await client.query(
