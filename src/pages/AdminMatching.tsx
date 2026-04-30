@@ -11,9 +11,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import axiosInstance from "../api/axios";
 import { currency_format, formatDate } from "../helpers/format";
-import { Plus, Pencil, Trash2, GitMerge, Activity, ChevronDown, ChevronRight, Search, X, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, GitMerge, Activity, ChevronDown, ChevronRight, Search, Loader2 } from "lucide-react";
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useDebounce } from "../hooks/useDebounce";
@@ -70,25 +70,21 @@ const EMPTY_FORM = {
 // API helpers
 // ------------------------------------------------------------------ //
 async function fetchMatchGrants(): Promise<MatchGrant[]> {
-  const res = await apiRequest("GET", "/api/admin/matching");
-  const json = await res.json();
-  return json.items || [];
+  const { data } = await axiosInstance.get("/api/admin/matching");
+  return data.items || [];
 }
 async function fetchActivity(grantId: number): Promise<ActivityEntry[]> {
-  const res = await apiRequest("GET", `/api/admin/matching/${grantId}/activity`);
-  const json = await res.json();
-  return json.items || [];
+  const { data } = await axiosInstance.get(`/api/admin/matching/${grantId}/activity`);
+  return data.items || [];
 }
 async function fetchCampaignOptions(): Promise<Campaign[]> {
-  const res = await apiRequest("GET", "/api/admin/investment?perPage=500&currentPage=1");
-  const json = await res.json();
-  return (json.items || []).map((c: any) => ({ id: c.id, name: c.name }));
+  const { data } = await axiosInstance.get("/api/admin/investment?perPage=500&currentPage=1");
+  return (data.items || []).map((c: any) => ({ id: c.id, name: c.name }));
 }
 async function searchDonors(q: string): Promise<DonorOption[]> {
   if (q.length < 2) return [];
-  const res = await apiRequest("GET", `/api/admin/matching/donor-search?q=${encodeURIComponent(q)}`);
-  const json = await res.json();
-  return json.items || [];
+  const { data } = await axiosInstance.get(`/api/admin/matching/donor-search?q=${encodeURIComponent(q)}`);
+  return data.items || [];
 }
 
 // ------------------------------------------------------------------ //
@@ -308,9 +304,9 @@ function GrantFormDialog({
         campaignIds: form.campaignIds,
       };
       if (isEdit) {
-        await apiRequest("PUT", `/api/admin/matching/${initial.id}`, payload);
+        await axiosInstance.put(`/api/admin/matching/${initial.id}`, payload);
       } else {
-        await apiRequest("POST", "/api/admin/matching", payload);
+        await axiosInstance.post("/api/admin/matching", payload);
       }
       toast({ title: "Saved", description: `Match grant ${isEdit ? "updated" : "created"} successfully.` });
       onSaved();
@@ -566,7 +562,7 @@ export default function AdminMatching() {
   const handleDelete = async (id: number) => {
     setDeletingId(id);
     try {
-      await apiRequest("DELETE", `/api/admin/matching/${id}`);
+      await axiosInstance.delete(`/api/admin/matching/${id}`);
       toast({ title: "Deleted", description: "Match grant removed." });
       refresh();
     } catch (err: any) {
