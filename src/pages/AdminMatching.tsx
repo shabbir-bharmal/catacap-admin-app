@@ -291,6 +291,17 @@ function GrantFormDialog({
       toast({ title: "Error", description: "Please select at least one campaign.", variant: "destructive" });
       return;
     }
+    if (form.totalCap !== "" && form.donorUserId) {
+      const cap = Number(form.totalCap);
+      if (cap > form.donorBalance) {
+        toast({
+          title: "Cap exceeds donor balance",
+          description: `Total Grant Cap ($${cap.toLocaleString()}) cannot exceed the donor's current balance of ${currency_format(form.donorBalance)}.`,
+          variant: "destructive",
+        });
+        return;
+      }
+    }
     setSaving(true);
     try {
       const payload = {
@@ -377,8 +388,23 @@ function GrantFormDialog({
                 onChange={(e) => upd("totalCap", e.target.value)}
                 placeholder="Leave empty for unlimited"
                 data-testid="input-total-cap"
+                className={
+                  form.totalCap !== "" && form.donorUserId && Number(form.totalCap) > form.donorBalance
+                    ? "border-destructive focus-visible:ring-destructive"
+                    : ""
+                }
               />
-              <p className="text-xs text-muted-foreground">Max total matched across all investments.</p>
+              {form.donorUserId && form.totalCap !== "" && Number(form.totalCap) > form.donorBalance ? (
+                <p className="text-xs text-destructive font-medium">
+                  Exceeds donor balance of {currency_format(form.donorBalance)}
+                </p>
+              ) : form.donorUserId ? (
+                <p className="text-xs text-muted-foreground">
+                  Max total matched across all investments. Donor balance: {currency_format(form.donorBalance)}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">Max total matched across all investments.</p>
+              )}
             </div>
 
             <div className="space-y-1.5">
