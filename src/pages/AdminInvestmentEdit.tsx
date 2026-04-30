@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -542,6 +543,8 @@ export default function AdminInvestmentEdit() {
   const [cropperImage, setCropperImage] = useState<string | null>(null);
   const [cropperTarget, setCropperTarget] = useState<"profile" | "tile" | null>(null);
   const [cropperAspect, setCropperAspect] = useState(763 / 400);
+  const [cropProfileEnabled, setCropProfileEnabled] = useState(true);
+  const [cropTileEnabled, setCropTileEnabled] = useState(true);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [countryOpen, setCountryOpen] = useState(false);
   const [fundTermOpen, setFundTermOpen] = useState(false);
@@ -1156,6 +1159,13 @@ export default function AdminInvestmentEdit() {
     if (file.size >= 10485760) { setFileErrors(p => ({ ...p, profile: "File must be under 10 MB." })); return; }
     setFileErrors(p => ({ ...p, profile: "" }));
     const compressed = await compressImage(file, file.type);
+    if (!cropProfileEnabled) {
+      const base64 = await toBase64(compressed);
+      setProfileFile(compressed);
+      setImage(base64);
+      setImageFileName("");
+      return;
+    }
     setCropperImage(URL.createObjectURL(compressed));
     setCropperTarget("profile");
     setCropperAspect(763 / 400);
@@ -1171,6 +1181,13 @@ export default function AdminInvestmentEdit() {
     if (file.size >= 10485760) { setFileErrors(p => ({ ...p, tile: "File must be under 10 MB." })); return; }
     setFileErrors(p => ({ ...p, tile: "" }));
     const compressed = await compressImage(file, file.type);
+    if (!cropTileEnabled) {
+      const base64 = await toBase64(compressed);
+      setSmallerFile(compressed);
+      setTileImage(base64);
+      setTileImageFileName("");
+      return;
+    }
     setCropperImage(URL.createObjectURL(compressed));
     setCropperTarget("tile");
     setCropperAspect(362 / 250);
@@ -2490,10 +2507,21 @@ export default function AdminInvestmentEdit() {
 
                 {/* Profile Image */}
                 <div className="grid grid-cols-12 gap-y-2">
-                  <div className="col-span-12">
-                    <p style={inputHeaderLabelStyle}>
+                  <div className="col-span-12 flex flex-wrap items-center justify-between gap-x-8 gap-y-2">
+                    <p style={inputHeaderLabelStyle} className="!mb-0">
                       Company / Investment Profile Image (max file size 10 MB) {!isAdmin && <span style={{ color: "red" }}> *</span>}
                     </p>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id="crop-profile-toggle"
+                        checked={cropProfileEnabled}
+                        onCheckedChange={setCropProfileEnabled}
+                        data-testid="switch-crop-profile"
+                      />
+                      <Label htmlFor="crop-profile-toggle" className="text-sm font-medium cursor-pointer">
+                        Crop image after upload
+                      </Label>
+                    </div>
                   </div>
                   <div className="col-span-12" ref={imageRef}>
                     <div className="w-full">
@@ -2557,10 +2585,21 @@ export default function AdminInvestmentEdit() {
 
                 {/* Smaller Image */}
                 <div className="grid grid-cols-12 gap-y-2">
-                  <div className="col-span-12">
-                    <p style={inputHeaderLabelStyle}>
+                  <div className="col-span-12 flex flex-wrap items-center justify-between gap-x-8 gap-y-2">
+                    <p style={inputHeaderLabelStyle} className="!mb-0">
                       Company / Investment Smaller Image (max file size 10 MB) {!isAdmin && <span style={{ color: "red" }}> *</span>}
                     </p>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id="crop-tile-toggle"
+                        checked={cropTileEnabled}
+                        onCheckedChange={setCropTileEnabled}
+                        data-testid="switch-crop-tile"
+                      />
+                      <Label htmlFor="crop-tile-toggle" className="text-sm font-medium cursor-pointer">
+                        Crop image after upload
+                      </Label>
+                    </div>
                   </div>
                   <div className="col-span-12" ref={tileImageRef}>
                     <div className="w-full">
