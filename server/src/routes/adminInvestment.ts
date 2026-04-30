@@ -1051,12 +1051,9 @@ router.get("/:id", async (req: Request, res: Response) => {
       metaTitle: c.meta_title,
       metaDescription: c.meta_description,
       groupForPrivateAccessId: c.group_for_private_access_id,
-<<<<<<< HEAD
       thankYouAttachments,
-=======
       ownerGroupId: c.owner_group_id,
       autoEnrollInvestors: c.auto_enroll_investors ?? false,
->>>>>>> origin/main
     };
 
     res.json(campaign);
@@ -1734,13 +1731,8 @@ router.put("/:id", async (req: Request, res: Response) => {
         regulatory_issues_description = $60, is_in_good_legal_standing = $61,
         owner_group_id = $62, auto_enroll_investors = $63,
         modified_date = NOW()
-<<<<<<< HEAD
-      WHERE id = $62`;
+      WHERE id = $64`;
     const campaignUpdateParams: any[] = [
-=======
-      WHERE id = $64`,
-      [
->>>>>>> origin/main
         campaign.name || existing.name,
         campaign.description ?? existing.description,
         campaign.themes ?? existing.themes,
@@ -2113,6 +2105,8 @@ router.put("/:id", async (req: Request, res: Response) => {
         investmentNotes,
         investmentTag,
         thankYouAttachments,
+        ownerGroupId: updatedCampaign.owner_group_id,
+        autoEnrollInvestors: updatedCampaign.auto_enroll_investors ?? false,
       },
     });
   } catch (err: any) {
