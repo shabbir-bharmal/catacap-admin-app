@@ -291,11 +291,10 @@ const THANK_YOU_ACCEPT_ATTR =
 const PERSONALIZED_THANK_YOU_MAX_CHARS = 1000;
 
 const EMAIL_PREVIEW_CATEGORIES: { category: number; label: string }[] = [
-  { category: 4, label: "DAF Donation Instructions" },
-  { category: 5, label: "Foundation Donation Instructions" },
   { category: 8, label: "Donation Confirmation" },
-  { category: 29, label: "DAF Donation Instructions (ImpactAssets)" },
 ];
+
+const DONATION_CONFIRMATION_CATEGORY = 8;
 
 function formatBytes(bytes: number): string {
   if (!bytes || bytes <= 0) return "0 B";
@@ -602,7 +601,6 @@ export default function AdminInvestmentEdit() {
   const [previewEmailOpen, setPreviewEmailOpen] = useState(false);
   const [previewEmailLoading, setPreviewEmailLoading] = useState(false);
   const [previewEmailTemplates, setPreviewEmailTemplates] = useState<EmailPreviewTemplateOption[]>([]);
-  const [previewEmailSelectedCategory, setPreviewEmailSelectedCategory] = useState<number | null>(null);
   const [previewEmailHtml, setPreviewEmailHtml] = useState<string>("");
   const [previewEmailSubject, setPreviewEmailSubject] = useState<string>("");
   const [previewEmailError, setPreviewEmailError] = useState<string>("");
@@ -1319,15 +1317,11 @@ export default function AdminInvestmentEdit() {
     [formData.personalizedThankYou],
   );
 
-  const buildPreviewVariables = useCallback((): Record<string, string> => {
+  const buildPreviewVariables = useCallback((category: number): Record<string, string> => {
     const investmentLabel = formData.name || investmentName || "this investment";
     const exampleAmount = "$1,000";
     const today = dayjs().format("MMMM D, YYYY");
-    const personalizedHtml = (formData.personalizedThankYou || "").trim();
-    const personalizedSection = personalizedHtml
-      ? `<b style="color:#000;">Thank you from Investment Owner</b><br/>${personalizedHtml}<hr style="border:none; border-top:1px solid #d1d5db;" />`
-      : "";
-    return {
+    const vars: Record<string, string> = {
       firstName: "Sample Donor",
       lastName: "Donor",
       fullName: "Sample Donor",
@@ -1348,8 +1342,14 @@ export default function AdminInvestmentEdit() {
       donationDate: today,
       logoUrl: "",
       requestOrigin: typeof window !== "undefined" ? window.location.origin : "",
-      personalizedThankYouSection: personalizedSection,
     };
+    if (category === DONATION_CONFIRMATION_CATEGORY) {
+      const personalizedHtml = (formData.personalizedThankYou || "").trim();
+      vars.personalizedThankYouSection = personalizedHtml
+        ? `<b style="color:#000;">Thank you from Investment Owner</b><br/>${personalizedHtml}<hr style="border:none; border-top:1px solid #d1d5db;" />`
+        : "";
+    }
+    return vars;
   }, [formData.name, formData.personalizedThankYou, investmentName]);
 
   const applyTemplatePlaceholders = useCallback(
@@ -1378,7 +1378,7 @@ export default function AdminInvestmentEdit() {
       setPreviewEmailError("");
       try {
         const data = await fetchEmailTemplatePreview(opt.templateId);
-        const vars = buildPreviewVariables();
+        const vars = buildPreviewVariables(category);
         setPreviewEmailSubject(applyTemplatePlaceholders(data.subject || "", vars));
         setPreviewEmailHtml(applyTemplatePlaceholders(data.bodyHtml || "", vars));
       } catch (err: any) {
@@ -1424,18 +1424,12 @@ export default function AdminInvestmentEdit() {
         return;
       }
       const initial = opts[0].category;
-      setPreviewEmailSelectedCategory(initial);
       await loadEmailPreviewForCategory(initial, opts);
     } catch (err: any) {
       console.error("Failed to load email preview templates", err);
       setPreviewEmailError(err?.response?.data?.message || "Failed to load email templates.");
       setPreviewEmailLoading(false);
     }
-  };
-
-  const handleSelectPreviewCategory = async (category: number) => {
-    setPreviewEmailSelectedCategory(category);
-    await loadEmailPreviewForCategory(category, previewEmailTemplates);
   };
 
   const handleSaveClick = () => {
@@ -1632,26 +1626,6 @@ export default function AdminInvestmentEdit() {
               </p>
             )}
           </DialogHeader>
-          <div className="px-6 pb-2 flex flex-wrap gap-2">
-            {previewEmailTemplates.length === 0 && !previewEmailLoading ? null : EMAIL_PREVIEW_CATEGORIES.map(({ category, label }) => {
-              const opt = previewEmailTemplates.find((o) => o.category === category);
-              const isAvailable = !!opt;
-              const isSelected = previewEmailSelectedCategory === category;
-              return (
-                <Button
-                  key={category}
-                  type="button"
-                  size="sm"
-                  variant={isSelected ? "default" : "outline"}
-                  disabled={!isAvailable || previewEmailLoading}
-                  onClick={() => isAvailable && handleSelectPreviewCategory(category)}
-                  data-testid={`button-preview-template-${category}`}
-                >
-                  {label}
-                </Button>
-              );
-            })}
-          </div>
           <div className="flex-1 min-h-0 px-0">
             {previewEmailLoading ? (
               <div className="flex items-center justify-center h-[600px] text-sm text-muted-foreground">
