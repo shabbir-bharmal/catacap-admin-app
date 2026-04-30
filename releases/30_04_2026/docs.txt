@@ -129,3 +129,59 @@ Migrations
      COMMIT;
      (Also remove adminMatching.ts route, matchingGrants.ts helper,
      AdminMatching.tsx page, and revert adminRecommendations.ts trigger.)
+
+3) 2026_04_30_campaign_match_grants_v2.sql  (escrow + expiry)
+   Schema change (ALTER TABLE only, not a new table):
+     campaign_match_grants
+       + reserved_amount  NUMERIC(15,2) NOT NULL DEFAULT 0
+       + expires_at       TIMESTAMP NULL
+
+   Intent:
+     Adds escrow model and optional deadline to match grants.
+
+     Escrow model:
+       - When a grant with a total_cap is saved, the full cap amount is
+         immediately deducted from the donor's wallet (via
+         account_balance_change_logs) and stored in reserved_amount.
+       - When a match fires, amount_used is incremented; no additional
+         wallet deduction occurs (funds were already reserved).
+       - On grant deletion: (reserved_amount - amount_used) is returned to
+         the donor's wallet and logged.
+       - On grant PUT where the cap changes: old unused reservation is
+         returned first, then a fresh reservation for the new cap is taken.
+       - Unlimited grants (total_cap = NULL) keep the previous
+         live-wallet pay-as-you-go behaviour; reserved_amount stays 0.
+
+     Expiry:
+       - expires_at is an optional TIMESTAMP (UTC).  If set and past, the
+         daily ExpireMatchGrants scheduler job (lock key 900006, 01:00 ET)
+         deactivates the grant and returns any unused reserved funds.
+       - The matching helper (applyMatchGrants) also skips expired grants
+         at match-fire time (defence in depth).
+       - Frontend shows the expiry date on grant cards with an "Expired"
+         badge if the date has passed.
+
+     Scheduler job:
+       - server/src/scheduler/expireMatchGrants.ts → runExpireMatchGrants()
+       - Registered in scheduler/index.ts (LOCK_KEYS, JOB_RUNNERS, getDefaultConfigs)
+       - Added to DB scheduler_configurations: job_name='ExpireMatchGrants',
+         hour=1, minute=0, timezone='America/New_York'
+
+     Frontend changes (AdminMatching.tsx):
+       - New "Grant Expiry Date" date field in the create/edit dialog
+       - Escrow hint: when editing, shows "effective available = live
+         balance + unused reservation" so admins know true budget
+       - Grant cards show "Escrowed: $X" and "Expires: date" inline
+
+   Idempotency:
+     ALTER TABLE uses ADD COLUMN IF NOT EXISTS; safe to re-run.
+
+   Rollback:
+     BEGIN;
+       ALTER TABLE campaign_match_grants
+         DROP COLUMN IF EXISTS reserved_amount,
+         DROP COLUMN IF EXISTS expires_at;
+     COMMIT;
+     (Also remove expireMatchGrants.ts, revert scheduler/index.ts import,
+     revert matchingGrants.ts escrow logic, revert adminMatching.ts helpers,
+     revert AdminMatching.tsx form/card changes.)

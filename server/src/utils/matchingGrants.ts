@@ -1,22 +1,34 @@
 /**
  * Investment Match Grants helper
  *
- * When a recommendation for a campaign is approved, this module checks
- * whether any active match grant covers that campaign and, if the donor
- * is different from the investor, automatically deducts the matched
- * amount from the donor's wallet and records an approved recommendation
- * on their behalf.
+ * When a recommendation for a campaign is approved this module checks
+ * whether any active (non-expired) match grant covers that campaign and,
+ * if the donor is different from the investor, automatically allocates
+ * the matched amount.
  *
- * Called fire-and-forget AFTER the original recommendation's transaction
- * has committed, so the investor's approved recommendation is never
- * rolled back due to matching failures.
+ * Escrow model
+ * ─────────────
+ * If the grant has a total_cap (reserved_amount > 0) the funds were
+ * already deducted from the donor's wallet at grant-creation time.
+ * Matching therefore only:
+ *   • increments amount_used
+ *   • creates an approved recommendation for the donor
+ *   • logs activity
+ *   No further wallet change is needed.
+ *
+ * Unlimited grants (no total_cap, reserved_amount = 0)
+ * ────────────────────────────────────────────────────
+ * Funds are drawn from the donor's live wallet balance at match time.
+ *
+ * Called fire-and-forget AFTER the investor's recommendation transaction
+ * has committed.
  */
 
 import pool from "../db.js";
 
 interface ApplyMatchArgs {
   campaignId: number;
-  investorUserId: string;      // the person who made the investment (excluded from matching themselves)
+  investorUserId: string;
   triggeringRecommendationId: number;
   investmentAmount: number;
   investorEmail: string;
@@ -29,20 +41,21 @@ export async function applyMatchGrants(args: ApplyMatchArgs): Promise<void> {
     investorUserId,
     triggeringRecommendationId,
     investmentAmount,
-    investorEmail,
     campaignName,
   } = args;
 
   try {
-    // Find all active match grants that cover this campaign
+    // Find active, non-expired grants covering this campaign
     const grantsResult = await pool.query(
       `SELECT cmg.id, cmg.donor_user_id, cmg.total_cap, cmg.amount_used,
-              cmg.match_type, cmg.per_investment_cap, cmg.name
+              cmg.reserved_amount, cmg.match_type, cmg.per_investment_cap,
+              cmg.name, cmg.expires_at
          FROM campaign_match_grants cmg
          JOIN campaign_match_grant_campaigns cmgc
               ON cmgc.match_grant_id = cmg.id AND cmgc.campaign_id = $1
         WHERE cmg.is_active = TRUE
           AND cmg.donor_user_id != $2
+          AND (cmg.expires_at IS NULL OR cmg.expires_at > NOW())
         ORDER BY cmg.id ASC`,
       [campaignId, investorUserId],
     );
@@ -56,7 +69,6 @@ export async function applyMatchGrants(args: ApplyMatchArgs): Promise<void> {
         investorUserId,
         triggeringRecommendationId,
         investmentAmount,
-        investorEmail,
         campaignName,
       });
     }
@@ -71,7 +83,6 @@ async function applySingleGrant(opts: {
   investorUserId: string;
   triggeringRecommendationId: number;
   investmentAmount: number;
-  investorEmail: string;
   campaignName: string;
 }): Promise<void> {
   const {
@@ -84,29 +95,40 @@ async function applySingleGrant(opts: {
 
   const client = await pool.connect();
   try {
-    // --- Compute match amount ---
-    const totalCap = grant.total_cap != null ? parseFloat(grant.total_cap) : null;
+    const reserved = parseFloat(grant.reserved_amount) || 0;
     const amountUsed = parseFloat(grant.amount_used) || 0;
-    const remainingBudget = totalCap != null ? totalCap - amountUsed : Infinity;
+    const isEscrow = reserved > 0; // funds already taken from wallet at creation
 
-    if (remainingBudget <= 0) return; // cap exhausted
+    // ── Determine available budget ────────────────────────────────────
+    let availableBudget: number;
+    if (isEscrow) {
+      availableBudget = Math.max(0, reserved - amountUsed);
+    } else if (grant.total_cap != null) {
+      // Capped but no reservation (edge case — treat as escrow exhausted)
+      availableBudget = Math.max(
+        0,
+        parseFloat(grant.total_cap) - amountUsed,
+      );
+    } else {
+      availableBudget = Infinity; // unlimited — will be capped by wallet below
+    }
 
+    if (availableBudget <= 0) return;
+
+    // ── Compute match amount ──────────────────────────────────────────
     let matchAmount = investmentAmount;
 
-    // Apply per-investment ceiling if match_type = 'capped'
     if (grant.match_type === "capped" && grant.per_investment_cap != null) {
       matchAmount = Math.min(matchAmount, parseFloat(grant.per_investment_cap));
     }
-
-    // Apply remaining budget ceiling
-    matchAmount = Math.min(matchAmount, remainingBudget);
-    matchAmount = Math.round(matchAmount * 100) / 100; // round to cents
+    matchAmount = Math.min(matchAmount, availableBudget);
+    matchAmount = Math.round(matchAmount * 100) / 100;
 
     if (matchAmount <= 0) return;
 
     await client.query("BEGIN");
 
-    // Re-check donor balance inside the transaction
+    // Fetch donor row (always needed for recommendation fields)
     const donorResult = await client.query(
       `SELECT id, email, first_name, last_name, user_name, account_balance
          FROM users WHERE id = $1`,
@@ -121,9 +143,13 @@ async function applySingleGrant(opts: {
     }
     const donor = donorResult.rows[0];
     const donorBalance = parseFloat(donor.account_balance) || 0;
+    const donorFullName =
+      `${donor.first_name || ""} ${donor.last_name || ""}`.trim() ||
+      donor.user_name ||
+      "";
 
-    if (donorBalance < matchAmount) {
-      // Insufficient balance — match as much as possible (or skip entirely)
+    if (!isEscrow) {
+      // ── Live-wallet model: check and deduct ──────────────────────
       if (donorBalance <= 0) {
         await client.query("ROLLBACK");
         console.warn(
@@ -131,36 +157,34 @@ async function applySingleGrant(opts: {
         );
         return;
       }
-      matchAmount = Math.round(donorBalance * 100) / 100;
+      if (donorBalance < matchAmount) {
+        matchAmount = Math.round(donorBalance * 100) / 100;
+      }
+      const newBalance = parseFloat((donorBalance - matchAmount).toFixed(2));
+
+      await client.query(
+        `UPDATE users SET account_balance = $1 WHERE id = $2`,
+        [newBalance, donor.id],
+      );
+      await client.query(
+        `INSERT INTO account_balance_change_logs
+           (user_id, payment_type, investment_name, campaign_id,
+            old_value, user_name, new_value, change_date)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+        [
+          donor.id,
+          `Match grant – ${grant.name || `Grant #${grant.id}`}`,
+          campaignName,
+          campaignId,
+          donorBalance,
+          donor.user_name || donorFullName,
+          newBalance,
+        ],
+      );
     }
+    // Escrow model: money was already reserved at grant creation — no wallet change.
 
-    const newDonorBalance = parseFloat((donorBalance - matchAmount).toFixed(2));
-    const donorFullName = `${donor.first_name || ""} ${donor.last_name || ""}`.trim() || donor.user_name || "";
-
-    // 1. Deduct from donor wallet
-    await client.query(
-      `UPDATE users SET account_balance = $1 WHERE id = $2`,
-      [newDonorBalance, donor.id],
-    );
-
-    // 2. Log the balance change
-    await client.query(
-      `INSERT INTO account_balance_change_logs
-         (user_id, payment_type, investment_name, campaign_id,
-          old_value, user_name, new_value, change_date)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
-      [
-        donor.id,
-        `Match grant – ${grant.name || `Grant #${grant.id}`}`,
-        campaignName,
-        campaignId,
-        donorBalance,
-        donor.user_name || donorFullName,
-        newDonorBalance,
-      ],
-    );
-
-    // 3. Create an approved recommendation for the donor
+    // ── Create approved recommendation for donor ──────────────────────
     const recResult = await client.query(
       `INSERT INTO recommendations
          (user_email, user_full_name, campaign_id, status, amount, date_created, user_id)
@@ -170,7 +194,7 @@ async function applySingleGrant(opts: {
     );
     const donorRecId = recResult.rows[0]?.id ?? null;
 
-    // 4. Update amount_used on the grant (use optimistic lock to prevent races)
+    // ── Update amount_used ────────────────────────────────────────────
     await client.query(
       `UPDATE campaign_match_grants
           SET amount_used = amount_used + $1,
@@ -179,7 +203,7 @@ async function applySingleGrant(opts: {
       [matchAmount, grant.id],
     );
 
-    // 5. Log the activity
+    // ── Log activity ──────────────────────────────────────────────────
     await client.query(
       `INSERT INTO campaign_match_grant_activity
          (match_grant_id, campaign_id, triggered_by_user_id,
@@ -198,7 +222,7 @@ async function applySingleGrant(opts: {
     await client.query("COMMIT");
 
     console.log(
-      `applyMatchGrants: grant ${grant.id} matched $${matchAmount} for campaign ${campaignId}`,
+      `applyMatchGrants: grant ${grant.id} matched $${matchAmount} for campaign ${campaignId} (${isEscrow ? "escrow" : "live-wallet"})`,
     );
   } catch (err: any) {
     await client.query("ROLLBACK").catch(() => {});

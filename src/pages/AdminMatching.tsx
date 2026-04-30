@@ -13,7 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import axiosInstance from "../api/axios";
 import { currency_format, formatDate } from "../helpers/format";
-import { Plus, Pencil, Trash2, GitMerge, Activity, ChevronDown, ChevronRight, Search, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, GitMerge, Activity, ChevronDown, ChevronRight, Search, Loader2, Clock } from "lucide-react";
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useDebounce } from "../hooks/useDebounce";
@@ -32,10 +32,12 @@ interface MatchGrant {
   donorBalance: number;
   totalCap: number | null;
   amountUsed: number;
+  reservedAmount: number;
   matchType: "full" | "capped";
   perInvestmentCap: number | null;
   isActive: boolean;
   notes: string;
+  expiresAt: string | null;
   createdAt: string;
   timesUsed: number;
   campaigns: Campaign[];
@@ -58,11 +60,14 @@ const EMPTY_FORM = {
   donorEmail: "",
   donorFullName: "",
   donorBalance: 0,
+  reservedAmount: 0,
+  amountUsed: 0,
   totalCap: "",
   matchType: "full" as "full" | "capped",
   perInvestmentCap: "",
   isActive: true,
   notes: "",
+  expiresAt: "",
   campaignIds: [] as number[],
 };
 
@@ -282,6 +287,10 @@ function GrantFormDialog({
   const upd = (key: keyof typeof EMPTY_FORM, val: any) =>
     setForm((prev) => ({ ...prev, [key]: val }));
 
+  // When editing, some of the old reservation can be returned → effective available = live balance + unused
+  const unusedReservation = isEdit ? Math.max(0, form.reservedAmount - form.amountUsed) : 0;
+  const effectiveAvailable = form.donorBalance + unusedReservation;
+
   const handleSave = async () => {
     if (!form.donorUserId) {
       toast({ title: "Error", description: "Please select a donor.", variant: "destructive" });
@@ -293,10 +302,19 @@ function GrantFormDialog({
     }
     if (form.totalCap !== "" && form.donorUserId) {
       const cap = Number(form.totalCap);
-      if (cap > form.donorBalance) {
+      const limit = isEdit ? effectiveAvailable : form.donorBalance;
+      if (cap > limit) {
         toast({
-          title: "Cap exceeds donor balance",
-          description: `Total Grant Cap ($${cap.toLocaleString()}) cannot exceed the donor's current balance of ${currency_format(form.donorBalance)}.`,
+          title: "Cap exceeds available balance",
+          description: `Total Grant Cap ($${cap.toLocaleString()}) cannot exceed ${currency_format(limit)}.`,
+          variant: "destructive",
+        });
+        return;
+      }
+      if (isEdit && cap < form.amountUsed) {
+        toast({
+          title: "Cap too low",
+          description: `Cap cannot be set below the amount already matched (${currency_format(form.amountUsed)}).`,
           variant: "destructive",
         });
         return;
@@ -312,6 +330,7 @@ function GrantFormDialog({
         perInvestmentCap: form.matchType === "capped" && form.perInvestmentCap !== "" ? Number(form.perInvestmentCap) : null,
         isActive: form.isActive,
         notes: form.notes.trim(),
+        expiresAt: form.expiresAt || null,
         campaignIds: form.campaignIds,
       };
       if (isEdit) {
@@ -389,18 +408,21 @@ function GrantFormDialog({
                 placeholder="Leave empty for unlimited"
                 data-testid="input-total-cap"
                 className={
-                  form.totalCap !== "" && form.donorUserId && Number(form.totalCap) > form.donorBalance
+                  form.totalCap !== "" && form.donorUserId && Number(form.totalCap) > (isEdit ? effectiveAvailable : form.donorBalance)
                     ? "border-destructive focus-visible:ring-destructive"
                     : ""
                 }
               />
-              {form.donorUserId && form.totalCap !== "" && Number(form.totalCap) > form.donorBalance ? (
+              {form.donorUserId && form.totalCap !== "" && Number(form.totalCap) > (isEdit ? effectiveAvailable : form.donorBalance) ? (
                 <p className="text-xs text-destructive font-medium">
-                  Exceeds donor balance of {currency_format(form.donorBalance)}
+                  Exceeds available {currency_format(isEdit ? effectiveAvailable : form.donorBalance)}
                 </p>
               ) : form.donorUserId ? (
                 <p className="text-xs text-muted-foreground">
-                  Max total matched across all investments. Donor balance: {currency_format(form.donorBalance)}
+                  {isEdit && unusedReservation > 0
+                    ? `Available: ${currency_format(effectiveAvailable)} (live balance + ${currency_format(unusedReservation)} unused reservation)`
+                    : `Available: ${currency_format(form.donorBalance)}`
+                  }
                 </p>
               ) : (
                 <p className="text-xs text-muted-foreground">Max total matched across all investments.</p>
@@ -437,6 +459,20 @@ function GrantFormDialog({
               </p>
             </div>
           )}
+
+          <div className="space-y-1.5">
+            <Label className="text-sm">Grant Expiry Date</Label>
+            <Input
+              type="date"
+              value={form.expiresAt}
+              onChange={(e) => upd("expiresAt", e.target.value)}
+              min={new Date().toISOString().slice(0, 10)}
+              data-testid="input-expires-at"
+            />
+            <p className="text-xs text-muted-foreground">
+              Optional. On this date the grant is automatically deactivated and any unused reserved funds are returned to the donor.
+            </p>
+          </div>
 
           <div className="space-y-1.5">
             <Label className="text-sm">Notes</Label>
@@ -575,11 +611,14 @@ export default function AdminMatching() {
       donorEmail: g.donorEmail,
       donorFullName: g.donorFullName,
       donorBalance: g.donorBalance,
+      reservedAmount: g.reservedAmount,
+      amountUsed: g.amountUsed,
       totalCap: g.totalCap != null ? String(g.totalCap) : "",
       matchType: g.matchType,
       perInvestmentCap: g.perInvestmentCap != null ? String(g.perInvestmentCap) : "",
       isActive: g.isActive,
       notes: g.notes,
+      expiresAt: g.expiresAt ? g.expiresAt.slice(0, 10) : "",
       campaignIds: g.campaigns.map((c) => c.id),
     });
     setFormOpen(true);
@@ -720,10 +759,36 @@ export default function AdminMatching() {
                             {currency_format(g.amountUsed)}
                             {g.totalCap != null ? ` / ${currency_format(g.totalCap)}` : " (unlimited cap)"}
                           </span>
+                          {g.reservedAmount > 0 && (
+                            <span>
+                              <span className="font-medium text-foreground">Escrowed:</span>{" "}
+                              <span className="text-amber-600 dark:text-amber-400 font-medium">
+                                {currency_format(g.reservedAmount)}
+                              </span>
+                              {g.amountUsed > 0 && (
+                                <span className="text-xs ml-1">
+                                  ({currency_format(Math.max(0, g.reservedAmount - g.amountUsed))} remaining)
+                                </span>
+                              )}
+                            </span>
+                          )}
                           <span>
                             <span className="font-medium text-foreground">Times triggered:</span>{" "}
                             {g.timesUsed}
                           </span>
+                          {g.expiresAt && (
+                            <span className={cn(
+                              "flex items-center gap-1",
+                              new Date(g.expiresAt) < new Date() ? "text-destructive" : "",
+                            )}>
+                              <Clock className="h-3.5 w-3.5" />
+                              <span className="font-medium text-foreground">Expires:</span>{" "}
+                              {formatDate(g.expiresAt)}
+                              {new Date(g.expiresAt) < new Date() && (
+                                <Badge variant="destructive" className="text-[10px] px-1.5 py-0 ml-1">Expired</Badge>
+                              )}
+                            </span>
+                          )}
                         </div>
 
                         {pct !== null && (
