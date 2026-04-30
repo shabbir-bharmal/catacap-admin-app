@@ -129,6 +129,9 @@ export interface EventRegistrationItem {
     guestName: string | null;
     referredBy: string | null;
     createdAt: string;
+    attending: boolean;
+    interestedInFutureEvents: boolean;
+    requestedIntroCall: boolean;
 }
 
 export interface PaginatedEventRegistrationResponse {

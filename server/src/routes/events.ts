@@ -302,7 +302,8 @@ router.get("/registrations", modulePermission("event-registrations", "Manage"), 
 
     const dataResult = await pool.query(
       `SELECT er.id, er.event_slug, er.first_name, er.last_name, er.email,
-              er.guest_name, er.referred_by, er.created_at
+              er.guest_name, er.referred_by, er.created_at,
+              er.attending, er.interested_in_future_events, er.requested_intro_call
        FROM event_registrations er
        ${whereClause}
        ORDER BY ${sortCol}
@@ -319,6 +320,9 @@ router.get("/registrations", modulePermission("event-registrations", "Manage"), 
       guestName: r.guest_name,
       referredBy: r.referred_by,
       createdAt: r.created_at,
+      attending: r.attending,
+      interestedInFutureEvents: r.interested_in_future_events,
+      requestedIntroCall: r.requested_intro_call,
     }));
 
     res.json({ totalRecords: parseInt(countResult.rows[0].total) || 0, items });

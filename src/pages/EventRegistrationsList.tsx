@@ -20,6 +20,21 @@ import { formatDateTime } from "@/helpers/format";
 
 type Registration = eventApi.EventRegistrationItem;
 
+function YesNoBadge({ value }: { value: boolean }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center justify-center rounded-full px-2 py-0.5 text-xs font-medium",
+        value
+          ? "bg-[#0ab39c]/10 text-[#0ab39c]"
+          : "bg-muted text-muted-foreground"
+      )}
+    >
+      {value ? "Yes" : "No"}
+    </span>
+  );
+}
+
 export default function EventRegistrationsList() {
   const { toast } = useToast();
   const { hasActionPermission } = useAuth();
@@ -105,10 +120,14 @@ export default function EventRegistrationsList() {
         "First Name",
         "Last Name",
         "Email",
+        "Attending In Person",
         "Guest Name",
+        "Wants Future Event Info",
+        "Wants 1:1 Call",
         "Referred By",
         "Registered At",
       ];
+      const yesNo = (v: boolean) => (v ? "Yes" : "No");
       const lines = [headers.join(",")];
       for (const r of items) {
         lines.push(
@@ -117,7 +136,10 @@ export default function EventRegistrationsList() {
             r.firstName,
             r.lastName,
             r.email,
+            yesNo(r.attending),
             r.guestName ?? "",
+            yesNo(r.interestedInFutureEvents),
+            yesNo(r.requestedIntroCall),
             r.referredBy ?? "",
             formatDateTime(r.createdAt),
           ]
@@ -205,8 +227,17 @@ export default function EventRegistrationsList() {
                     <SortHeader field="email" sortField={sortField} sortDir={sortDir} handleSort={handleSort}>
                       Email
                     </SortHeader>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+                      In Person
+                    </th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
                       Guest Name
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+                      Future Events
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+                      1:1 Call
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
                       Referred By
@@ -224,13 +255,13 @@ export default function EventRegistrationsList() {
                 <tbody className="divide-y">
                   {isLoading ? (
                     <tr>
-                      <td colSpan={canDelete ? 9 : 8} className="text-center py-10 text-muted-foreground">
+                      <td colSpan={canDelete ? 12 : 11} className="text-center py-10 text-muted-foreground">
                         Loading registrations...
                       </td>
                     </tr>
                   ) : rows.length === 0 ? (
                     <tr>
-                      <td colSpan={canDelete ? 9 : 8} className="text-center py-10 text-muted-foreground">
+                      <td colSpan={canDelete ? 12 : 11} className="text-center py-10 text-muted-foreground">
                         {search ? "No registrations match your search." : "No registrations yet."}
                       </td>
                     </tr>
@@ -248,7 +279,16 @@ export default function EventRegistrationsList() {
                         <td className="px-4 py-3">{r.firstName || "—"}</td>
                         <td className="px-4 py-3">{r.lastName || "—"}</td>
                         <td className="px-4 py-3">{r.email || "—"}</td>
+                        <td className="px-4 py-3 text-center" data-testid={`text-attending-${r.id}`}>
+                          <YesNoBadge value={r.attending} />
+                        </td>
                         <td className="px-4 py-3 text-muted-foreground">{r.guestName || "—"}</td>
+                        <td className="px-4 py-3 text-center" data-testid={`text-future-events-${r.id}`}>
+                          <YesNoBadge value={r.interestedInFutureEvents} />
+                        </td>
+                        <td className="px-4 py-3 text-center" data-testid={`text-intro-call-${r.id}`}>
+                          <YesNoBadge value={r.requestedIntroCall} />
+                        </td>
                         <td className="px-4 py-3 text-muted-foreground">{r.referredBy || "—"}</td>
                         <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
                           {formatDateTime(r.createdAt)}
