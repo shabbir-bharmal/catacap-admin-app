@@ -4,6 +4,7 @@ import pool from "../db.js";
 import { parsePagination, softDeleteFilter, handleMissingTableError } from "../utils/softDelete.js";
 import { restoreOwningUsersForRecordsInTx } from "../utils/userRestore.js";
 import { autoEnrollInvestorIfApplicable } from "../utils/autoEnrollGroupMembership.js";
+import { sendNewInvestmentNotifications } from "../utils/investmentNotifications.js";
 import ExcelJS from "exceljs";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
@@ -224,6 +225,10 @@ router.put("/:id/status", async (req: Request, res: Response) => {
     const oldStatus = asset.status || "Pending";
     const newStatus = data.status || "Pending";
 
+    let notifyAfterCommit:
+      | { campaignId: number; donorDisplayName: string; amount: number }
+      | null = null;
+
     await client.query("BEGIN");
 
     if (data.note && data.note.trim()) {
@@ -314,12 +319,36 @@ router.put("/:id/status", async (req: Request, res: Response) => {
            VALUES ($1, $2, $3, $4, true)`,
           [asset.uid, paymentType, asset.campaign_name, asset.camp_id]
         );
+
+        // Defer the email until after COMMIT so we never notify
+        // recipients of an investment that ends up rolled back.
+        const donorDisplayNameApproved =
+          `${asset.first_name || ""} ${asset.last_name || ""}`.trim() ||
+          asset.user_name ||
+          asset.user_email ||
+          "An investor";
+        notifyAfterCommit = {
+          campaignId: Number(asset.camp_id),
+          donorDisplayName: donorDisplayNameApproved,
+          amount: recAmount,
+        };
       }
     } else if ((oldStatus === "Pending" || oldStatus === "In Transit") && newStatus === "Rejected") {
       await client.query(`UPDATE asset_based_payment_requests SET status = $1 WHERE id = $2`, [newStatus, id]);
     }
 
     await client.query("COMMIT");
+
+    if (notifyAfterCommit) {
+      // fire-and-forget after the investment is durably committed
+      sendNewInvestmentNotifications(notifyAfterCommit).catch((err) =>
+        console.error(
+          "Investment notification email failed:",
+          err?.message || err,
+        ),
+      );
+    }
+
     res.json({ success: true, message: "Asset payment status updated successfully." });
   } catch (err: any) {
     await client.query("ROLLBACK").catch(() => {});

@@ -1,0 +1,57 @@
+Release: 30_04_2026
+====================
+
+Migrations
+----------
+
+1) 2026_04_30_campaign_investment_notification_recipients.sql
+   Schema:
+     CREATE TABLE campaign_investment_notification_recipients (
+       id          SERIAL PRIMARY KEY,
+       campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+       name        TEXT NOT NULL DEFAULT '',
+       email       TEXT NOT NULL,
+       position    INTEGER NOT NULL DEFAULT 0,
+       created_at  TIMESTAMP NOT NULL DEFAULT NOW()
+     );
+     INDEX idx_cinr_campaign_id ON (campaign_id)
+
+   Intent:
+     Per-campaign list of {name, email} pairs that receive a notification
+     email (template id = 16, "Campaign Investment Notification") whenever
+     a new investment is recorded against the campaign. Replaces the
+     legacy single-address column campaigns.investment_informational_email,
+     which is preserved as a fallback used only when the recipients list
+     for the campaign is empty.
+
+     Wiring:
+       - GET  /api/admin/investment/:id  -> returns investmentNotificationRecipients
+       - PUT  /api/admin/investment/:id  -> replaces the full recipients
+                                            list (DELETE then INSERTs)
+                                            inside its own short BEGIN/COMMIT
+                                            block; failure throws to surface
+                                            a 500 rather than silent partial
+                                            success.
+       - Email is fired (fire-and-forget) AFTER COMMIT in:
+           server/src/routes/adminOtherAssets.ts (asset payment received)
+           server/src/routes/adminPendingGrants.ts (grant approved)
+       - When the recipients list is empty, sendNewInvestmentNotifications
+         falls back to campaigns.investment_informational_email, then
+         campaigns.contact_info_email_address.
+
+   Idempotency:
+     - CREATE TABLE IF NOT EXISTS
+     - Foreign key added inside a guarded DO block that checks
+       information_schema.table_constraints first
+     - CREATE INDEX IF NOT EXISTS
+     - Whole script wrapped in BEGIN/COMMIT
+     - Mirrored at runtime by ensureInvestmentNotificationRecipientsTable
+       in server/src/db.ts so fresh environments self-heal on boot
+
+   Rollback:
+     BEGIN;
+       DROP INDEX IF EXISTS idx_cinr_campaign_id;
+       DROP TABLE IF EXISTS campaign_investment_notification_recipients;
+     COMMIT;
+     (Also remove the ensure* call from server/src/db.ts and the helper
+     module server/src/utils/investmentNotifications.ts if reverting code.)

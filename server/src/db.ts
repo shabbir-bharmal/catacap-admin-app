@@ -512,6 +512,50 @@ async function ensureCampaignsOwnerGroupColumns(
   }
 }
 
+async function ensureInvestmentNotificationRecipientsTable(
+  client: pg.PoolClient,
+): Promise<void> {
+  // Per-campaign list of {name, email} pairs that receive an email
+  // when someone invests in the campaign. See migration
+  // releases/30_04_2026/migrations/2026_04_30_campaign_investment_notification_recipients.sql
+  try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS campaign_investment_notification_recipients (
+        id          SERIAL PRIMARY KEY,
+        campaign_id INTEGER NOT NULL,
+        name        TEXT NOT NULL DEFAULT '',
+        email       TEXT NOT NULL,
+        position    INTEGER NOT NULL DEFAULT 0,
+        created_at  TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.table_constraints
+          WHERE table_schema = 'public'
+            AND table_name = 'campaign_investment_notification_recipients'
+            AND constraint_name = 'campaign_investment_notification_recipients_campaign_id_fkey'
+        ) THEN
+          ALTER TABLE campaign_investment_notification_recipients
+            ADD CONSTRAINT campaign_investment_notification_recipients_campaign_id_fkey
+            FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE;
+        END IF;
+      END $$;
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_cinr_campaign_id
+        ON campaign_investment_notification_recipients (campaign_id)
+    `);
+  } catch (err: any) {
+    console.warn(
+      "ensureInvestmentNotificationRecipientsTable: could not ensure table:",
+      err?.message || err,
+    );
+  }
+}
+
 async function ensureAdminPerformanceIndexes(
   client: pg.PoolClient,
 ): Promise<void> {
@@ -672,6 +716,7 @@ export async function testConnection(): Promise<void> {
     await ensureInvestmentInstruments(client);
     await ensureAdminPerformanceIndexes(client);
     await ensureCampaignsOwnerGroupColumns(client);
+    await ensureInvestmentNotificationRecipientsTable(client);
     await backfillSchedulerLogIds(client);
     await backfillSoftDeleteTimestamps(client);
     await fixIncorrectBackfillDates(client);

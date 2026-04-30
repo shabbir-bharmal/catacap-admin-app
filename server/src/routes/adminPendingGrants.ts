@@ -4,6 +4,7 @@ import pool from "../db.js";
 import { parsePagination, softDeleteFilter, handleMissingTableError } from "../utils/softDelete.js";
 import { restoreOwningUsersForRecordsInTx } from "../utils/userRestore.js";
 import { autoEnrollInvestorIfApplicable } from "../utils/autoEnrollGroupMembership.js";
+import { sendNewInvestmentNotifications } from "../utils/investmentNotifications.js";
 import ExcelJS from "exceljs";
 
 const router = Router();
@@ -401,6 +402,10 @@ router.put("/:id", async (req: Request, res: Response) => {
     );
     const loginUserName = loginUserResult.rows[0]?.user_name?.trim().toLowerCase() || "";
 
+    let notifyAfterCommit:
+      | { campaignId: number; donorDisplayName: string; amount: number }
+      | null = null;
+
     await client.query("BEGIN");
     await client.query(`UPDATE pending_grants SET modified_date = NOW() WHERE id = $1`, [id]);
 
@@ -548,6 +553,19 @@ router.put("/:id", async (req: Request, res: Response) => {
            VALUES ($1, $2, $3, $4, true)`,
           [grant.uid, `Manually, ${loginUserName}`, grant.campaign_name, grant.camp_id]
         );
+
+        // Defer the email until after COMMIT so we never notify
+        // recipients of an investment that ends up rolled back.
+        const donorDisplayNameApproved =
+          `${grant.first_name || ""} ${grant.last_name || ""}`.trim() ||
+          grant.user_name ||
+          grant.user_email ||
+          "An investor";
+        notifyAfterCommit = {
+          campaignId: Number(grant.camp_id),
+          donorDisplayName: donorDisplayNameApproved,
+          amount: finalInvestmentAmount,
+        };
       }
 
       await client.query(`UPDATE users SET is_active = true, is_free_user = false WHERE id = $1`, [grant.uid]);
@@ -684,6 +702,17 @@ router.put("/:id", async (req: Request, res: Response) => {
     }
 
     await client.query("COMMIT");
+
+    if (notifyAfterCommit) {
+      // fire-and-forget after the investment is durably committed
+      sendNewInvestmentNotifications(notifyAfterCommit).catch((err) =>
+        console.error(
+          "Investment notification email failed:",
+          err?.message || err,
+        ),
+      );
+    }
+
     res.json({ success: true, message: `Grant set ${data.status}` });
   } catch (err: any) {
     await client.query("ROLLBACK").catch(() => {});

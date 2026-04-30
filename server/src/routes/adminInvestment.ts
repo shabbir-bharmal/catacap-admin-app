@@ -9,6 +9,10 @@ import { uploadBase64Image, resolveFileUrl, extractStoragePath, getSupabaseConfi
 import { logAudit } from "../utils/auditLog.js";
 import { restoreOwningUsersForRecordsInTx } from "../utils/userRestore.js";
 import { findOrCreateAnonymousUser } from "../utils/anonymousUser.js";
+import {
+  getInvestmentNotificationRecipients,
+  replaceInvestmentNotificationRecipients,
+} from "../utils/investmentNotifications.js";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
 dayjs.extend(utc);
@@ -938,6 +942,8 @@ router.get("/:id", async (req: Request, res: Response) => {
     );
     const investmentTag = tagResult.rows.map((t: any) => ({ tag: t.tag }));
 
+    const investmentNotificationRecipients = await getInvestmentNotificationRecipients(id);
+
     let terms = c.terms || "";
     if (terms) terms = normalizeMentionFormat(terms);
 
@@ -1013,6 +1019,7 @@ router.get("/:id", async (req: Request, res: Response) => {
       groupForPrivateAccessId: c.group_for_private_access_id,
       ownerGroupId: c.owner_group_id,
       autoEnrollInvestors: c.auto_enroll_investors ?? false,
+      investmentNotificationRecipients,
     };
 
     res.json(campaign);
@@ -1773,6 +1780,26 @@ router.put("/:id", async (req: Request, res: Response) => {
       await handleTagMappings(id, campaign.investmentTag);
     }
 
+    if (Array.isArray(campaign.investmentNotificationRecipients)) {
+      const recipientsClient = await pool.connect();
+      try {
+        await recipientsClient.query("BEGIN");
+        await replaceInvestmentNotificationRecipients(
+          recipientsClient,
+          id,
+          campaign.investmentNotificationRecipients,
+        );
+        await recipientsClient.query("COMMIT");
+      } catch (recipErr: any) {
+        await recipientsClient.query("ROLLBACK").catch(() => {});
+        // Surface the failure so the request returns 500 rather than
+        // silently reporting success while the recipients list was not saved.
+        throw recipErr;
+      } finally {
+        recipientsClient.release();
+      }
+    }
+
     const auditOldValues: Record<string, any> = {
       name: existing.name,
       description: existing.description,
@@ -1886,6 +1913,9 @@ router.put("/:id", async (req: Request, res: Response) => {
     );
     const investmentTag = tagResult.rows.map((t: any) => ({ tag: t.tag }));
 
+    const updatedNotificationRecipients =
+      await getInvestmentNotificationRecipients(id);
+
     res.json({
       success: true,
       message: "Campaign details updated successfully",
@@ -1893,6 +1923,7 @@ router.put("/:id", async (req: Request, res: Response) => {
         ...mapCampaignRow(updatedCampaign),
         investmentNotes,
         investmentTag,
+        investmentNotificationRecipients: updatedNotificationRecipients,
       },
     });
   } catch (err: any) {
