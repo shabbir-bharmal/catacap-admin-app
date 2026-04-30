@@ -16,7 +16,7 @@ import { useSort } from "../hooks/useSort";
 import { useDebounce } from "../hooks/useDebounce";
 import { SortHeader } from "../components/ui/table-sort";
 import { PaginationControls } from "@/components/ui/pagination-controls";
-import { fetchGroups, exportGroupsData, updateGroupSettings, fetchGroupLeaders, fetchGroupChampions, deleteGroup, type GroupApiItem, type GroupLeader, type Champion } from "../api/group/groupApi";
+import { fetchGroups, exportGroupsData, updateGroupSettings, fetchGroupLeaders, fetchGroupChampions, deleteGroup, fetchGroupAllMembers, type GroupApiItem, type GroupLeader, type Champion, type GroupAllMember } from "../api/group/groupApi";
 import { AuditLogModal } from "../components/AuditLogModal";
 import { currency_format } from "@/helpers/format";
 import { ConfirmationDialog } from "../components/ConfirmationDialog";
@@ -79,6 +79,31 @@ export default function GroupsPage() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  const [isMembersDialogOpen, setIsMembersDialogOpen] = useState(false);
+  const [membersDialogGroupName, setMembersDialogGroupName] = useState("");
+  const [membersList, setMembersList] = useState<GroupAllMember[]>([]);
+  const [isMembersLoading, setIsMembersLoading] = useState(false);
+
+  const openMembersDialog = async (groupId: number, groupName: string) => {
+    setMembersDialogGroupName(groupName);
+    setMembersList([]);
+    setIsMembersDialogOpen(true);
+    setIsMembersLoading(true);
+    try {
+      const data = await fetchGroupAllMembers(groupId);
+      setMembersList(data.members || []);
+    } catch (err) {
+      console.error("Failed to load group members", err);
+      toast({
+        title: "Error",
+        description: "Failed to load members.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsMembersLoading(false);
+    }
+  };
 
   const openDeleteDialog = (id: number) => {
     setDeleteTargetId(id);
@@ -378,9 +403,20 @@ export default function GroupsPage() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-center">
-                          <span className="text-sm" data-testid={`text-membercount-${group.id}`}>
-                            {group.memberCount}
-                          </span>
+                          {group.memberCount > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => openMembersDialog(group.id, group.groupName)}
+                              className="text-sm font-medium text-[#405189] hover:underline focus:outline-none focus:underline"
+                              data-testid={`button-membercount-${group.id}`}
+                            >
+                              {group.memberCount}
+                            </button>
+                          ) : (
+                            <span className="text-sm text-muted-foreground" data-testid={`text-membercount-${group.id}`}>
+                              {group.memberCount}
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-right whitespace-nowrap">
                           <span className="text-sm font-medium" data-testid={`text-memberinvestedtotal-${group.id}`}>
@@ -592,6 +628,67 @@ export default function GroupsPage() {
                 setLeaders={setManagedLeaders}
                 cardClassName="border-0 shadow-none"
               />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Group Members Modal */}
+      <Dialog open={isMembersDialogOpen} onOpenChange={setIsMembersDialogOpen}>
+        <DialogContent className="sm:max-w-2xl p-0 overflow-hidden border-none shadow-2xl [&>button]:text-white">
+          <DialogHeader className="p-6 bg-[#405189] text-white">
+            <DialogTitle className="text-xl font-bold flex items-center gap-2">
+              <UsersIcon className="h-5 w-5" />
+              Members - {membersDialogGroupName}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="p-4 min-h-[300px] max-h-[70vh] flex flex-col">
+            {isMembersLoading ? (
+              <div className="flex-1 flex flex-col items-center justify-center py-12 text-muted-foreground gap-3">
+                <Loader2 className="h-8 w-8 animate-spin text-[#405189]" />
+                <p className="text-sm font-medium">Loading members...</p>
+              </div>
+            ) : membersList.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center py-12 text-muted-foreground gap-2">
+                <UsersIcon className="h-8 w-8" />
+                <p className="text-sm">No members in this group.</p>
+              </div>
+            ) : (
+              <div className="flex-1 overflow-auto">
+                <div className="text-xs text-muted-foreground mb-2 px-1" data-testid="text-members-count">
+                  {membersList.length} {membersList.length === 1 ? "member" : "members"}
+                </div>
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50 sticky top-0">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-semibold text-muted-foreground uppercase text-xs tracking-wider">Name</th>
+                      <th className="px-3 py-2 text-left font-semibold text-muted-foreground uppercase text-xs tracking-wider">Email</th>
+                      <th className="px-3 py-2 text-left font-semibold text-muted-foreground uppercase text-xs tracking-wider">Role</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {membersList.map((m) => (
+                      <tr key={m.id} data-testid={`row-member-${m.id}`}>
+                        <td className="px-3 py-2" data-testid={`text-member-name-${m.id}`}>{m.fullName || "—"}</td>
+                        <td className="px-3 py-2 text-muted-foreground" data-testid={`text-member-email-${m.id}`}>{m.email || "—"}</td>
+                        <td className="px-3 py-2" data-testid={`text-member-role-${m.id}`}>
+                          <Badge
+                            className={`no-default-hover-elevate no-default-active-elevate border-0 ${
+                              m.role === "Owner"
+                                ? "bg-[#405189]/15 text-[#405189]"
+                                : m.role === "Leader"
+                                  ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                                  : "bg-muted text-muted-foreground"
+                            }`}
+                          >
+                            {m.role}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         </DialogContent>

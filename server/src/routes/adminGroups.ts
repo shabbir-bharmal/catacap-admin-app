@@ -1842,6 +1842,93 @@ router.delete("/:id", async (req: Request, res: Response) => {
   }
 });
 
+router.get("/:id/all-members", async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ message: "Invalid group id" });
+      return;
+    }
+
+    const groupResult = await pool.query(
+      `SELECT id, name, owner_id, leaders FROM groups WHERE id = $1`,
+      [id]
+    );
+    if (groupResult.rows.length === 0) {
+      res.status(404).json({ message: "Group not found" });
+      return;
+    }
+    const group = groupResult.rows[0];
+
+    const memberResult = await pool.query(
+      `SELECT DISTINCT request_owner_id
+       FROM requests
+       WHERE group_to_follow_id = $1
+         AND status = 'accepted'
+         AND (is_deleted IS NULL OR is_deleted = false)
+         AND request_owner_id IS NOT NULL`,
+      [id]
+    );
+    const memberIds = new Set<string>(
+      memberResult.rows.map((r: any) => r.request_owner_id)
+    );
+
+    const leaderIds = new Set<string>();
+    if (group.leaders) {
+      try {
+        const parsed = JSON.parse(group.leaders);
+        for (const l of parsed) {
+          const uid = l.UserId || l.userId;
+          if (uid) leaderIds.add(uid);
+        }
+      } catch {}
+    }
+
+    // Role priority (highest wins): Owner > Leader > Member.
+    const roleByUserId = new Map<string, "Owner" | "Leader" | "Member">();
+    for (const uid of memberIds) roleByUserId.set(uid, "Member");
+    for (const uid of leaderIds) roleByUserId.set(uid, "Leader");
+    if (group.owner_id) roleByUserId.set(group.owner_id, "Owner");
+
+    const allUserIds = [...roleByUserId.keys()];
+    if (allUserIds.length === 0) {
+      res.json({ groupId: id, groupName: group.name, members: [] });
+      return;
+    }
+
+    const placeholders = allUserIds.map((_, i) => `$${i + 1}`).join(", ");
+    const usersResult = await pool.query(
+      `SELECT id,
+              COALESCE(first_name, '') AS first_name,
+              COALESCE(last_name, '') AS last_name,
+              COALESCE(email, '') AS email
+       FROM users
+       WHERE id IN (${placeholders})
+         AND (is_deleted IS NULL OR is_deleted = false)`,
+      allUserIds
+    );
+
+    const members = usersResult.rows.map((u: any) => ({
+      id: u.id,
+      fullName: `${u.first_name} ${u.last_name}`.trim(),
+      email: u.email,
+      role: roleByUserId.get(u.id) || "Member",
+    }));
+
+    const rolePriority: Record<string, number> = { Owner: 0, Leader: 1, Member: 2 };
+    members.sort((a: any, b: any) => {
+      const r = (rolePriority[a.role] ?? 99) - (rolePriority[b.role] ?? 99);
+      if (r !== 0) return r;
+      return (a.fullName || "").localeCompare(b.fullName || "");
+    });
+
+    res.json({ groupId: id, groupName: group.name, members });
+  } catch (err) {
+    console.error("Get group all-members error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
 router.get("/:id/users", async (req: Request, res: Response) => {
   try {
     const id = parseInt(String(req.params.id), 10);

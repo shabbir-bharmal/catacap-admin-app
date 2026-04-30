@@ -253,6 +253,26 @@ export async function fetchGroupLeaders(groupId: number): Promise<GroupLeadersRe
     return response.data;
 }
 
+export interface GroupAllMember {
+    id: string;
+    fullName: string;
+    email: string;
+    role: "Owner" | "Leader" | "Member";
+}
+
+export interface GroupAllMembersResponse {
+    groupId: number;
+    groupName: string;
+    members: GroupAllMember[];
+}
+
+export async function fetchGroupAllMembers(groupId: number): Promise<GroupAllMembersResponse> {
+    const response = await axiosInstance.get<GroupAllMembersResponse>(
+        `/api/admin/group/${groupId}/all-members`
+    );
+    return response.data;
+}
+
 export async function fetchGroupChampions(groupId: number): Promise<GroupChampionsResponse> {
     const response = await axiosInstance.get<GroupChampionsResponse>(`/api/admin/group/${groupId}/champions`);
     return response.data;
