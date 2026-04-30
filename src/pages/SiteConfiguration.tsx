@@ -1368,42 +1368,20 @@ export default function SiteConfiguration() {
                               </td>
                               <td className="px-4 py-3 text-right">
                                 <div className="flex items-center justify-end">
-                                  <div className="inline-flex rounded-md shadow-sm">
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Button
-                                          size="icon"
-                                          variant="outline"
-                                          className={cn(
-                                            "h-8 w-8 text-[#405189] hover:text-[#405189] hover:bg-[#405189]/5",
-                                            hasActionPermission("site configuration", "delete") ? "rounded-r-none border-r-0" : ""
-                                          )}
-                                          onClick={() => openEdit(item.id)}
-                                          data-testid={`button-edit-${item.id}`}
-                                        >
-                                          <Pencil className="h-4 w-4" />
-                                        </Button>
-                                      </TooltipTrigger>
-                                      <TooltipContent>Edit Item</TooltipContent>
-                                    </Tooltip>
-
-                                    {hasActionPermission("site configuration", "delete") && (
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <Button
-                                            size="icon"
-                                            variant="outline"
-                                            className="h-8 w-8 rounded-l-none text-[#f06548] hover:text-[#f06548] hover:bg-[#f06548]/5"
-                                            onClick={() => openDelete(item.id, item.name)}
-                                            data-testid={`button-delete-${item.id}`}
-                                          >
-                                            <Trash2 className="h-4 w-4" />
-                                          </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent>Delete Item</TooltipContent>
-                                      </Tooltip>
-                                    )}
-                                  </div>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        size="icon"
+                                        variant="outline"
+                                        className="h-8 w-8 text-[#405189] hover:text-[#405189] hover:bg-[#405189]/5"
+                                        onClick={() => openEdit(item.id)}
+                                        data-testid={`button-edit-${item.id}`}
+                                      >
+                                        <Pencil className="h-4 w-4" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Edit Item</TooltipContent>
+                                  </Tooltip>
                                 </div>
                               </td>
                             </tr>
