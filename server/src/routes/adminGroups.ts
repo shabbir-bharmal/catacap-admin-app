@@ -2236,6 +2236,73 @@ router.put("/:id/transaction-history", async (req: Request, res: Response) => {
   }
 });
 
+// ------------------------------------------------------------------ //
+// GET /:id/campaign-investments
+// Admin view: campaigns linked to this group + member investment totals
+// ------------------------------------------------------------------ //
+router.get("/:id/campaign-investments", async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(id)) {
+      res.status(400).json({ message: "Invalid group id." });
+      return;
+    }
+
+    const groupCheck = await pool.query(`SELECT id, name FROM groups WHERE id = $1`, [id]);
+    if (groupCheck.rows.length === 0) {
+      res.status(404).json({ message: "Group not found." });
+      return;
+    }
+
+    // Campaigns linked to this group, enriched with group-member investment totals
+    const result = await pool.query(
+      `WITH group_members AS (
+         SELECT DISTINCT request_owner_id AS user_id
+           FROM requests
+          WHERE group_to_follow_id = $1 AND status = 'accepted'
+         UNION
+         SELECT owner_id AS user_id FROM groups WHERE id = $1
+       )
+       SELECT c.id,
+              c.name,
+              c.stage,
+              c.is_active,
+              (c.group_for_private_access_id = $1) AS is_private_access,
+              COUNT(DISTINCT r.user_id)::int         AS investor_count,
+              COALESCE(SUM(r.amount), 0)             AS total_invested
+         FROM campaigns c
+         LEFT JOIN campaign_groups cg
+           ON cg.campaigns_id = c.id AND cg.groups_id = $1
+         LEFT JOIN recommendations r
+           ON r.campaign_id = c.id
+          AND r.user_id IN (SELECT user_id FROM group_members)
+          AND r.status = 'approved'
+        WHERE cg.campaigns_id IS NOT NULL
+           OR c.group_for_private_access_id = $1
+        GROUP BY c.id, c.name, c.stage, c.is_active, c.group_for_private_access_id
+        ORDER BY c.name`,
+      [id],
+    );
+
+    res.json({
+      groupName: groupCheck.rows[0].name,
+      campaigns: result.rows.map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        stage: r.stage,
+        stageLabel: STAGE_LABELS[r.stage] || `Stage ${r.stage}`,
+        isActive: r.is_active,
+        isPrivateAccess: r.is_private_access === true,
+        investorCount: parseInt(r.investor_count) || 0,
+        totalInvested: parseFloat(r.total_invested) || 0,
+      })),
+    });
+  } catch (err) {
+    console.error("Get group campaign investments error:", err);
+    res.status(500).json({ message: "Internal server error." });
+  }
+});
+
 router.get("/:id/investments", async (req: Request, res: Response) => {
   try {
     const id = parseInt(String(req.params.id), 10);

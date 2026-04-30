@@ -362,3 +362,26 @@ export async function updateGroupInvestments(groupId: number, campaignIds: numbe
     });
     return response.data;
 }
+
+export interface GroupCampaignInvestment {
+    id: number;
+    name: string;
+    stage: number;
+    stageLabel: string;
+    isActive: boolean;
+    isPrivateAccess: boolean;
+    investorCount: number;
+    totalInvested: number;
+}
+
+export interface GroupCampaignInvestmentsResponse {
+    groupName: string;
+    campaigns: GroupCampaignInvestment[];
+}
+
+export async function fetchGroupCampaignInvestments(groupId: number): Promise<GroupCampaignInvestmentsResponse> {
+    const response = await axiosInstance.get<GroupCampaignInvestmentsResponse>(
+        `/api/admin/group/${groupId}/campaign-investments`,
+    );
+    return response.data;
+}
