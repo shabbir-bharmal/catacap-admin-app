@@ -57,8 +57,9 @@ interface FormState {
   duration: string;
   type: string;
   pageUrl: string;
+  showOnHome: boolean | null;
   linkTargetType: EventLinkTargetType;
-  linkTargetIdsByType: Record<EventLinkTargetType, Array<number | string>>;
+  linkTargetIds: Array<number | string>;
 }
 
 const emptyForm: FormState = {
@@ -75,12 +76,22 @@ const emptyForm: FormState = {
   duration: "",
   type: "",
   pageUrl: "",
+  showOnHome: null,
   linkTargetType: "investments",
-  linkTargetIdsByType: {
-    investments: [],
-    groups: [],
-    "custom-pages": [],
-  },
+  linkTargetIds: [],
+};
+
+// Accepts patterns like: "30m", "1h", "1h 30m", "2h 15m"
+// Hours and/or minutes; whitespace tolerated; case-insensitive; empty allowed.
+const DURATION_PATTERN = /^\s*(?:(\d+)\s*h(?:\s*(\d+)\s*m)?|(\d+)\s*m)\s*$/i;
+
+const validateDuration = (value: string): string | undefined => {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (!DURATION_PATTERN.test(trimmed)) {
+    return "Use a format like 30m, 1h, or 1h 30m";
+  }
+  return undefined;
 };
 
 export default function EventManagement() {
@@ -103,6 +114,7 @@ export default function EventManagement() {
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletingEvent, setDeletingEvent] = useState<Event | null>(null);
+  const [pendingLinkTypeSwitch, setPendingLinkTypeSwitch] = useState<EventLinkTargetType | null>(null);
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
   const imageInputRef = useRef<HTMLInputElement>(null);
 
@@ -220,16 +232,27 @@ export default function EventManagement() {
 
   const toggleLinkTargetId = (id: number | string) => {
     setForm((f) => {
-      const current = f.linkTargetIdsByType[f.linkTargetType] ?? [];
-      const next = current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
-      return {
-        ...f,
-        linkTargetIdsByType: {
-          ...f.linkTargetIdsByType,
-          [f.linkTargetType]: next,
-        },
-      };
+      const next = f.linkTargetIds.includes(id)
+        ? f.linkTargetIds.filter((x) => x !== id)
+        : [...f.linkTargetIds, id];
+      return { ...f, linkTargetIds: next };
     });
+  };
+
+  const handleLinkTargetTypeChange = (newType: EventLinkTargetType) => {
+    if (newType === form.linkTargetType) return;
+    if (form.linkTargetIds.length > 0) {
+      setPendingLinkTypeSwitch(newType);
+      return;
+    }
+    setForm((f) => ({ ...f, linkTargetType: newType, linkTargetIds: [] }));
+  };
+
+  const confirmLinkTargetTypeSwitch = () => {
+    if (!pendingLinkTypeSwitch) return;
+    const nextType = pendingLinkTypeSwitch;
+    setForm((f) => ({ ...f, linkTargetType: nextType, linkTargetIds: [] }));
+    setPendingLinkTypeSwitch(null);
   };
 
   const openCreate = () => {
@@ -250,24 +273,33 @@ export default function EventManagement() {
     }
 
     setEditingEvent(event);
-    const linkTargetIdsByType: Record<EventLinkTargetType, Array<number | string>> = {
-      investments: [],
-      groups: [],
-      "custom-pages": [],
-    };
+
+    let linkTargetType: EventLinkTargetType = "investments";
+    let linkTargetIds: Array<number | string> = [];
     const grouped = event.linkTargetsByType;
     if (grouped && typeof grouped === "object") {
-      if (Array.isArray(grouped.investments)) linkTargetIdsByType.investments = [...grouped.investments];
-      if (Array.isArray(grouped.groups)) linkTargetIdsByType.groups = [...grouped.groups];
-      if (Array.isArray(grouped["custom-pages"])) linkTargetIdsByType["custom-pages"] = [...grouped["custom-pages"]];
+      const investments = Array.isArray(grouped.investments) ? [...grouped.investments] : [];
+      const groups = Array.isArray(grouped.groups) ? [...grouped.groups] : [];
+      const customPages = Array.isArray(grouped["custom-pages"]) ? [...grouped["custom-pages"]] : [];
+      if (investments.length > 0) {
+        linkTargetType = "investments";
+        linkTargetIds = investments;
+      } else if (groups.length > 0) {
+        linkTargetType = "groups";
+        linkTargetIds = groups;
+      } else if (customPages.length > 0) {
+        linkTargetType = "custom-pages";
+        linkTargetIds = customPages;
+      }
     } else if (event.linkTargetType && Array.isArray(event.linkTargetIds)) {
       const legacyType = LINK_TARGET_OPTIONS.some((o) => o.value === event.linkTargetType)
         ? (event.linkTargetType as EventLinkTargetType)
         : null;
-      if (legacyType) linkTargetIdsByType[legacyType] = [...event.linkTargetIds];
+      if (legacyType && event.linkTargetIds.length > 0) {
+        linkTargetType = legacyType;
+        linkTargetIds = [...event.linkTargetIds];
+      }
     }
-    const linkTargetType: EventLinkTargetType =
-      LINK_TARGET_OPTIONS.find((o) => linkTargetIdsByType[o.value].length > 0)?.value ?? "investments";
 
     setForm({
       title: event.title,
@@ -283,8 +315,9 @@ export default function EventManagement() {
       duration: event.duration || "",
       type: event.type || "",
       pageUrl: event.pageUrl || "",
+      showOnHome: event.showOnHome ?? null,
       linkTargetType,
-      linkTargetIdsByType,
+      linkTargetIds,
     });
     setErrors({});
     setDialogOpen(true);
@@ -296,32 +329,6 @@ export default function EventManagement() {
     setForm(emptyForm);
     setErrors({});
     if (imageInputRef.current) imageInputRef.current.value = "";
-  };
-
-  const validatePageUrl = (value: string): string | undefined => {
-    const trimmed = value.trim();
-    if (!trimmed) return undefined;
-    let parsed: URL | null = null;
-    try {
-      parsed = new URL(trimmed);
-    } catch {
-      parsed = null;
-    }
-    if (!parsed) {
-      return "Please enter a valid URL (e.g., https://catacap.org/...)";
-    }
-    const hostname = parsed.hostname.toLowerCase();
-    const pathname = parsed.pathname.toLowerCase();
-    if (!hostname.includes("catacap.org")) {
-      return "Page URL must contain catacap.org";
-    }
-    if (pathname.includes("/investments")) {
-      return "Page URL must not contain investments page URL";
-    }
-    if (pathname.includes("/group")) {
-      return "Page URL must not contain group page URL";
-    }
-    return undefined;
   };
 
   const handleSave = () => {
@@ -347,9 +354,12 @@ export default function EventManagement() {
     if (!form.image) {
       newErrors.image = "Event image is required";
     }
-    const pageUrlError = validatePageUrl(form.pageUrl);
-    if (pageUrlError) {
-      newErrors.pageUrl = pageUrlError;
+    const durationError = validateDuration(form.duration);
+    if (durationError) {
+      newErrors.duration = durationError;
+    }
+    if (form.showOnHome === null) {
+      newErrors.showOnHome = "Please select Yes or No";
     }
 
     if (Object.keys(newErrors).length > 0) {
@@ -357,21 +367,24 @@ export default function EventManagement() {
       return;
     }
 
-    const investmentsIds = (form.linkTargetIdsByType.investments ?? [])
-      .map((v) => Number(v))
-      .filter((n) => Number.isFinite(n) && n > 0);
-    const groupsIds = (form.linkTargetIdsByType.groups ?? [])
-      .map((v) => Number(v))
-      .filter((n) => Number.isFinite(n) && n > 0);
-    const customPagesSlugs = (form.linkTargetIdsByType["custom-pages"] ?? [])
-      .map((v) => String(v).trim())
-      .filter((s) => s.length > 0);
+    const investmentsIds =
+      form.linkTargetType === "investments"
+        ? form.linkTargetIds.map((v) => Number(v)).filter((n) => Number.isFinite(n) && n > 0)
+        : [];
+    const groupsIds =
+      form.linkTargetType === "groups"
+        ? form.linkTargetIds.map((v) => Number(v)).filter((n) => Number.isFinite(n) && n > 0)
+        : [];
+    const customPagesSlugs =
+      form.linkTargetType === "custom-pages"
+        ? form.linkTargetIds.map((v) => String(v).trim()).filter((s) => s.length > 0)
+        : [];
     const linkTargetsByType: eventApi.EventLinkTargetsByType = {
       investments: investmentsIds,
       groups: groupsIds,
       "custom-pages": customPagesSlugs,
     };
-    const { linkTargetIdsByType: _unusedIds, linkTargetType: _unusedType, ...formRest } = form;
+    const { linkTargetIds: _unusedIds, linkTargetType: _unusedType, ...formRest } = form;
     const payload: eventApi.EventCreateUpdatePayload = {
       ...formRest,
       title: form.title.trim(),
@@ -380,6 +393,7 @@ export default function EventManagement() {
       pageUrl: form.pageUrl.trim() || null,
       eventTime: `${form.timeVal} ${form.timezone}`.trim(),
       image: editingEvent && !form.image?.startsWith("data:") ? null : form.image,
+      showOnHome: form.showOnHome === true,
       linkTargetsByType,
     };
 
@@ -785,36 +799,63 @@ export default function EventManagement() {
                 <Input
                   id="event-duration"
                   placeholder="e.g. 1h 30m"
-                  className="h-12 px-4"
+                  className={cn("h-12 px-4", errors.duration && "border-destructive focus-visible:ring-destructive")}
                   value={form.duration}
-                  onChange={(e) => setForm((f) => ({ ...f, duration: e.target.value }))}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setForm((f) => ({ ...f, duration: value }));
+                    setErrors((prev) => ({ ...prev, duration: validateDuration(value) }));
+                  }}
                   data-testid="input-event-duration"
                 />
+                {errors.duration && (
+                  <p className="text-xs text-destructive mt-1" data-testid="error-event-duration">{errors.duration}</p>
+                )}
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="event-page-url">Page URL</Label>
-              <Input
-                id="event-page-url"
-                placeholder="https://catacap.org/..."
-                className={cn("h-12 px-4", errors.pageUrl && "border-destructive focus-visible:ring-destructive")}
-                value={form.pageUrl}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  setForm((f) => ({ ...f, pageUrl: value }));
-                  setErrors((prev) => ({ ...prev, pageUrl: validatePageUrl(value) }));
+            <div className="space-y-2">
+              <Label>Show on Home Page <span className="text-destructive">*</span></Label>
+              <RadioGroup
+                value={form.showOnHome === true ? "yes" : form.showOnHome === false ? "no" : ""}
+                onValueChange={(v) => {
+                  setForm((f) => ({ ...f, showOnHome: v === "yes" }));
+                  setErrors((prev) => ({ ...prev, showOnHome: undefined }));
                 }}
-                data-testid="input-event-page-url"
-              />
-              {errors.pageUrl && <p className="text-xs text-destructive mt-1">{errors.pageUrl}</p>}
+                className="flex flex-wrap gap-x-6 gap-y-2"
+                data-testid="radio-event-show-on-home"
+              >
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem
+                    value="yes"
+                    id="event-show-on-home-yes"
+                    data-testid="radio-event-show-on-home-yes"
+                  />
+                  <Label htmlFor="event-show-on-home-yes" className="font-normal cursor-pointer">
+                    Yes
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem
+                    value="no"
+                    id="event-show-on-home-no"
+                    data-testid="radio-event-show-on-home-no"
+                  />
+                  <Label htmlFor="event-show-on-home-no" className="font-normal cursor-pointer">
+                    No
+                  </Label>
+                </div>
+              </RadioGroup>
+              {errors.showOnHome && (
+                <p className="text-xs text-destructive mt-1" data-testid="error-event-show-on-home">{errors.showOnHome}</p>
+              )}
             </div>
 
             <div className="space-y-2">
               <Label>Link Event To</Label>
               <RadioGroup
                 value={form.linkTargetType}
-                onValueChange={(v) => setForm((f) => ({ ...f, linkTargetType: v as EventLinkTargetType }))}
+                onValueChange={(v) => handleLinkTargetTypeChange(v as EventLinkTargetType)}
                 className="flex flex-wrap gap-x-6 gap-y-2"
                 data-testid="radio-event-link-target"
               >
@@ -837,7 +878,7 @@ export default function EventManagement() {
 
               <MultiSelectPopover<number | string>
                 options={linkTargetOptionsByType[form.linkTargetType] || []}
-                selected={form.linkTargetIdsByType[form.linkTargetType] || []}
+                selected={form.linkTargetIds}
                 onToggle={toggleLinkTargetId}
                 placeholder={
                   isLoadingLinkOptions
@@ -991,6 +1032,29 @@ export default function EventManagement() {
         isSubmitting={deleteMutation.isPending}
         confirmButtonClass="bg-[#f06548] text-white hover:bg-[#d0543c]"
         dataTestId="dialog-delete-confirm"
+      />
+
+      <ConfirmationDialog
+        open={pendingLinkTypeSwitch !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingLinkTypeSwitch(null);
+        }}
+        title="Switch link type?"
+        description={
+          <span>
+            Switching will clear the {form.linkTargetIds.length}{" "}
+            {form.linkTargetIds.length === 1 ? "item" : "items"} you selected for{" "}
+            <strong className="text-foreground">
+              {LINK_TARGET_OPTIONS.find((o) => o.value === form.linkTargetType)?.label}
+            </strong>
+            . Continue?
+          </span>
+        }
+        confirmLabel="Switch"
+        cancelLabel="Cancel"
+        onConfirm={confirmLinkTargetTypeSwitch}
+        confirmButtonClass="bg-[#405189] text-white hover:bg-[#405189]/90"
+        dataTestId="dialog-link-type-switch-confirm"
       />
     </AdminLayout>
   );

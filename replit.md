@@ -13,6 +13,7 @@ React 18 + TypeScript + Vite admin panel for the CataCap platform. Handles inves
 - **Forms:** React Hook Form + Zod
 - **Date Formatting:** dayjs (shared helpers in `src/helpers/format.ts`)
 - **HTTP Client:** Axios with JWT interceptors
+- **Rich Text Editor:** Quill 2.0.3 + quill-mention 6.1.1 (custom `RichTextEditor` component in `src/components/RichTextEditor.tsx`; styles imported globally in `src/main.tsx`; the `Mention` module is registered explicitly in the component because the bare `quill-mention` import is class-only)
 - **Backend:** Node.js Express server (TypeScript, tsx)
 - **Database:** Supabase PostgreSQL (via `SUPABASE_DB_URL`)
 
@@ -31,7 +32,7 @@ React 18 + TypeScript + Vite admin panel for the CataCap platform. Handles inves
     - `adminUsers.ts` — Full user CRUD: paginated list (GET /), by-token (GET /by-token), dropdown (GET /dropdown), admin-users-dropdown (GET /admin-users-dropdown), get-all-admin-users (GET /get-all-admin-users), export to Excel (GET /export), account balance update (PUT /account-balance), delete with cascade soft-delete (DELETE /:id), restore soft-deleted users (PUT /restore), admin user CRUD (GET/POST /admin-users), user profile update (PUT /), settings toggle (PATCH /:id/settings)
     - `auth.ts` — Auth endpoints including assign-group-admin (PUT /assign-group-admin) toggle and loginAdminToUser (POST /loginAdminToUser) impersonation
     - `adminRecommendations.ts` — Recommendations admin: paginated list with stats (GET /), status update with balance revert on rejection (PUT /:id), soft delete (DELETE /:id), restore soft-deleted (PUT /restore), Excel export (GET /export)
-    - `adminPendingGrants.ts` — Pending grants admin: paginated list with day count (GET /), status transitions with balance/fee logic (PUT /:id), notes history (GET /:id/notes), DAF providers list (GET /daf-providers), soft delete with cascade to related tables (DELETE /:id), restore with cascade (PUT /restore), Excel export (GET /export)
+    - `adminPendingGrants.ts` — Pending grants admin: paginated list with day count (GET /), status transitions with balance/fee logic (PUT /:id), notes history (GET /:id/notes), soft delete with cascade to related tables (DELETE /:id), restore with cascade (PUT /restore), Excel export (GET /export). DAF providers list is owned by `siteConfiguration.ts` (GET /api/admin/site-configuration/daf-providers).
     - `adminOtherAssets.ts` — Other assets admin: paginated list (GET /), status transitions with balance updates (PUT /:id/status), notes history (GET /:id/notes), soft delete with cascade to balance change logs (DELETE /:id), restore with cascade (PUT /restore), Excel export (GET /export)
     - `adminEmailTemplates.ts` — Email template admin: paginated list with search/sort/filter (GET /), detail (GET /:id), preview (GET /preview/:id), HTML source (GET /html/:id), duplicate (GET /duplicate/:id), categories list (GET /categories), create/update with active-per-category validation and variable extraction (POST /), hard delete (DELETE /:id), restore soft-deleted (PUT /restore)
     - `adminDisbursalRequests.ts` — Disbursal request admin: paginated list with search/sort/status/soft-delete filter (GET /), detail with investment type resolution (GET /:id), Excel export (GET /export), notes history (GET /:id/notes), status update (PUT /:id/status), add note (POST /:id/notes), soft-delete (DELETE /:id), restore (PUT /restore)
@@ -100,7 +101,6 @@ You are a senior software engineer working with Node.js (Express), React (Vite),
 - The `/Back-End` folder contains .NET reference code only and must NOT be modified; all code changes must be made only in the Node.js (`server/`) and React (`src/`) code
 - Any database schema or data change executed via direct `pool` calls (e.g. `pool.query`, `client.query`, runtime `ensure*` helpers in `server/src/db.ts`, ad-hoc one-off scripts) must FIRST be written as a SQL migration file under `releases/<DD_MM_YYYY>/migrations/` and documented in that release's `docs.txt` (schema, intent, idempotency, rollback). Migrations must be idempotent (`IF NOT EXISTS`, guarded `DO` blocks, etc.) and wrapped in a transaction. Do not apply schema/data changes that exist only in code or only in the live database — the migration file is the source of truth and must land in the same change set.
 
-
 ## Architecture
 - Use modular structure (controller, service, etc.)
 - Keep code production-ready
@@ -117,3 +117,15 @@ You are a senior software engineer working with Node.js (Express), React (Vite),
 - First explain approach
 - Then implement
 - Provide verification steps
+
+## Domain Notes
+
+### Investment Instruments (campaigns lookup field)
+- **Source of truth**: `campaigns.investment_instruments` (TEXT, comma-separated lookup IDs) resolved against the `investment_instruments` lookup table.
+- **Canonical user-facing label**: "Investment Instruments" (singular: "Investment Instrument"). Older labels like "Type of Investment", "Investment Type", "Investment Types" referring to this field have been retired across all UI strings, validation/error messages, table column headers, view-detail labels, and Excel export headers.
+- **Do NOT confuse with**: `campaigns.investment_type_category` (Equity / Debt / Hybrid). That field is rendered in `AdminInvestmentEdit.tsx` Step 4 under the heading "Investment Type" and is intentionally a different concept; its label and Excel export header are kept as "Investment Type".
+- **Read/write paths** (all use `campaigns.investment_instruments` consistently):
+  - Admin GET single: `server/src/routes/adminInvestment.ts` exposes `investmentTypes: c.investment_instruments`.
+  - Admin save: `server/src/routes/adminInvestment.ts` writes `campaign.investmentTypes ?? existing.investment_instruments` back to the same column.
+  - Disbursal endpoints (`server/src/routes/campaign.ts`, `server/src/routes/adminDisbursalRequests.ts`) join `campaigns` and resolve names via `buildInvestmentTypeMap` / `resolveInvestmentTypeString`.
+- **History note (campaign id=229 investigation, task #347)**: The original .NET seed in `Back-End/Invest.Repo/Data/InvestmentTypeData.cs` only contained ids 1–11, ending with "Real Estate" (id=11). Ids 12+ ("Convertible Note", "Equity Fund", "SAFE", "Preferred Stock") were added on production after the seed. Campaign 229 currently stores `investment_instruments = "12"` which correctly resolves to "Convertible Note" — this matches the admin edit page. If a separate public-facing site (catacap.org) renders a different value, the divergence is in that site's own data path, not in this admin codebase.

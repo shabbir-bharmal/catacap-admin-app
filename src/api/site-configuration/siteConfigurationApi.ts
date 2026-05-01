@@ -13,6 +13,7 @@ export type SiteConfigType =
     | "statistics"
     | "meta-information"
     | "contact-info"
+    | "daf-providers"
     | "Configuration";
 
 // ─── Raw API response shapes (match actual server JSON) ───────────────────────
@@ -101,6 +102,20 @@ export interface ContactInfoItem {
     description?: string;
 }
 
+export interface DAFProviderItem {
+    id: number;
+    name: string;
+    url: string;
+    isActive: boolean;
+}
+
+interface RawDAFProviderItem {
+    id: number;
+    value: string;
+    link: string;
+    isActive: boolean;
+}
+
 // ─── Internal helper ───────────────────────────────────────────────────────────
 
 async function fetchRaw<T>(type: SiteConfigType): Promise<T[]> {
@@ -186,6 +201,25 @@ export async function fetchContactInfo(): Promise<ContactInfoItem[]> {
     return fetchRaw<ContactInfoItem>("contact-info");
 }
 
+export async function fetchDAFProviders(): Promise<DAFProviderItem[]> {
+    const raw = await fetchRaw<RawDAFProviderItem>("daf-providers");
+    return raw.map((item) => ({
+        id: item.id,
+        name: item.value ?? "",
+        url: item.link ?? "",
+        isActive: item.isActive,
+    }));
+}
+
+export async function toggleDAFProviderActive(id: number | string): Promise<void> {
+    const response = await axiosInstance.post<{ success: boolean; message?: string }>(
+        `/api/admin/site-configuration/daf-providers/${id}/toggle-active`
+    );
+    if (response.data && response.data.success === false) {
+        throw new Error(response.data.message ?? "Failed to update DAF provider status.");
+    }
+}
+
 // ─── Combined fetch ────────────────────────────────────────────────────────────
 
 export interface AllSiteConfigurations {
@@ -200,14 +234,28 @@ export interface AllSiteConfigurations {
     statistics: StatisticsItem[];
     metaInformation: MetaInformationItem[];
     contactInfo: ContactInfoItem[];
+    dafProviders: DAFProviderItem[];
 }
 
 /**
- * Fetches all 6 site-configuration sections in parallel.
+ * Fetches all site-configuration sections in parallel.
  * Individual failures are swallowed – the section returns an empty array.
  */
 export async function fetchAllSiteConfigurations(): Promise<AllSiteConfigurations> {
-    const [sourcedByRes, themesRes, specialFiltersRes, transactionTypesRes, staticValuesRes, configurationsRes, newsTypesRes, newsAudiencesRes, statisticsRes, metaInformationRes, contactInfoRes] =
+    const [
+        sourcedByRes,
+        themesRes,
+        specialFiltersRes,
+        transactionTypesRes,
+        staticValuesRes,
+        configurationsRes,
+        newsTypesRes,
+        newsAudiencesRes,
+        statisticsRes,
+        metaInformationRes,
+        contactInfoRes,
+        dafProvidersRes,
+    ] =
         await Promise.allSettled([
             fetchSourcedBy(),
             fetchThemes(),
@@ -220,6 +268,7 @@ export async function fetchAllSiteConfigurations(): Promise<AllSiteConfiguration
             fetchStatistics(),
             fetchMetaInformation(),
             fetchContactInfo(),
+            fetchDAFProviders(),
         ]);
 
     return {
@@ -234,6 +283,7 @@ export async function fetchAllSiteConfigurations(): Promise<AllSiteConfiguration
         statistics: statisticsRes.status === "fulfilled" ? statisticsRes.value : [],
         metaInformation: metaInformationRes.status === "fulfilled" ? metaInformationRes.value : [],
         contactInfo: contactInfoRes.status === "fulfilled" ? contactInfoRes.value : [],
+        dafProviders: dafProvidersRes.status === "fulfilled" ? dafProvidersRes.value : [],
     };
 }
 
@@ -278,6 +328,8 @@ export interface SiteConfigSavePayload {
     itemType?: string;
     /** Meta Information fields */
     additionalDetails?: string;
+    /** Optional URL – only for daf-providers */
+    link?: string;
 }
 
 /**

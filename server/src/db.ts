@@ -713,6 +713,8 @@ export async function testConnection(): Promise<void> {
 
     await runSoftDeleteMigration(client);
     await ensureSchedulerTables(client);
+    await ensureNoteAttachmentsTables(client);
+    await ensureCampaignUpdateExtras(client);
     await ensureInvestmentInstruments(client);
     await ensureAdminPerformanceIndexes(client);
     await ensureCampaignsOwnerGroupColumns(client);
@@ -724,6 +726,159 @@ export async function testConnection(): Promise<void> {
   } finally {
     client.release();
   }
+}
+
+async function ensureNoteAttachmentsTables(client: pg.PoolClient): Promise<void> {
+  const pgnExists = await client.query(
+    `SELECT 1 FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_name = 'pending_grant_notes'`,
+  );
+  if (pgnExists.rows.length > 0) {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS pending_grant_note_attachments (
+        id SERIAL PRIMARY KEY,
+        note_id INTEGER NOT NULL REFERENCES pending_grant_notes(id) ON DELETE CASCADE,
+        file_name TEXT NOT NULL,
+        storage_path TEXT NOT NULL,
+        mime_type TEXT,
+        size_bytes BIGINT,
+        uploaded_at TIMESTAMP DEFAULT NOW(),
+        uploaded_by VARCHAR(450)
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_pending_grant_note_attachments_note_id
+        ON pending_grant_note_attachments(note_id)
+    `);
+  }
+
+  const abprnExists = await client.query(
+    `SELECT 1 FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_name = 'asset_based_payment_request_notes'`,
+  );
+  if (abprnExists.rows.length > 0) {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS asset_based_payment_request_note_attachments (
+        id SERIAL PRIMARY KEY,
+        note_id INTEGER NOT NULL REFERENCES asset_based_payment_request_notes(id) ON DELETE CASCADE,
+        file_name TEXT NOT NULL,
+        storage_path TEXT NOT NULL,
+        mime_type TEXT,
+        size_bytes BIGINT,
+        uploaded_at TIMESTAMP DEFAULT NOW(),
+        uploaded_by VARCHAR(450)
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_asset_based_payment_request_note_attachments_note_id
+        ON asset_based_payment_request_note_attachments(note_id)
+    `);
+  }
+}
+
+async function ensureCampaignUpdateExtras(client: pg.PoolClient): Promise<void> {
+  const cuExists = await client.query(
+    `SELECT 1 FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_name = 'campaign_updates'`,
+  );
+  if (cuExists.rows.length === 0) return;
+
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS campaign_update_email_logs (
+      id                 SERIAL PRIMARY KEY,
+      campaign_update_id INTEGER NOT NULL REFERENCES campaign_updates(id) ON DELETE CASCADE,
+      campaign_id        INTEGER NOT NULL,
+      sent_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      sent_by_user_id    VARCHAR(450),
+      recipient_count    INTEGER NOT NULL DEFAULT 0,
+      created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS idx_campaign_update_email_logs_update_id
+      ON campaign_update_email_logs (campaign_update_id)
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS idx_campaign_update_email_logs_campaign_id
+      ON campaign_update_email_logs (campaign_id)
+  `);
+
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS campaign_update_attachments (
+      id                 SERIAL PRIMARY KEY,
+      campaign_update_id INTEGER NOT NULL REFERENCES campaign_updates(id) ON DELETE CASCADE,
+      file_path          TEXT NOT NULL,
+      file_name          TEXT,
+      mime_type          TEXT,
+      size_bytes         BIGINT,
+      sort_order         INTEGER NOT NULL DEFAULT 0,
+      created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS idx_campaign_update_attachments_update_id
+      ON campaign_update_attachments (campaign_update_id)
+  `);
+
+  // Up to three free-form { label, value } pairs entered by an admin
+  // in the New / Edit Update modal. NULL = no highlights; otherwise a
+  // JSON array of three objects (unused rows are stored as
+  // { "label": "", "value": "" } so slot ordering is stable).
+  // Migration: releases/2026_04_30/migrations/2026_04_30_campaign_update_impact_highlights.sql
+  await client.query(`
+    ALTER TABLE campaign_updates
+      ADD COLUMN IF NOT EXISTS impact_highlights JSONB
+  `);
+
+  // Tag user_notifications rows produced by Investment Update fan-outs
+  // with the originating campaign_update_id. Nullable for back-compat
+  // with all other notification sources, and for legacy update
+  // notifications inserted before this column existed.
+  await client.query(`
+    ALTER TABLE user_notifications
+      ADD COLUMN IF NOT EXISTS campaign_update_id INTEGER
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS idx_user_notifications_campaign_update_id
+      ON user_notifications (target_user_id, campaign_update_id)
+      WHERE campaign_update_id IS NOT NULL
+  `);
+
+  // Backfill the new attachments table from the legacy single-attachment
+  // columns so existing updates keep their files when the UI / email
+  // sender switches over. Gated on NOT EXISTS so we never duplicate.
+  await client.query(`
+    INSERT INTO campaign_update_attachments (
+      campaign_update_id, file_path, file_name, mime_type, size_bytes, sort_order, created_at
+    )
+    SELECT
+      cu.id,
+      cu.attach_file,
+      COALESCE(NULLIF(TRIM(cu.attach_file_name), ''),
+               regexp_replace(cu.attach_file, '^.*/', '')),
+      NULL::TEXT,
+      NULL::BIGINT,
+      0,
+      COALESCE(cu.created_at, NOW())
+    FROM campaign_updates cu
+    WHERE cu.attach_file IS NOT NULL
+      AND TRIM(cu.attach_file) <> ''
+      AND NOT EXISTS (
+        SELECT 1 FROM campaign_update_attachments cua
+         WHERE cua.campaign_update_id = cu.id
+      )
+  `);
+
+  const verify = await client.query(`
+    SELECT
+      (SELECT COUNT(*) FROM campaign_update_email_logs)   AS log_rows,
+      (SELECT COUNT(*) FROM campaign_update_attachments)  AS attach_rows
+  `);
+  const v = verify.rows[0];
+  console.log(
+    `[migration] campaign_update_email_logs ready (${v.log_rows} rows), ` +
+      `campaign_update_attachments ready (${v.attach_rows} rows).`
+  );
 }
 
 export default pool;

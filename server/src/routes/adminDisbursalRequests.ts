@@ -267,7 +267,7 @@ router.get("/export", async (_req: Request, res: Response) => {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet("DisbursalRequest");
 
-    const headers = ["Investment", "Email", "Disbursement Date", "Amount", "Investment Type", "Status", "Quote"];
+    const headers = ["Investment", "Email", "Disbursement Date", "Amount", "Investment Instruments", "Status", "Quote"];
     const headerRow = worksheet.addRow(headers);
     headerRow.eachCell((cell) => {
       cell.font = { bold: true };

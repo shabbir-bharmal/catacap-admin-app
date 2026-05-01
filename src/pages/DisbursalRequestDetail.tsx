@@ -213,7 +213,7 @@ export default function DisbursalRequestDetail() {
                                     <Input value={detail.property || ""} readOnly className="bg-muted/30" data-testid="input-url" />
                                 </div>
                                 <div>
-                                    <label className="text-sm font-medium text-foreground mb-1 block">Investment Type</label>
+                                    <label className="text-sm font-medium text-foreground mb-1 block">Investment Instruments</label>
                                     <Input value={detail.investmentTypeNames || ""} readOnly className="bg-muted/30" data-testid="input-investment-type" />
                                 </div>
                             </div>

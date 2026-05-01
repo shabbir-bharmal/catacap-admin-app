@@ -201,13 +201,13 @@ const defaultFormData: FormData = {
 };
 
 const STEP_REQUIRED_FIELDS: Record<number, (keyof FormData)[]> = {
-  0: ["firstName", "lastName", "orgEmail", "investmentInfoEmail", "mobile", "howMuchMoney", "aboutNetwork", "receivedFundingBefore", "role", "companyLocation"],
+  0: ["firstName", "lastName", "orgEmail", "investmentInfoEmail", "mobile", "howMuchMoney", "aboutNetwork", "receivedFundingBefore", "hasCorporateBankAccount", "hasPersonalFinancialBenefit", "hasRegulatoryIssues", "isInGoodLegalStanding", "role", "companyLocation"],
   1: ["investmentName", "aboutInvestment", "investmentWebsite", "investmentType", "investmentTerms", "fundraisingGoal", "missionVision", "thankYouMessage", "investmentThemes", "sdgs"],
   2: ["logoFile", "profileImageFile", "smallerImageFile", "pitchDeckFile"]
 };
 
 const STEP_REQUIRED_FIELDS_EDIT: Record<number, (keyof FormData)[]> = {
-  0: ["firstName", "lastName", "orgEmail", "investmentInfoEmail", "mobile", "howMuchMoney", "aboutNetwork", "receivedFundingBefore", "role", "companyLocation"],
+  0: ["firstName", "lastName", "orgEmail", "investmentInfoEmail", "mobile", "howMuchMoney", "aboutNetwork", "receivedFundingBefore", "hasCorporateBankAccount", "hasPersonalFinancialBenefit", "hasRegulatoryIssues", "isInGoodLegalStanding", "role", "companyLocation"],
   1: ["investmentName", "aboutInvestment", "investmentWebsite", "investmentType", "investmentTerms", "fundraisingGoal", "missionVision", "thankYouMessage", "investmentThemes", "sdgs"],
   2: []
 };
@@ -484,6 +484,11 @@ export default function AdminRaiseMoney() {
 
       if (!formData.aboutNetwork.trim()) err("aboutNetwork", "Network description is required");
 
+      if (!formData.hasCorporateBankAccount) err("hasCorporateBankAccount", "Please select Yes or No");
+      if (!formData.hasPersonalFinancialBenefit) err("hasPersonalFinancialBenefit", "Please select Yes or No");
+      if (!formData.hasRegulatoryIssues) err("hasRegulatoryIssues", "Please select Yes or No");
+      if (!formData.isInGoodLegalStanding) err("isInGoodLegalStanding", "Please select Yes or No");
+
       if (!formData.role.trim()) err("role", "Your role is required");
 
       if (!formData.companyLocation) {
@@ -507,7 +512,7 @@ export default function AdminRaiseMoney() {
       if (!formData.investmentWebsite.trim()) err("investmentWebsite", "Website is required");
       else if (!URL_REGEX.test(formData.investmentWebsite)) err("investmentWebsite", "Invalid website URL");
 
-      if (formData.investmentType.length === 0) err("investmentType", "Investment Type is required");
+      if (formData.investmentType.length === 0) err("investmentType", "Investment Instruments is required");
 
       const termsText = stripHtml(formData.investmentTerms);
       if (!termsText) err("investmentTerms", "Investment Terms is required");
@@ -1179,7 +1184,7 @@ export default function AdminRaiseMoney() {
 
                 <div className="space-y-2">
                   <Label className="text-sm">
-                    Does your company have a corporate bank account set up?
+                    Does your company have a corporate bank account set up? <span className="text-[#f06548]">*</span>
                   </Label>
                   <RadioGroup value={formData.hasCorporateBankAccount} onValueChange={(val) => updateField("hasCorporateBankAccount", val)} data-testid="radio-corporate-bank-account">
                     <div className="flex items-center gap-2">
@@ -1191,11 +1196,12 @@ export default function AdminRaiseMoney() {
                       <Label htmlFor="corp-bank-no" className="font-normal cursor-pointer text-sm">No</Label>
                     </div>
                   </RadioGroup>
+                  {fieldErrorMsg("hasCorporateBankAccount")}
                 </div>
 
                 <div className="space-y-2">
                   <Label className="text-sm">
-                    Does any board member, officer, or related party stand to receive personal financial benefit from this investment?
+                    Does any board member, officer, or related party stand to receive personal financial benefit from this investment? <span className="text-[#f06548]">*</span>
                   </Label>
                   <RadioGroup value={formData.hasPersonalFinancialBenefit} onValueChange={(val) => updateField("hasPersonalFinancialBenefit", val)} data-testid="radio-personal-financial-benefit">
                     <div className="flex items-center gap-2">
@@ -1207,6 +1213,7 @@ export default function AdminRaiseMoney() {
                       <Label htmlFor="pfb-no" className="font-normal cursor-pointer text-sm">No</Label>
                     </div>
                   </RadioGroup>
+                  {fieldErrorMsg("hasPersonalFinancialBenefit")}
                   {formData.hasPersonalFinancialBenefit === "yes" && (
                     <div className="space-y-1.5 pt-2">
                       <Label htmlFor="personalFinancialBenefitDescription" className="text-sm">Please describe</Label>
@@ -1223,7 +1230,7 @@ export default function AdminRaiseMoney() {
 
                 <div className="space-y-2">
                   <Label className="text-sm">
-                    Has the organization or any of its officers ever been subject to regulatory action, criminal investigation, or sanctions?
+                    Has the organization or any of its officers ever been subject to regulatory action, criminal investigation, or sanctions? <span className="text-[#f06548]">*</span>
                   </Label>
                   <RadioGroup value={formData.hasRegulatoryIssues} onValueChange={(val) => updateField("hasRegulatoryIssues", val)} data-testid="radio-regulatory-issues">
                     <div className="flex items-center gap-2">
@@ -1235,6 +1242,7 @@ export default function AdminRaiseMoney() {
                       <Label htmlFor="reg-no" className="font-normal cursor-pointer text-sm">No</Label>
                     </div>
                   </RadioGroup>
+                  {fieldErrorMsg("hasRegulatoryIssues")}
                   {formData.hasRegulatoryIssues === "yes" && (
                     <div className="space-y-1.5 pt-2">
                       <Label htmlFor="regulatoryIssuesDescription" className="text-sm">Please describe</Label>
@@ -1251,7 +1259,7 @@ export default function AdminRaiseMoney() {
 
                 <div className="space-y-2">
                   <Label className="text-sm">
-                    Is the organization currently in good legal standing with all relevant regulatory bodies?
+                    Is the organization currently in good legal standing with all relevant regulatory bodies? <span className="text-[#f06548]">*</span>
                   </Label>
                   <RadioGroup value={formData.isInGoodLegalStanding} onValueChange={(val) => updateField("isInGoodLegalStanding", val)} data-testid="radio-good-legal-standing">
                     <div className="flex items-center gap-2">
@@ -1263,6 +1271,7 @@ export default function AdminRaiseMoney() {
                       <Label htmlFor="legal-no" className="font-normal cursor-pointer text-sm">No</Label>
                     </div>
                   </RadioGroup>
+                  {fieldErrorMsg("isInGoodLegalStanding")}
                 </div>
 
                 <div className="space-y-1.5">

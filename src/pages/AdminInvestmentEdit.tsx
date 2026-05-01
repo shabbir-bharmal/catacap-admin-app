@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -35,13 +36,11 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import BannerCropper from "@/components/BannerCropper";
 import { MultiSelectPopover } from "@/components/MultiSelectPopover";
-import { CalendarIcon, ArrowLeft, Download, ChevronDown, Copy, QrCode, Mail, User, Briefcase, ImageIcon, Settings, ArrowRight, CheckCircle2, Check, Pencil, Trash2, HelpCircle, FileText, Plus } from "lucide-react";
+import { CalendarIcon, ArrowLeft, Download, ChevronDown, Copy, QrCode, Mail, User, Briefcase, ImageIcon, Settings, ArrowRight, CheckCircle2, Check, Pencil, Trash2, HelpCircle, FileText, Clock, X as XIcon, Plus } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { QRCodeCanvas } from "qrcode.react";
 
-const isUpdatesTabEnabled = import.meta.env.VITE_APP_ENVIRONMENT === "QA";
-
-const ALL_STEPS = [
+const STEPS = [
   { id: 0, label: "About You", icon: User },
   { id: 1, label: "About the Investment", icon: Briefcase },
   { id: 2, label: "Media", icon: ImageIcon },
@@ -50,11 +49,8 @@ const ALL_STEPS = [
   { id: 5, label: "Updates", icon: Mail },
 ];
 
-const STEPS = isUpdatesTabEnabled
-  ? ALL_STEPS
-  : ALL_STEPS.filter((s) => s.id !== 5);
-
-import { fetchCountries, fetchInvestmentById, fetchInvestmentData, updateInvestment, exportInvestmentRecommendations, fetchAllInvestmentNameList, sendInvestmentQrCodeEmail, fetchInvestmentNotes, exportInvestmentNotesApi, downloadInvestmentDocument, fetchCampaignUpdates, createCampaignUpdate, updateCampaignUpdate, deleteCampaignUpdate, sendCampaignUpdateEmail, getCampaignUpdateEmailPreview, type CampaignUpdateItem } from "@/api/investment/investmentApi";
+import { fetchCountries, fetchInvestmentById, fetchInvestmentData, updateInvestment, exportInvestmentRecommendations, fetchAllInvestmentNameList, sendInvestmentQrCodeEmail, fetchInvestmentNotes, exportInvestmentNotesApi, downloadInvestmentDocument, fetchCampaignUpdates, createCampaignUpdate, updateCampaignUpdate, deleteCampaignUpdate, sendCampaignUpdateEmail, getCampaignUpdateEmailPreview, fetchCampaignUpdateEmailLogs, type CampaignUpdateItem, type CampaignUpdateAttachmentItem, type CampaignUpdateAttachmentInput, type CampaignUpdateEmailLogItem } from "@/api/investment/investmentApi";
+import { fetchActiveEmailTemplateByCategory, fetchEmailTemplatePreview } from "@/api/email-template/emailTemplateApi";
 import { fetchAllGroups, GroupUpdatePayload } from "@/api/group/groupApi";
 import { fetchAllAdminUsers, AdminUserItem } from "@/api/user/userApi";
 import { fetchStaticValues, StaticValueItem } from "@/api/site-configuration/siteConfigurationApi";
@@ -254,6 +250,85 @@ interface InvestmentTagItem { id: number; tag: string; }
 interface CountryItem { id?: number; name: string; }
 interface ApprovedByItem { id: number; name: string; }
 interface InvestmentNote { date: string; userName: string; note: string; oldStatus: string | null; newStatus: string | null; }
+
+interface ThankYouAttachment {
+  id: number;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  publicUrl: string | null;
+  filePath?: string;
+  sortOrder?: number | null;
+}
+
+interface PendingThankYouAttachment {
+  localId: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  dataBase64: string;
+}
+
+interface EmailPreviewTemplateOption {
+  category: number;
+  templateId: number;
+  name: string;
+  label: string;
+}
+
+const THANK_YOU_PER_FILE_MAX_BYTES = 10 * 1024 * 1024;
+const THANK_YOU_TOTAL_MAX_BYTES = 25 * 1024 * 1024;
+const THANK_YOU_ALLOWED_MIME_TYPES = new Set([
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/webp",
+]);
+const THANK_YOU_ALLOWED_EXT_REGEX = /\.(pdf|doc|docx|png|jpe?g|webp)$/i;
+const THANK_YOU_ACCEPT_ATTR =
+  ".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg,image/webp";
+
+const PERSONALIZED_THANK_YOU_MAX_CHARS = 1000;
+
+const EMAIL_PREVIEW_CATEGORIES: { category: number; label: string }[] = [
+  { category: 8, label: "Donation Confirmation" },
+];
+
+const DONATION_CONFIRMATION_CATEGORY = 8;
+
+function formatBytes(bytes: number): string {
+  if (!bytes || bytes <= 0) return "0 B";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function getPlainTextLengthFromHtml(html: string): number {
+  if (!html) return 0;
+  const stripped = html
+    .replace(/<br\s*\/?>(\s*)/gi, "\n")
+    .replace(/<\/(p|div|li|h\d|tr)>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+  return stripped.replace(/\u200B/g, "").length;
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Failed to read file."));
+    reader.readAsDataURL(file);
+  });
+}
 
 function parseIds(raw: string | null | undefined): number[] {
   if (!raw) return [];
@@ -470,6 +545,8 @@ export default function AdminInvestmentEdit() {
   const [cropperImage, setCropperImage] = useState<string | null>(null);
   const [cropperTarget, setCropperTarget] = useState<"profile" | "tile" | null>(null);
   const [cropperAspect, setCropperAspect] = useState(763 / 400);
+  const [cropProfileEnabled, setCropProfileEnabled] = useState(true);
+  const [cropTileEnabled, setCropTileEnabled] = useState(true);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [countryOpen, setCountryOpen] = useState(false);
   const [fundTermOpen, setFundTermOpen] = useState(false);
@@ -498,17 +575,56 @@ export default function AdminInvestmentEdit() {
   const [deleteUpdateTarget, setDeleteUpdateTarget] = useState<CampaignUpdateItem | null>(null);
   const [updateFormOpen, setUpdateFormOpen] = useState(false);
   const [editingUpdateId, setEditingUpdateId] = useState<number | null>(null);
+  // Each form attachment is either an existing one (kept by id) or a new
+  // pending upload (data URL + filename + mime). The order in the list is the
+  // order shown in the dialog and persisted to the server.
+  type UpdateFormAttachment =
+    | {
+        kind: "existing";
+        id: number;
+        fileName: string;
+        fileUrl: string | null;
+        previewUrl: string | null;
+        mimeType: string | null;
+        sizeBytes: number | null;
+      }
+    | {
+        kind: "new";
+        tempId: string;
+        data: string;
+        fileName: string;
+        previewUrl: string | null;
+        mimeType: string;
+        sizeBytes: number;
+      };
+  // Three free-form (label, value) slots rendered in the New / Edit
+  // Update modal under "Impact Highlights". The slot count is fixed so
+  // the form layout stays stable; persistence treats all-blank rows as
+  // "no highlights" (NULL on the server).
+  const IMPACT_HIGHLIGHTS_SLOTS = 3;
+  const emptyImpactHighlights = (): { label: string; value: string }[] =>
+    Array.from({ length: IMPACT_HIGHLIGHTS_SLOTS }, () => ({ label: "", value: "" }));
+
   const [updateForm, setUpdateForm] = useState<{
     subject: string;
     description: string;
-    shortSubject: string;
     shortDescription: string;
     startDate: string;
     endDate: string;
-    attachFile: string | null;
-    attachFilePreview: string | null;
-    attachFileName: string | null;
-  }>({ subject: "", description: "", shortSubject: "", shortDescription: "", startDate: "", endDate: "", attachFile: null, attachFilePreview: null, attachFileName: null });
+    attachments: UpdateFormAttachment[];
+    impactHighlights: { label: string; value: string }[];
+  }>({
+    subject: "",
+    description: "",
+    shortDescription: "",
+    startDate: "",
+    endDate: "",
+    attachments: [],
+    impactHighlights: emptyImpactHighlights(),
+  });
+  const [emailLogsTarget, setEmailLogsTarget] = useState<CampaignUpdateItem | null>(null);
+  const [emailLogs, setEmailLogs] = useState<CampaignUpdateEmailLogItem[]>([]);
+  const [emailLogsLoading, setEmailLogsLoading] = useState(false);
   const [updateFormErrors, setUpdateFormErrors] = useState<Record<string, string>>({});
   const [updateStartOpen, setUpdateStartOpen] = useState(false);
   const [updateEndOpen, setUpdateEndOpen] = useState(false);
@@ -519,6 +635,20 @@ export default function AdminInvestmentEdit() {
   const [taggedUserNames, setTaggedUserNames] = useState<string[]>([]);
   const [taggedUserEmails, setTaggedUserEmails] = useState<string[]>([]);
   const noteTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const [thankYouExistingAttachments, setThankYouExistingAttachments] = useState<ThankYouAttachment[]>([]);
+  const [thankYouRemovedIds, setThankYouRemovedIds] = useState<number[]>([]);
+  const [thankYouPendingFiles, setThankYouPendingFiles] = useState<PendingThankYouAttachment[]>([]);
+  const [thankYouAttachmentError, setThankYouAttachmentError] = useState<string>("");
+  const [thankYouDragActive, setThankYouDragActive] = useState(false);
+  const thankYouFileInputRef = useRef<HTMLInputElement>(null);
+
+  const [previewEmailOpen, setPreviewEmailOpen] = useState(false);
+  const [previewEmailLoading, setPreviewEmailLoading] = useState(false);
+  const [previewEmailTemplates, setPreviewEmailTemplates] = useState<EmailPreviewTemplateOption[]>([]);
+  const [previewEmailHtml, setPreviewEmailHtml] = useState<string>("");
+  const [previewEmailSubject, setPreviewEmailSubject] = useState<string>("");
+  const [previewEmailError, setPreviewEmailError] = useState<string>("");
 
   const { role } = useAuth();
   const isAdmin = role === "Admin";
@@ -547,12 +677,12 @@ export default function AdminInvestmentEdit() {
   }, [formData.stage, savedStage]);
 
   const updatesDisabled = formData.stage === CLOSED_NOT_INVESTED_STAGE;
-  const lastNavigableStepIdx = isUpdatesTabEnabled && updatesDisabled
+  const lastNavigableStepIdx = updatesDisabled
     ? STEPS.length - 2
     : STEPS.length - 1;
 
   useEffect(() => {
-    if (isUpdatesTabEnabled && updatesDisabled && currentStep === 5) {
+    if (updatesDisabled && currentStep === 5) {
       setCurrentStep(4);
     }
   }, [updatesDisabled, currentStep]);
@@ -572,13 +702,21 @@ export default function AdminInvestmentEdit() {
   }, [resolvedNumericId, toast]);
 
   useEffect(() => {
-    if (isUpdatesTabEnabled && currentStep === 5 && resolvedNumericId && !updatesDisabled) {
+    if (currentStep === 5 && resolvedNumericId && !updatesDisabled) {
       loadCampaignUpdates();
     }
   }, [currentStep, resolvedNumericId, updatesDisabled, loadCampaignUpdates]);
 
   const resetUpdateForm = () => {
-    setUpdateForm({ subject: "", description: "", shortSubject: "", shortDescription: "", startDate: "", endDate: "", attachFile: null, attachFilePreview: null, attachFileName: null });
+    setUpdateForm({
+      subject: "",
+      description: "",
+      shortDescription: "",
+      startDate: "",
+      endDate: "",
+      attachments: [],
+      impactHighlights: emptyImpactHighlights(),
+    });
     setUpdateFormErrors({});
     setEditingUpdateId(null);
   };
@@ -588,18 +726,48 @@ export default function AdminInvestmentEdit() {
     setUpdateFormOpen(true);
   };
 
+  // Maps a server-side attachment row into the dialog's "existing" entry.
+  const mapExistingAttachment = (a: CampaignUpdateAttachmentItem): UpdateFormAttachment => {
+    const isImage =
+      (a.mimeType && a.mimeType.startsWith("image/")) ||
+      (a.fileUrl && /\.(png|jpe?g|gif|webp)(\?|$)/i.test(a.fileUrl));
+    return {
+      kind: "existing",
+      id: a.id,
+      fileName: a.fileName || (a.filePath.split("/").pop() || "attachment"),
+      fileUrl: a.fileUrl,
+      previewUrl: isImage ? a.fileUrl : null,
+      mimeType: a.mimeType,
+      sizeBytes: a.sizeBytes,
+    };
+  };
+
   const openEditUpdateForm = (item: CampaignUpdateItem) => {
     setEditingUpdateId(item.id);
+    const existing = (item.attachments || []).map(mapExistingAttachment);
+    // Always render exactly IMPACT_HIGHLIGHTS_SLOTS rows; pad / truncate
+    // whatever the server returned so the form layout stays stable
+    // even for legacy updates with no `impact_highlights` value.
+    const loadedHighlights = emptyImpactHighlights();
+    if (Array.isArray(item.impactHighlights)) {
+      for (let i = 0; i < IMPACT_HIGHLIGHTS_SLOTS; i++) {
+        const row = item.impactHighlights[i];
+        if (row && typeof row === "object") {
+          loadedHighlights[i] = {
+            label: typeof row.label === "string" ? row.label : "",
+            value: typeof row.value === "string" ? row.value : "",
+          };
+        }
+      }
+    }
     setUpdateForm({
       subject: item.subject || "",
       description: item.description || "",
-      shortSubject: item.shortSubject || "",
       shortDescription: item.shortDescription || "",
       startDate: item.startDate || "",
       endDate: item.endDate || "",
-      attachFile: item.attachFile || null,
-      attachFilePreview: (item.attachFileUrl && /\.(png|jpe?g|gif|webp)(\?|$)/i.test(item.attachFileUrl)) ? item.attachFileUrl : null,
-      attachFileName: (item as any).attachFileName || (item.attachFile ? String(item.attachFile).split("/").pop() || null : null),
+      attachments: existing,
+      impactHighlights: loadedHighlights,
     });
     setUpdateFormErrors({});
     setUpdateFormOpen(true);
@@ -618,41 +786,70 @@ export default function AdminInvestmentEdit() {
     "text/csv",
   ]);
 
-  const handleUpdateAttachFileChange = async (file: File | null) => {
-    if (!file) {
-      setUpdateForm((prev) => ({ ...prev, attachFile: null, attachFilePreview: null, attachFileName: null }));
-      return;
+  // Adds one or more files to the staged attachment list. Each file is
+  // independently validated and either appended or causes a per-file error
+  // message; valid files in the same selection still go through.
+  const handleUpdateAttachFilesAdd = async (files: FileList | File[] | null) => {
+    if (!files) return;
+    const list: File[] = Array.from(files as ArrayLike<File>);
+    if (list.length === 0) return;
+
+    const errors: string[] = [];
+    const newEntries: UpdateFormAttachment[] = [];
+
+    for (const file of list) {
+      if (!ALLOWED_ATTACH_MIME.has(file.type)) {
+        errors.push(`${file.name}: file type not allowed.`);
+        continue;
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        errors.push(`${file.name}: exceeds the 10MB limit.`);
+        continue;
+      }
+      try {
+        const isImage = file.type.startsWith("image/");
+        const fileForUpload: File = isImage
+          ? await compressImage(file, file.type || "image/jpeg")
+          : file;
+        const base64 = await toBase64(fileForUpload);
+        newEntries.push({
+          kind: "new",
+          tempId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          data: base64,
+          fileName: file.name,
+          previewUrl: isImage ? base64 : null,
+          mimeType: file.type,
+          sizeBytes: fileForUpload.size,
+        });
+      } catch (err) {
+        console.error("Failed to read attachment:", err);
+        errors.push(`${file.name}: failed to read file.`);
+      }
     }
-    if (!ALLOWED_ATTACH_MIME.has(file.type)) {
-      setUpdateFormErrors((prev) => ({ ...prev, attachFile: "Allowed file types: images, PDF, Word, Excel, PowerPoint, TXT, CSV." }));
-      return;
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      setUpdateFormErrors((prev) => ({ ...prev, attachFile: "File exceeds the 10MB limit." }));
-      return;
-    }
-    try {
-      // Images can still be compressed to keep upload sizes reasonable; other
-      // file types are sent as-is.
-      const isImage = file.type.startsWith("image/");
-      const fileForUpload: File = isImage
-        ? await compressImage(file, file.type || "image/jpeg")
-        : file;
-      const base64 = await toBase64(fileForUpload);
-      setUpdateForm((prev) => ({
-        ...prev,
-        attachFile: base64,
-        attachFilePreview: isImage ? base64 : null,
-        attachFileName: file.name,
-      }));
-      setUpdateFormErrors((prev) => {
-        const { attachFile: _ignore, ...rest } = prev;
-        return rest;
-      });
-    } catch (err) {
-      console.error("Failed to read attachment:", err);
-      setUpdateFormErrors((prev) => ({ ...prev, attachFile: "Failed to read attachment." }));
-    }
+
+    setUpdateForm((prev) => ({
+      ...prev,
+      attachments: [...prev.attachments, ...newEntries],
+    }));
+    setUpdateFormErrors((prev) => {
+      const next = { ...prev };
+      if (errors.length) {
+        next.attachments = errors.join(" ");
+      } else {
+        delete next.attachments;
+      }
+      return next;
+    });
+  };
+
+  // Removes the staged attachment at `index`. Existing rows are simply
+  // dropped from the list (their server-side row will be deleted on Save);
+  // newly added uploads are discarded.
+  const handleRemoveStagedAttachment = (index: number) => {
+    setUpdateForm((prev) => ({
+      ...prev,
+      attachments: prev.attachments.filter((_, i) => i !== index),
+    }));
   };
 
   const validateUpdateForm = (): boolean => {
@@ -686,16 +883,25 @@ export default function AdminInvestmentEdit() {
     if (!validateUpdateForm()) return;
     setUpdatesSubmitting(true);
     try {
+      const attachmentsPayload: CampaignUpdateAttachmentInput[] =
+        updateForm.attachments.map((a) =>
+          a.kind === "existing"
+            ? { id: a.id }
+            : { data: a.data, name: a.fileName || "attachment" }
+        );
       const payload = {
         subject: updateForm.subject.trim(),
         description: updateForm.description || null,
-        shortSubject: updateForm.shortSubject.trim() || null,
         shortDescription: updateForm.shortDescription.trim() || null,
         startDate: updateForm.startDate || null,
         endDate: updateForm.endDate || null,
-        attachFile: updateForm.attachFile
-          ? { data: updateForm.attachFile, name: updateForm.attachFileName || "attachment" }
-          : null,
+        attachments: attachmentsPayload,
+        // Always send all three slots, trimmed; the backend treats an
+        // all-blank array as NULL so empty rows don't pollute the DB.
+        impactHighlights: updateForm.impactHighlights.map((h) => ({
+          label: (h.label || "").trim(),
+          value: (h.value || "").trim(),
+        })),
       };
       if (editingUpdateId) {
         const result = await updateCampaignUpdate(resolvedNumericId, editingUpdateId, payload);
@@ -724,13 +930,79 @@ export default function AdminInvestmentEdit() {
     try {
       const result = await sendCampaignUpdateEmail(resolvedNumericId, item.id);
       if (result.success === false) throw new Error(result.message || "Failed to send email.");
-      toast({ title: "Email sent", description: result.message || "Email sent to investors." });
+      // 0 eligible recipients: server still returns success and intentionally
+      // skips writing a log row. Surface the message but don't pretend any
+      // emails went out.
+      if ((result.recipientCount ?? 0) === 0) {
+        toast({
+          title: "No emails sent",
+          description: result.message || "No eligible investors to email.",
+        });
+      } else {
+        toast({ title: "Email sent", description: result.message || "Email sent to investors." });
+      }
       setEmailUpdateTarget(null);
+      // Refresh the underlying list so the email-history modal opened next
+      // shows the new log row.
+      await loadCampaignUpdates();
     } catch (err: any) {
       console.error("Failed to send update email:", err);
       toast({ title: "Error", description: err?.response?.data?.message || err?.message || "Failed to send email.", variant: "destructive" });
     } finally {
       setSendingEmailUpdateId(null);
+    }
+  };
+
+  const openEmailLogsModal = async (item: CampaignUpdateItem) => {
+    if (!resolvedNumericId) return;
+    setEmailLogsTarget(item);
+    setEmailLogs([]);
+    setEmailLogsLoading(true);
+    try {
+      const items = await fetchCampaignUpdateEmailLogs(resolvedNumericId, item.id);
+      setEmailLogs(items);
+    } catch (err: any) {
+      console.error("Failed to load email send history:", err);
+      toast({
+        title: "Error",
+        description: err?.response?.data?.message || err?.message || "Failed to load email send history.",
+        variant: "destructive",
+      });
+    } finally {
+      setEmailLogsLoading(false);
+    }
+  };
+
+  // Renders a Date (M/D/YYYY) and a Time labelled with the current EST/EDT
+  // offset so admins always see Eastern Time regardless of their browser
+  // locale. The DST suffix is derived from the actual offset of the date in
+  // America/New_York via Intl.
+  const formatEasternDate = (iso: string): string => {
+    if (!iso) return "—";
+    try {
+      const d = new Date(iso);
+      return new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York",
+        year: "numeric",
+        month: "numeric",
+        day: "numeric",
+      }).format(d);
+    } catch {
+      return iso;
+    }
+  };
+  const formatEasternTime = (iso: string): string => {
+    if (!iso) return "—";
+    try {
+      const d = new Date(iso);
+      return new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      }).format(d);
+    } catch {
+      return iso;
     }
   };
 
@@ -771,8 +1043,12 @@ export default function AdminInvestmentEdit() {
   const stageRef = useRef<HTMLDivElement>(null);
   const raisedRef = useRef<HTMLDivElement>(null);
   const minInvestRef = useRef<HTMLDivElement>(null);
+  const corporateBankAccountRef = useRef<HTMLDivElement>(null);
+  const personalFinancialBenefitRef = useRef<HTMLDivElement>(null);
+  const regulatoryIssuesRef = useRef<HTMLDivElement>(null);
+  const goodLegalStandingRef = useRef<HTMLDivElement>(null);
 
-  const REQUIRED_FIELDS: (keyof FormData)[] = ["name", "website", "target", "property", "stage", "addedTotalAdminRaised", "minimumInvestment"];
+  const REQUIRED_FIELDS: (keyof FormData)[] = ["name", "website", "target", "property", "stage", "addedTotalAdminRaised", "minimumInvestment", "hasCorporateBankAccount", "hasPersonalFinancialBenefit", "hasRegulatoryIssues", "isInGoodLegalStanding"];
   const FIELD_REFS: Record<string, React.RefObject<HTMLDivElement>> = {
     name: nameRef,
     website: websiteRef,
@@ -781,6 +1057,10 @@ export default function AdminInvestmentEdit() {
     stage: stageRef,
     addedTotalAdminRaised: raisedRef,
     minimumInvestment: minInvestRef,
+    hasCorporateBankAccount: corporateBankAccountRef,
+    hasPersonalFinancialBenefit: personalFinancialBenefitRef,
+    hasRegulatoryIssues: regulatoryIssuesRef,
+    isInGoodLegalStanding: goodLegalStandingRef,
   };
   const FIELD_STEPS: Record<string, number> = {
     name: 1,
@@ -790,6 +1070,10 @@ export default function AdminInvestmentEdit() {
     stage: 3,
     addedTotalAdminRaised: 3,
     minimumInvestment: 3,
+    hasCorporateBankAccount: 0,
+    hasPersonalFinancialBenefit: 0,
+    hasRegulatoryIssues: 0,
+    isInGoodLegalStanding: 0,
   };
 
   const scrollToField = (field: string) => {
@@ -972,6 +1256,22 @@ export default function AdminInvestmentEdit() {
     setSavedTagValues(tagValues);
     setSavedApprovedBy(data.approvedBy ? Array.from(new Set(String(data.approvedBy).split(",").map((s: string) => s.trim()).filter(Boolean))) : []);
     setSavedStage(data.stage != null ? String(data.stage) : "");
+
+    const incomingAttachments: ThankYouAttachment[] = Array.isArray(data.thankYouAttachments)
+      ? data.thankYouAttachments.map((a: any) => ({
+          id: Number(a.id),
+          fileName: String(a.fileName || ""),
+          contentType: String(a.contentType || ""),
+          sizeBytes: Number(a.sizeBytes) || 0,
+          publicUrl: a.publicUrl || null,
+          filePath: a.filePath || "",
+          sortOrder: a.sortOrder ?? null,
+        }))
+      : [];
+    setThankYouExistingAttachments(incomingAttachments);
+    setThankYouRemovedIds([]);
+    setThankYouPendingFiles([]);
+    setThankYouAttachmentError("");
   }, [toast]);
 
   const upd = (field: keyof FormData, value: any) => {
@@ -1052,6 +1352,13 @@ export default function AdminInvestmentEdit() {
     if (file.size >= 10485760) { setFileErrors(p => ({ ...p, profile: "File must be under 10 MB." })); return; }
     setFileErrors(p => ({ ...p, profile: "" }));
     const compressed = await compressImage(file, file.type);
+    if (!cropProfileEnabled) {
+      const base64 = await toBase64(compressed);
+      setProfileFile(compressed);
+      setImage(base64);
+      setImageFileName("");
+      return;
+    }
     setCropperImage(URL.createObjectURL(compressed));
     setCropperTarget("profile");
     setCropperAspect(763 / 400);
@@ -1067,6 +1374,13 @@ export default function AdminInvestmentEdit() {
     if (file.size >= 10485760) { setFileErrors(p => ({ ...p, tile: "File must be under 10 MB." })); return; }
     setFileErrors(p => ({ ...p, tile: "" }));
     const compressed = await compressImage(file, file.type);
+    if (!cropTileEnabled) {
+      const base64 = await toBase64(compressed);
+      setSmallerFile(compressed);
+      setTileImage(base64);
+      setTileImageFileName("");
+      return;
+    }
     setCropperImage(URL.createObjectURL(compressed));
     setCropperTarget("tile");
     setCropperAspect(362 / 250);
@@ -1123,6 +1437,220 @@ export default function AdminInvestmentEdit() {
         });
     } finally {
         setIsDownloadingPdf(false);
+    }
+  };
+
+  const thankYouUsedBytes = useMemo(() => {
+    const keptBytes = thankYouExistingAttachments
+      .filter((a) => !thankYouRemovedIds.includes(a.id))
+      .reduce((sum, a) => sum + (a.sizeBytes || 0), 0);
+    const newBytes = thankYouPendingFiles.reduce((sum, f) => sum + (f.sizeBytes || 0), 0);
+    return keptBytes + newBytes;
+  }, [thankYouExistingAttachments, thankYouRemovedIds, thankYouPendingFiles]);
+
+  const handleThankYouFiles = useCallback(
+    async (files: FileList | File[]) => {
+      const incoming = Array.from(files);
+      if (incoming.length === 0) return;
+
+      const accepted: PendingThankYouAttachment[] = [];
+      const errors: string[] = [];
+      let runningTotal = thankYouUsedBytes;
+
+      for (const file of incoming) {
+        const mime = (file.type || "").toLowerCase();
+        const okByMime = THANK_YOU_ALLOWED_MIME_TYPES.has(mime);
+        const okByExt = THANK_YOU_ALLOWED_EXT_REGEX.test(file.name);
+        if (!okByMime && !okByExt) {
+          errors.push(`"${file.name}" — unsupported file type. Allowed: PDF, DOC, DOCX, PNG, JPG, WEBP.`);
+          continue;
+        }
+        if (file.size > THANK_YOU_PER_FILE_MAX_BYTES) {
+          errors.push(`"${file.name}" exceeds the 10 MB per-file limit.`);
+          continue;
+        }
+        if (runningTotal + file.size > THANK_YOU_TOTAL_MAX_BYTES) {
+          errors.push(`"${file.name}" would exceed the 25 MB total attachment limit.`);
+          continue;
+        }
+        try {
+          const dataUrl = await readFileAsDataUrl(file);
+          if (!dataUrl) {
+            errors.push(`"${file.name}" could not be read.`);
+            continue;
+          }
+          const resolvedMime = mime || dataUrl.match(/^data:([^;]+);base64/)?.[1] || "application/octet-stream";
+          accepted.push({
+            localId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            fileName: file.name,
+            contentType: resolvedMime,
+            sizeBytes: file.size,
+            dataBase64: dataUrl,
+          });
+          runningTotal += file.size;
+        } catch {
+          errors.push(`"${file.name}" could not be read.`);
+        }
+      }
+
+      if (accepted.length > 0) {
+        setThankYouPendingFiles((prev) => [...prev, ...accepted]);
+      }
+      setThankYouAttachmentError(errors.join(" "));
+    },
+    [thankYouUsedBytes],
+  );
+
+  const handleThankYouFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const target = e.target;
+    const files = target.files;
+    if (files && files.length > 0) {
+      void handleThankYouFiles(files);
+    }
+    target.value = "";
+  };
+
+  const handleThankYouDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setThankYouDragActive(false);
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) {
+      void handleThankYouFiles(files);
+    }
+  };
+
+  const removeExistingThankYouAttachment = (id: number) => {
+    setThankYouRemovedIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    setThankYouAttachmentError("");
+  };
+
+  const undoRemoveExistingThankYouAttachment = (id: number) => {
+    setThankYouRemovedIds((prev) => prev.filter((rid) => rid !== id));
+  };
+
+  const removePendingThankYouAttachment = (localId: string) => {
+    setThankYouPendingFiles((prev) => prev.filter((f) => f.localId !== localId));
+    setThankYouAttachmentError("");
+  };
+
+  const personalizedThankYouCharCount = useMemo(
+    () => getPlainTextLengthFromHtml(formData.personalizedThankYou || ""),
+    [formData.personalizedThankYou],
+  );
+
+  const buildPreviewVariables = useCallback((category: number): Record<string, string> => {
+    const investmentLabel = formData.name || investmentName || "this investment";
+    const exampleAmount = "$1,000";
+    const today = dayjs().format("MMMM D, YYYY");
+    const vars: Record<string, string> = {
+      firstName: "Sample Donor",
+      lastName: "Donor",
+      fullName: "Sample Donor",
+      email: "donor@example.com",
+      formattedAmount: exampleAmount,
+      amount: exampleAmount,
+      donationAmount: exampleAmount,
+      donationRecipient: investmentLabel,
+      campaignName: investmentLabel,
+      investmentName: investmentLabel,
+      investmentScenario: investmentLabel,
+      investmentScenarios: investmentLabel,
+      dafProviderName: "Sample DAF Provider",
+      dafName: "Sample DAF Provider",
+      dafProviderLink: "https://example.com/daf",
+      foundationName: "Sample Foundation",
+      date: today,
+      donationDate: today,
+      logoUrl: "",
+      requestOrigin: typeof window !== "undefined" ? window.location.origin : "",
+    };
+    if (category === DONATION_CONFIRMATION_CATEGORY) {
+      const personalizedHtml = (formData.personalizedThankYou || "").trim();
+      vars.personalizedThankYouSection = personalizedHtml
+        ? `<b style="color:#000;">Thank you from Investment Owner</b><br/>${personalizedHtml}<hr style="border:none; border-top:1px solid #d1d5db;" />`
+        : "";
+    }
+    return vars;
+  }, [formData.name, formData.personalizedThankYou, investmentName]);
+
+  const applyTemplatePlaceholders = useCallback(
+    (html: string, vars: Record<string, string>): string => {
+      if (!html) return "";
+      return html.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, name) => {
+        if (Object.prototype.hasOwnProperty.call(vars, name)) {
+          return vars[name];
+        }
+        return "";
+      });
+    },
+    [],
+  );
+
+  const loadEmailPreviewForCategory = useCallback(
+    async (category: number, options: EmailPreviewTemplateOption[]) => {
+      const opt = options.find((o) => o.category === category);
+      if (!opt) {
+        setPreviewEmailHtml("");
+        setPreviewEmailSubject("");
+        setPreviewEmailError("No active template configured for this category.");
+        return;
+      }
+      setPreviewEmailLoading(true);
+      setPreviewEmailError("");
+      try {
+        const data = await fetchEmailTemplatePreview(opt.templateId);
+        const vars = buildPreviewVariables(category);
+        setPreviewEmailSubject(applyTemplatePlaceholders(data.subject || "", vars));
+        setPreviewEmailHtml(applyTemplatePlaceholders(data.bodyHtml || "", vars));
+      } catch (err: any) {
+        console.error("Failed to load email template preview", err);
+        setPreviewEmailHtml("");
+        setPreviewEmailSubject("");
+        setPreviewEmailError(err?.response?.data?.message || "Failed to load template preview.");
+      } finally {
+        setPreviewEmailLoading(false);
+      }
+    },
+    [applyTemplatePlaceholders, buildPreviewVariables],
+  );
+
+  const openPreviewEmail = async () => {
+    setPreviewEmailOpen(true);
+    setPreviewEmailLoading(true);
+    setPreviewEmailError("");
+    setPreviewEmailHtml("");
+    setPreviewEmailSubject("");
+    try {
+      const results = await Promise.all(
+        EMAIL_PREVIEW_CATEGORIES.map(async ({ category, label }) => {
+          try {
+            const tpl = await fetchActiveEmailTemplateByCategory(category);
+            if (!tpl) return null;
+            return {
+              category,
+              templateId: tpl.id,
+              name: tpl.name,
+              label,
+            } as EmailPreviewTemplateOption;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      const opts = results.filter((r): r is EmailPreviewTemplateOption => r !== null);
+      setPreviewEmailTemplates(opts);
+      if (opts.length === 0) {
+        setPreviewEmailError("No active templates are configured for the selected categories.");
+        setPreviewEmailLoading(false);
+        return;
+      }
+      const initial = opts[0].category;
+      await loadEmailPreviewForCategory(initial, opts);
+    } catch (err: any) {
+      console.error("Failed to load email preview templates", err);
+      setPreviewEmailError(err?.response?.data?.message || "Failed to load email templates.");
+      setPreviewEmailLoading(false);
     }
   };
 
@@ -1229,6 +1757,13 @@ export default function AdminInvestmentEdit() {
         state: formData.state?.trim() || "",
         zipCode: formData.zipCode?.trim() || "",
         otherCountryAddress: "",
+        thankYouAttachmentIdsToRemove: thankYouRemovedIds,
+        thankYouAttachmentsToAdd: thankYouPendingFiles.map((f) => ({
+          fileName: f.fileName,
+          contentType: f.contentType,
+          sizeBytes: f.sizeBytes,
+          dataBase64: f.dataBase64,
+        })),
       };
 
       const result = await updateInvestment(formData.id!, payload);
@@ -1305,6 +1840,47 @@ export default function AdminInvestmentEdit() {
           onCropped={handleCropSave}
         />
       )}
+
+      <Dialog open={previewEmailOpen} onOpenChange={setPreviewEmailOpen}>
+        <DialogContent className="max-w-4xl max-h-[95vh] flex flex-col p-0 overflow-hidden">
+          <DialogHeader className="p-6 pb-2">
+            <DialogTitle data-testid="text-preview-email-title">Preview Email</DialogTitle>
+            {previewEmailSubject && (
+              <p className="text-sm text-muted-foreground" data-testid="text-preview-email-subject">
+                Subject: {previewEmailSubject}
+              </p>
+            )}
+          </DialogHeader>
+          <div className="flex-1 min-h-0 px-0">
+            {previewEmailLoading ? (
+              <div className="flex items-center justify-center h-[600px] text-sm text-muted-foreground">
+                Loading preview…
+              </div>
+            ) : previewEmailError ? (
+              <div className="flex items-center justify-center h-[600px] text-sm text-[#f06548] px-6 text-center" data-testid="text-preview-email-error">
+                {previewEmailError}
+              </div>
+            ) : previewEmailHtml ? (
+              <iframe
+                title="Email Preview"
+                className="w-full h-full min-h-[600px] border-0 bg-white"
+                srcDoc={previewEmailHtml}
+                sandbox=""
+                data-testid="iframe-preview-email"
+              />
+            ) : (
+              <div className="flex items-center justify-center h-[600px] text-sm text-muted-foreground">
+                Select a template to preview.
+              </div>
+            )}
+          </div>
+          <DialogFooter className="p-4 border-t bg-white dark:bg-muted/10">
+            <Button variant="outline" onClick={() => setPreviewEmailOpen(false)} data-testid="button-close-preview-email">
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={noteDialogOpen} onOpenChange={(open) => { if (!open) setNoteDialogOpen(false); }}>
         <DialogContent
@@ -1735,26 +2311,28 @@ export default function AdminInvestmentEdit() {
                     </Select>
                   </div>
 
-                  <div className="space-y-1.5">
-                    <Label className="text-sm">Does your company have a corporate bank account set up?</Label>
+                  <div className="space-y-1.5" ref={corporateBankAccountRef}>
+                    <Label className="text-sm">Does your company have a corporate bank account set up? <span className="text-[#f06548]">*</span></Label>
                     <Select value={formData.hasCorporateBankAccount} onValueChange={(val) => upd("hasCorporateBankAccount", val)}>
-                      <SelectTrigger data-testid="select-corporate-bank-account"><SelectValue placeholder="Select…" /></SelectTrigger>
+                      <SelectTrigger className={fe("hasCorporateBankAccount")} data-testid="select-corporate-bank-account"><SelectValue placeholder="Select…" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Yes">Yes</SelectItem>
                         <SelectItem value="No">No</SelectItem>
                       </SelectContent>
                     </Select>
+                    {errors.hasCorporateBankAccount && <p className="text-[#f06548] text-xs">Please select Yes or No.</p>}
                   </div>
 
-                  <div className="space-y-1.5 sm:col-span-2">
-                    <Label className="text-sm">Does any board member, officer, or related party stand to receive personal financial benefit from this investment?</Label>
+                  <div className="space-y-1.5 sm:col-span-2" ref={personalFinancialBenefitRef}>
+                    <Label className="text-sm">Does any board member, officer, or related party stand to receive personal financial benefit from this investment? <span className="text-[#f06548]">*</span></Label>
                     <Select value={formData.hasPersonalFinancialBenefit} onValueChange={(val) => upd("hasPersonalFinancialBenefit", val)}>
-                      <SelectTrigger data-testid="select-personal-financial-benefit"><SelectValue placeholder="Select…" /></SelectTrigger>
+                      <SelectTrigger className={fe("hasPersonalFinancialBenefit")} data-testid="select-personal-financial-benefit"><SelectValue placeholder="Select…" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Yes">Yes</SelectItem>
                         <SelectItem value="No">No</SelectItem>
                       </SelectContent>
                     </Select>
+                    {errors.hasPersonalFinancialBenefit && <p className="text-[#f06548] text-xs">Please select Yes or No.</p>}
                   </div>
 
                   {formData.hasPersonalFinancialBenefit === "Yes" && (
@@ -1764,15 +2342,16 @@ export default function AdminInvestmentEdit() {
                     </div>
                   )}
 
-                  <div className="space-y-1.5 sm:col-span-2">
-                    <Label className="text-sm">Has the organization or any of its officers ever been subject to regulatory action, criminal investigation, or sanctions?</Label>
+                  <div className="space-y-1.5 sm:col-span-2" ref={regulatoryIssuesRef}>
+                    <Label className="text-sm">Has the organization or any of its officers ever been subject to regulatory action, criminal investigation, or sanctions? <span className="text-[#f06548]">*</span></Label>
                     <Select value={formData.hasRegulatoryIssues} onValueChange={(val) => upd("hasRegulatoryIssues", val)}>
-                      <SelectTrigger data-testid="select-regulatory-issues"><SelectValue placeholder="Select…" /></SelectTrigger>
+                      <SelectTrigger className={fe("hasRegulatoryIssues")} data-testid="select-regulatory-issues"><SelectValue placeholder="Select…" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Yes">Yes</SelectItem>
                         <SelectItem value="No">No</SelectItem>
                       </SelectContent>
                     </Select>
+                    {errors.hasRegulatoryIssues && <p className="text-[#f06548] text-xs">Please select Yes or No.</p>}
                   </div>
 
                   {formData.hasRegulatoryIssues === "Yes" && (
@@ -1782,15 +2361,16 @@ export default function AdminInvestmentEdit() {
                     </div>
                   )}
 
-                  <div className="space-y-1.5">
-                    <Label className="text-sm">Is the organization currently in good legal standing with all relevant regulatory bodies?</Label>
+                  <div className="space-y-1.5" ref={goodLegalStandingRef}>
+                    <Label className="text-sm">Is the organization currently in good legal standing with all relevant regulatory bodies? <span className="text-[#f06548]">*</span></Label>
                     <Select value={formData.isInGoodLegalStanding} onValueChange={(val) => upd("isInGoodLegalStanding", val)}>
-                      <SelectTrigger data-testid="select-good-legal-standing"><SelectValue placeholder="Select…" /></SelectTrigger>
+                      <SelectTrigger className={fe("isInGoodLegalStanding")} data-testid="select-good-legal-standing"><SelectValue placeholder="Select…" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Yes">Yes</SelectItem>
                         <SelectItem value="No">No</SelectItem>
                       </SelectContent>
                     </Select>
+                    {errors.isInGoodLegalStanding && <p className="text-[#f06548] text-xs">Please select Yes or No.</p>}
                   </div>
 
                   <div className="space-y-1.5">
@@ -1896,10 +2476,180 @@ export default function AdminInvestmentEdit() {
                   </div>
                 </div>
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="personalizedThankYou" className="text-sm">Personalized Thank You (Not to exceed 1,000 characters)</Label>
-                  <Textarea id="personalizedThankYou" value={formData.personalizedThankYou} onChange={(e) => upd("personalizedThankYou", e.target.value)} placeholder="Personalized Thank You" rows={5} maxLength={1000} data-testid="input-thank-you" />
-                  <p className="text-xs text-muted-foreground">What would you like your customized thank you message — displayed to users following a donation to your investment — to say?</p>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <Label htmlFor="personalizedThankYou" className="text-sm">Personalized Thank You (Not to exceed 1,000 characters)</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={openPreviewEmail}
+                      data-testid="button-preview-thank-you-email"
+                    >
+                      <Mail className="mr-2 h-4 w-4" />
+                      Preview email
+                    </Button>
+                  </div>
+                  <RichTextEditor
+                    value={formData.personalizedThankYou}
+                    onChange={(html) => upd("personalizedThankYou", html)}
+                    placeholder="Personalized Thank You"
+                    data-testid="input-thank-you"
+                  />
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>What would you like your customized thank you message — displayed to users following a donation to your investment — to say?</span>
+                    <span
+                      className={cn(
+                        personalizedThankYouCharCount > PERSONALIZED_THANK_YOU_MAX_CHARS && "text-[#f06548] font-medium"
+                      )}
+                      data-testid="text-thank-you-char-count"
+                    >
+                      {personalizedThankYouCharCount.toLocaleString()} / {PERSONALIZED_THANK_YOU_MAX_CHARS.toLocaleString()} characters
+                    </span>
+                  </div>
+
+                  <div className="space-y-2 pt-2">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <Label className="text-sm">Attachments</Label>
+                      <span className="text-xs text-muted-foreground" data-testid="text-thank-you-total-size">
+                        {formatBytes(thankYouUsedBytes)} of {formatBytes(THANK_YOU_TOTAL_MAX_BYTES)} used
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Allowed: PDF, DOC, DOCX, PNG, JPG, WEBP. Max 10 MB per file, 25 MB total.
+                    </p>
+
+                    <div
+                      className={cn(
+                        "rounded-md border-2 border-dashed p-4 transition-colors text-center",
+                        thankYouDragActive ? "border-[#405189] bg-[#f3f6ff]" : "border-muted-foreground/30 bg-muted/20"
+                      )}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setThankYouDragActive(true);
+                      }}
+                      onDragLeave={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setThankYouDragActive(false);
+                      }}
+                      onDrop={handleThankYouDrop}
+                      data-testid="thank-you-dropzone"
+                    >
+                      <p className="text-sm text-muted-foreground">
+                        Drag and drop files here, or
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="mt-2"
+                        onClick={() => thankYouFileInputRef.current?.click()}
+                        data-testid="button-add-thank-you-attachment"
+                      >
+                        Choose files
+                      </Button>
+                      <input
+                        ref={thankYouFileInputRef}
+                        type="file"
+                        multiple
+                        accept={THANK_YOU_ACCEPT_ATTR}
+                        className="hidden"
+                        onChange={handleThankYouFileInputChange}
+                        data-testid="input-thank-you-attachment-file"
+                      />
+                    </div>
+
+                    {thankYouAttachmentError && (
+                      <p className="text-xs text-[#f06548]" data-testid="text-thank-you-attachment-error">
+                        {thankYouAttachmentError}
+                      </p>
+                    )}
+
+                    {(thankYouExistingAttachments.length > 0 || thankYouPendingFiles.length > 0) && (
+                      <ul className="divide-y rounded-md border">
+                        {thankYouExistingAttachments.map((att) => {
+                          const removed = thankYouRemovedIds.includes(att.id);
+                          return (
+                            <li
+                              key={`existing-${att.id}`}
+                              className={cn(
+                                "flex items-center justify-between gap-3 px-3 py-2",
+                                removed && "opacity-60"
+                              )}
+                              data-testid={`item-thank-you-attachment-${att.id}`}
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                <div className="min-w-0">
+                                  {att.publicUrl ? (
+                                    <a
+                                      href={att.publicUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className={cn("text-sm truncate block", removed ? "line-through" : "text-[#405189] hover:underline")}
+                                      data-testid={`link-thank-you-attachment-${att.id}`}
+                                    >
+                                      {att.fileName}
+                                    </a>
+                                  ) : (
+                                    <span className={cn("text-sm truncate block", removed && "line-through")}>{att.fileName}</span>
+                                  )}
+                                  <span className="text-xs text-muted-foreground">{formatBytes(att.sizeBytes)}{removed ? " · will be removed on save" : ""}</span>
+                                </div>
+                              </div>
+                              {removed ? (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => undoRemoveExistingThankYouAttachment(att.id)}
+                                  data-testid={`button-undo-remove-thank-you-attachment-${att.id}`}
+                                >
+                                  Undo
+                                </Button>
+                              ) : (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => removeExistingThankYouAttachment(att.id)}
+                                  data-testid={`button-remove-thank-you-attachment-${att.id}`}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              )}
+                            </li>
+                          );
+                        })}
+                        {thankYouPendingFiles.map((f) => (
+                          <li
+                            key={`pending-${f.localId}`}
+                            className="flex items-center justify-between gap-3 px-3 py-2 bg-[#f6fbf7]"
+                            data-testid={`item-thank-you-attachment-pending-${f.localId}`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                              <div className="min-w-0">
+                                <span className="text-sm truncate block">{f.fileName}</span>
+                                <span className="text-xs text-muted-foreground">{formatBytes(f.sizeBytes)} · will be uploaded on save</span>
+                              </div>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removePendingThankYouAttachment(f.localId)}
+                              data-testid={`button-remove-thank-you-attachment-pending-${f.localId}`}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 </div>
 
                 <div className="space-y-4">
@@ -2023,10 +2773,21 @@ export default function AdminInvestmentEdit() {
 
                 {/* Profile Image */}
                 <div className="grid grid-cols-12 gap-y-2">
-                  <div className="col-span-12">
-                    <p style={inputHeaderLabelStyle}>
+                  <div className="col-span-12 flex flex-wrap items-center justify-between gap-x-8 gap-y-2">
+                    <p style={inputHeaderLabelStyle} className="!mb-0">
                       Company / Investment Profile Image (max file size 10 MB) {!isAdmin && <span style={{ color: "red" }}> *</span>}
                     </p>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id="crop-profile-toggle"
+                        checked={cropProfileEnabled}
+                        onCheckedChange={setCropProfileEnabled}
+                        data-testid="switch-crop-profile"
+                      />
+                      <Label htmlFor="crop-profile-toggle" className="text-sm font-medium cursor-pointer">
+                        Crop image after upload
+                      </Label>
+                    </div>
                   </div>
                   <div className="col-span-12" ref={imageRef}>
                     <div className="w-full">
@@ -2090,10 +2851,21 @@ export default function AdminInvestmentEdit() {
 
                 {/* Smaller Image */}
                 <div className="grid grid-cols-12 gap-y-2">
-                  <div className="col-span-12">
-                    <p style={inputHeaderLabelStyle}>
+                  <div className="col-span-12 flex flex-wrap items-center justify-between gap-x-8 gap-y-2">
+                    <p style={inputHeaderLabelStyle} className="!mb-0">
                       Company / Investment Smaller Image (max file size 10 MB) {!isAdmin && <span style={{ color: "red" }}> *</span>}
                     </p>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id="crop-tile-toggle"
+                        checked={cropTileEnabled}
+                        onCheckedChange={setCropTileEnabled}
+                        data-testid="switch-crop-tile"
+                      />
+                      <Label htmlFor="crop-tile-toggle" className="text-sm font-medium cursor-pointer">
+                        Crop image after upload
+                      </Label>
+                    </div>
                   </div>
                   <div className="col-span-12" ref={tileImageRef}>
                     <div className="w-full">
@@ -2798,7 +3570,7 @@ export default function AdminInvestmentEdit() {
         )}
 
         {/* ── STEP 5: UPDATES ── */}
-        {isUpdatesTabEnabled && currentStep === 5 && !updatesDisabled && (
+        {currentStep === 5 && !updatesDisabled && (
           <Card className="rounded-t-none rounded-b-xl">
             <CardContent className="p-6 space-y-6">
               <div className="flex items-center justify-between border-b pb-2 mb-4">
@@ -2826,7 +3598,7 @@ export default function AdminInvestmentEdit() {
                   <table className="w-full" data-testid="table-updates">
                     <thead>
                       <tr className="border-b bg-[#405189] text-white">
-                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Image</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap">File</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Subject</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Description</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Start Date</th>
@@ -2842,29 +3614,54 @@ export default function AdminInvestmentEdit() {
                           <tr key={item.id} className="border-b last:border-b-0 odd:bg-card even:bg-muted/30 hover:bg-muted/20 transition-colors" data-testid={`row-update-${item.id}`}>
                             <td className="px-4 py-3">
                               {(() => {
-                                const url = item.attachFileUrl;
-                                const name = (item as any).attachFileName || (item.attachFile ? String(item.attachFile).split("/").pop() : "");
-                                const isImg = !!url && /\.(png|jpe?g|gif|webp)(\?|$)/i.test(url);
-                                if (url && isImg) {
-                                  return <img src={url} alt={item.subject} className="h-12 w-12 object-cover rounded" />;
-                                }
-                                if (url) {
+                                const list = item.attachments || [];
+                                if (list.length === 0) {
                                   return (
-                                    <a
-                                      href={url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="flex items-center gap-2 text-sm text-primary hover:underline"
-                                      title={name || "Download attachment"}
-                                    >
-                                      <FileText className="h-4 w-4" />
-                                      <span className="truncate max-w-[140px]">{name || "Attachment"}</span>
-                                    </a>
+                                    <div className="h-12 w-12 flex items-center justify-center rounded bg-muted text-muted-foreground">
+                                      <ImageIcon className="h-4 w-4" />
+                                    </div>
                                   );
                                 }
+                                const first = list[0];
+                                const extra = list.length - 1;
+                                const url = first.fileUrl;
+                                const name = first.fileName || (first.filePath ? first.filePath.split("/").pop() : "");
+                                const isImg =
+                                  (first.mimeType && first.mimeType.startsWith("image/")) ||
+                                  (!!url && /\.(png|jpe?g|gif|webp)(\?|$)/i.test(url));
+                                const tooltipText = list
+                                  .map((a, i) => `${i + 1}. ${a.fileName || (a.filePath ? a.filePath.split("/").pop() : "Attachment")}`)
+                                  .join("\n");
                                 return (
-                                  <div className="h-12 w-12 flex items-center justify-center rounded bg-muted text-muted-foreground">
-                                    <ImageIcon className="h-4 w-4" />
+                                  <div className="flex items-center gap-2" title={tooltipText}>
+                                    {isImg && url ? (
+                                      <a href={url} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                                        <img src={url} alt={item.subject} className="h-12 w-12 object-cover rounded" />
+                                      </a>
+                                    ) : url ? (
+                                      <a
+                                        href={url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center gap-2 text-sm text-primary hover:underline"
+                                      >
+                                        <FileText className="h-4 w-4" />
+                                        <span className="truncate max-w-[140px]">{name || "Attachment"}</span>
+                                      </a>
+                                    ) : (
+                                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                        <FileText className="h-4 w-4" />
+                                        <span className="truncate max-w-[140px]">{name || "Attachment"}</span>
+                                      </div>
+                                    )}
+                                    {extra > 0 && (
+                                      <span
+                                        className="inline-flex items-center justify-center rounded-full bg-[#405189]/10 text-[#405189] text-[11px] font-semibold px-2 py-0.5"
+                                        data-testid={`badge-attachments-extra-${item.id}`}
+                                      >
+                                        +{extra}
+                                      </span>
+                                    )}
                                   </div>
                                 );
                               })()}
@@ -2886,7 +3683,17 @@ export default function AdminInvestmentEdit() {
                                 <Button
                                   size="icon"
                                   variant="outline"
-                                  className="h-8 w-8 rounded-r-none border-r-0 text-[#0ab39c] hover:text-[#0ab39c] hover:bg-[#0ab39c]/5"
+                                  className="h-8 w-8 rounded-r-none border-r-0 text-[#405189] hover:text-[#405189] hover:bg-[#405189]/5"
+                                  onClick={() => openEmailLogsModal(item)}
+                                  data-testid={`button-email-logs-${item.id}`}
+                                  title="Email send history"
+                                >
+                                  <Clock className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="outline"
+                                  className="h-8 w-8 rounded-none border-r-0 text-[#0ab39c] hover:text-[#0ab39c] hover:bg-[#0ab39c]/5"
                                   onClick={async () => {
                                     setEmailUpdateTarget(item);
                                     setEmailPreview(null);
@@ -2947,7 +3754,7 @@ export default function AdminInvestmentEdit() {
           </Card>
         )}
 
-        {isUpdatesTabEnabled && currentStep === 5 && updatesDisabled && (
+        {currentStep === 5 && updatesDisabled && (
           <Card className="rounded-t-none rounded-b-xl">
             <CardContent className="p-6">
               <p className="text-sm text-muted-foreground">
@@ -2987,19 +3794,6 @@ export default function AdminInvestmentEdit() {
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="update-short-subject" className="text-sm">Short Subject</Label>
-                <Input
-                  id="update-short-subject"
-                  maxLength={120}
-                  placeholder="Notification title (defaults to Subject)"
-                  value={updateForm.shortSubject}
-                  onChange={(e) => setUpdateForm((p) => ({ ...p, shortSubject: e.target.value }))}
-                  data-testid="input-update-short-subject"
-                />
-                <p className="text-[11px] text-muted-foreground">Used as the in-app notification title.</p>
-              </div>
-
-              <div className="space-y-1.5">
                 <Label htmlFor="update-short-description" className="text-sm">Short Description</Label>
                 <Textarea
                   id="update-short-description"
@@ -3013,43 +3807,127 @@ export default function AdminInvestmentEdit() {
                 <p className="text-[11px] text-muted-foreground">Used as the in-app notification body.</p>
               </div>
 
+              <div className="space-y-2">
+                <Label className="text-sm">Impact Highlights</Label>
+                <p className="text-[11px] text-muted-foreground">
+                  Up to three custom (Label, Value) pairs shown alongside this update. Leave blank to skip.
+                </p>
+                <div className="space-y-2">
+                  {updateForm.impactHighlights.map((row, idx) => (
+                    <div
+                      key={idx}
+                      className="grid grid-cols-1 sm:grid-cols-2 gap-2"
+                      data-testid={`row-update-impact-highlight-${idx}`}
+                    >
+                      <Input
+                        value={row.label}
+                        maxLength={200}
+                        placeholder={`Custom Label ${idx + 1}`}
+                        aria-label={`Impact highlight ${idx + 1} label`}
+                        onChange={(e) => {
+                          const next = updateForm.impactHighlights.slice();
+                          next[idx] = { ...next[idx], label: e.target.value };
+                          setUpdateForm((p) => ({ ...p, impactHighlights: next }));
+                        }}
+                        data-testid={`input-update-impact-highlight-label-${idx}`}
+                      />
+                      <Input
+                        value={row.value}
+                        maxLength={200}
+                        placeholder={`Custom Value ${idx + 1}`}
+                        aria-label={`Impact highlight ${idx + 1} value`}
+                        onChange={(e) => {
+                          const next = updateForm.impactHighlights.slice();
+                          next[idx] = { ...next[idx], value: e.target.value };
+                          setUpdateForm((p) => ({ ...p, impactHighlights: next }));
+                        }}
+                        data-testid={`input-update-impact-highlight-value-${idx}`}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
               <div className="space-y-1.5">
-                <Label className="text-sm">Attach File</Label>
+                <Label className="text-sm">Attachments</Label>
                 <Input
                   type="file"
+                  multiple
                   accept="image/png,image/jpeg,image/jpg,image/gif,image/webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv"
-                  onChange={(e) => handleUpdateAttachFileChange(e.target.files?.[0] || null)}
+                  onChange={(e) => {
+                    handleUpdateAttachFilesAdd(e.target.files);
+                    // Reset the input so the same file can be re-selected after
+                    // it's removed from the list.
+                    if (e.target) e.target.value = "";
+                  }}
                   data-testid="input-update-attach-file"
                   className="cursor-pointer file:cursor-pointer"
                 />
-                <p className="text-[11px] text-muted-foreground">Images, PDF, Word, Excel, PowerPoint, TXT or CSV (max 10MB). Sent to investors as an email attachment.</p>
-                {(updateForm.attachFilePreview || updateForm.attachFileName) && (
-                  <div className="mt-2 flex items-center gap-3">
-                    {updateForm.attachFilePreview ? (
-                      <img
-                        src={updateForm.attachFilePreview}
-                        alt="Attachment preview"
-                        className="h-20 w-20 object-cover rounded border"
-                      />
-                    ) : (
-                      <div className="flex items-center gap-2 px-3 py-2 rounded border bg-muted/30 text-sm">
-                        <FileText className="h-4 w-4 text-muted-foreground" />
-                        <span className="truncate max-w-[220px]" title={updateForm.attachFileName || ""}>
-                          {updateForm.attachFileName || "Attachment"}
-                        </span>
-                      </div>
-                    )}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setUpdateForm((p) => ({ ...p, attachFile: null, attachFilePreview: null, attachFileName: null }))}
-                    >
-                      Remove
-                    </Button>
-                  </div>
+                <p className="text-[11px] text-muted-foreground">Images, PDF, Word, Excel, PowerPoint, TXT or CSV (max 10MB each). All files are sent to investors as real email attachments.</p>
+                {updateForm.attachments.length > 0 && (
+                  <ul className="mt-2 space-y-2" data-testid="list-update-attachments">
+                    {updateForm.attachments.map((att, idx) => {
+                      const key = att.kind === "existing" ? `e-${att.id}` : `n-${att.tempId}`;
+                      return (
+                        <li
+                          key={key}
+                          className="flex items-center gap-3 rounded border bg-muted/30 px-3 py-2"
+                          data-testid={`row-update-attachment-${idx}`}
+                        >
+                          {att.previewUrl ? (
+                            <img
+                              src={att.previewUrl}
+                              alt={att.fileName}
+                              className="h-10 w-10 object-cover rounded border shrink-0"
+                            />
+                          ) : (
+                            <div className="h-10 w-10 flex items-center justify-center rounded border bg-background shrink-0">
+                              <FileText className="h-4 w-4 text-muted-foreground" />
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm truncate" title={att.fileName}>
+                              {att.fileName || "Attachment"}
+                            </div>
+                            {att.kind === "new" ? (
+                              <div className="text-[11px] text-muted-foreground">
+                                {(att.sizeBytes / 1024).toFixed(1)} KB · pending upload
+                              </div>
+                            ) : att.sizeBytes ? (
+                              <div className="text-[11px] text-muted-foreground">
+                                {(att.sizeBytes / 1024).toFixed(1)} KB
+                              </div>
+                            ) : null}
+                          </div>
+                          {att.kind === "existing" && att.fileUrl && (
+                            <a
+                              href={att.fileUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-primary hover:underline shrink-0"
+                            >
+                              Open
+                            </a>
+                          )}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-[#f06548] hover:text-[#f06548] hover:bg-[#f06548]/10 shrink-0"
+                            onClick={() => handleRemoveStagedAttachment(idx)}
+                            data-testid={`button-remove-update-attachment-${idx}`}
+                            title="Remove attachment"
+                          >
+                            <XIcon className="h-4 w-4" />
+                          </Button>
+                        </li>
+                      );
+                    })}
+                  </ul>
                 )}
-                {updateFormErrors.attachFile && <p className="text-[#f06548] text-xs">{updateFormErrors.attachFile}</p>}
+                {updateFormErrors.attachments && (
+                  <p className="text-[#f06548] text-xs">{updateFormErrors.attachments}</p>
+                )}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -3250,6 +4128,78 @@ export default function AdminInvestmentEdit() {
           </DialogContent>
         </Dialog>
 
+        {/* Per-update email send history modal: triggered by the Clock icon
+            in the Updates table Actions column. Lists every Send action
+            most-recent first with Date / Time (EST/EDT) / Recipient count. */}
+        <Dialog
+          open={emailLogsTarget !== null}
+          onOpenChange={(open) => {
+            if (!open) {
+              setEmailLogsTarget(null);
+              setEmailLogs([]);
+            }
+          }}
+        >
+          <DialogContent className="w-[95vw] sm:w-full max-w-2xl p-4 sm:p-6">
+            <DialogHeader>
+              <DialogTitle>Email send history</DialogTitle>
+              {emailLogsTarget?.subject && (
+                <p className="text-sm text-muted-foreground">
+                  Update: <strong className="text-foreground">{emailLogsTarget.subject}</strong>
+                </p>
+              )}
+            </DialogHeader>
+            {emailLogsLoading ? (
+              <div className="space-y-2 py-2">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ) : emailLogs.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-6 text-center" data-testid="text-no-email-logs">
+                No emails have been sent for this update yet.
+              </p>
+            ) : (
+              <div className="overflow-x-auto rounded-md border">
+                <table className="w-full" data-testid="table-email-logs">
+                  <thead>
+                    <tr className="border-b bg-[#405189] text-white">
+                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Date</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Time</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Recipients</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {emailLogs.map((log) => (
+                      <tr
+                        key={log.id}
+                        className="border-b last:border-b-0 odd:bg-card even:bg-muted/30"
+                        data-testid={`row-email-log-${log.id}`}
+                      >
+                        <td className="px-4 py-2 text-sm whitespace-nowrap">{formatEasternDate(log.sentAt)}</td>
+                        <td className="px-4 py-2 text-sm whitespace-nowrap">{formatEasternTime(log.sentAt)}</td>
+                        <td className="px-4 py-2 text-sm text-right whitespace-nowrap">{log.recipientCount}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setEmailLogsTarget(null);
+                  setEmailLogs([]);
+                }}
+                data-testid="button-close-email-logs"
+              >
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         <div className="flex items-center justify-between gap-3 mt-8 pt-5 border-t">
           {currentStep > 0 ? (
             <Button variant="outline" onClick={() => setCurrentStep(currentStep - 1)} data-testid="button-previous">
@@ -3264,7 +4214,7 @@ export default function AdminInvestmentEdit() {
             <Button
               onClick={() => {
                 let next = currentStep + 1;
-                if (isUpdatesTabEnabled && updatesDisabled && next === 5) next = 4;
+                if (updatesDisabled && next === 5) next = 4;
                 setCurrentStep(next);
               }}
               className="bg-[#405189] hover:bg-[#364574] text-white"

@@ -546,7 +546,9 @@ export default function EmailTemplateManagement() {
               <Popover open={filterCategoryPopoverOpen} onOpenChange={setFilterCategoryPopoverOpen}>
                 <PopoverTrigger asChild>
                   <Button variant="outline" role="combobox" aria-expanded={filterCategoryPopoverOpen} className="w-[300px] justify-between font-normal text-sm h-9" data-testid="select-category-filter">
-                    {categoryFilter === "all" ? "All Categories" : categories.find((c) => String(c.id) === categoryFilter)?.label || "Select Category"}
+                    <span className="truncate min-w-0 flex-1 text-left">
+                      {categoryFilter === "all" ? "All Categories" : categories.find((c) => String(c.id) === categoryFilter)?.label || "Select Category"}
+                    </span>
                     <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>

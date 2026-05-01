@@ -3,7 +3,15 @@ import type { Request, Response } from "express";
 import pool from "../db.js";
 import { parsePagination, softDeleteFilter, handleMissingTableError } from "../utils/softDelete.js";
 import { restoreOwningUsersForRecordsInTx } from "../utils/userRestore.js";
+import {
+  uploadNoteAttachments,
+  rollbackUploadedAttachments,
+  insertNoteAttachmentRows,
+  buildAttachmentPublicUrl,
+  type UploadedAttachment,
+} from "../utils/noteAttachments.js";
 import { autoEnrollInvestorIfApplicable } from "../utils/autoEnrollGroupMembership.js";
+import { backfillCampaignUpdateNotifications } from "../utils/backfillCampaignUpdateNotifications.js";
 import { sendNewInvestmentNotifications } from "../utils/investmentNotifications.js";
 import { applyMatchGrants } from "../utils/matchingGrants.js";
 import ExcelJS from "exceljs";
@@ -33,19 +41,6 @@ function getReadableDuration(from: Date, to: Date): string {
 
   return parts.length > 0 ? parts.join(", ") : "0 days";
 }
-
-router.get("/daf-providers", async (_req: Request, res: Response) => {
-  try {
-    const result = await pool.query(
-      `SELECT id, provider_name AS "value", provider_url AS "link" FROM daf_providers`
-    );
-
-    res.json(result.rows);
-  } catch (err: any) {
-    console.error("Error fetching DAF providers:", err);
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
 
 router.get("/export", async (_req: Request, res: Response) => {
   try {
@@ -143,6 +138,10 @@ router.get("/", async (req: Request, res: Response) => {
     const pageSize = params.perPage;
 
     const dafProvider = (req.query.dafProvider || req.query.DafProvider) as string | undefined;
+    const foundationGrantsOnlyRaw = (req.query.foundationGrantsOnly ?? req.query.FoundationGrantsOnly) as string | undefined;
+    const foundationGrantsOnly =
+      typeof foundationGrantsOnlyRaw === "string" &&
+      foundationGrantsOnlyRaw.toLowerCase() === "true";
 
     const statusList = params.status
       ? params.status.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
@@ -186,7 +185,9 @@ router.get("/", async (req: Request, res: Response) => {
       paramIdx++;
     }
 
-    if (dafProvider) {
+    if (foundationGrantsOnly) {
+      conditions.push(`LOWER(TRIM(pg.daf_provider)) = 'foundation grant'`);
+    } else if (dafProvider) {
       const dafProviderList = dafProvider.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
       const hasOther = dafProviderList.includes("other");
       const selectedProviders = dafProviderList.filter((p) => p !== "other");
@@ -246,6 +247,9 @@ router.get("/", async (req: Request, res: Response) => {
         break;
       case "dayscount":
         orderBy = `CASE WHEN LOWER(COALESCE(pg.status, 'pending')) = 'pending' OR pg.status IS NULL OR pg.status = '' THEN 0 ELSE 1 END ASC, pg.created_date ${isAsc ? "ASC NULLS LAST" : "DESC NULLS FIRST"}`;
+        break;
+      case "amount":
+        orderBy = `CASE WHEN LOWER(COALESCE(pg.status, 'pending')) = 'rejected' THEN 1 ELSE 0 END ASC, CAST(pg.amount AS float) ${isAsc ? "ASC NULLS LAST" : "DESC NULLS FIRST"}`;
         break;
       default:
         orderBy = `CASE WHEN LOWER(COALESCE(pg.status, 'pending')) = 'rejected' THEN 1 ELSE 0 END ASC, pg.created_date DESC`;
@@ -372,6 +376,28 @@ router.put("/restore", async (req: Request, res: Response) => {
 
 router.put("/:id", async (req: Request, res: Response) => {
   const client = await pool.connect();
+  let uploadedAttachments: UploadedAttachment[] = [];
+  try {
+    const incomingAttachments = Array.isArray((req.body as any)?.attachments)
+      ? ((req.body as any).attachments as Array<{
+          fileName?: string;
+          mimeType?: string;
+          base64Data?: string;
+        }>)
+      : [];
+    if (incomingAttachments.length > 0) {
+      uploadedAttachments = await uploadNoteAttachments(
+        incomingAttachments,
+        "notes/pending-grants",
+      );
+    }
+  } catch (err: any) {
+    client.release();
+    console.error("Error uploading pending grant note attachments:", err);
+    res.status(400).json({ success: false, message: err.message || "Failed to upload attachments." });
+    return;
+  }
+
   try {
     const id = parseInt(String(req.params.id), 10);
     const data = req.body;
@@ -570,6 +596,11 @@ router.put("/:id", async (req: Request, res: Response) => {
           [grant.uid, `Manually, ${loginUserName}`, grant.campaign_name, grant.camp_id]
         );
 
+        // The investor just joined this campaign — give them in-app
+        // notifications for any past, still-active updates that fired
+        // before they showed up in user_investments.
+        await backfillCampaignUpdateNotifications(client, grant.uid, grant.camp_id);
+
         // Defer the email until after COMMIT so we never notify
         // recipients of an investment that ends up rolled back.
         const donorDisplayNameApproved =
@@ -709,11 +740,25 @@ router.put("/:id", async (req: Request, res: Response) => {
       await client.query(`UPDATE pending_grants SET status = 'Received' WHERE id = $1`, [id]);
     }
 
+    let insertedNoteId: number | null = null;
     if (data.note && data.note.trim()) {
-      await client.query(
+      const noteResult = await client.query(
         `INSERT INTO pending_grant_notes (pending_grant_id, note, created_by, created_at, old_status, new_status)
-         VALUES ($1, $2, $3, NOW(), $4, $5)`,
+         VALUES ($1, $2, $3, NOW(), $4, $5) RETURNING id`,
         [id, data.note.trim(), loginUserId, currentStatus, data.status]
+      );
+      insertedNoteId = noteResult.rows[0]?.id ?? null;
+    } else if (uploadedAttachments.length > 0) {
+      throw new Error("A note is required when adding attachments.");
+    }
+
+    if (insertedNoteId && uploadedAttachments.length > 0) {
+      await insertNoteAttachmentRows(
+        client,
+        "pending_grant_note_attachments",
+        insertedNoteId,
+        uploadedAttachments,
+        loginUserId ?? null,
       );
     }
 
@@ -738,6 +783,7 @@ router.put("/:id", async (req: Request, res: Response) => {
     res.json({ success: true, message: `Grant set ${data.status}` });
   } catch (err: any) {
     await client.query("ROLLBACK").catch(() => {});
+    await rollbackUploadedAttachments(uploadedAttachments);
     console.error("Error updating pending grant:", err);
     res.status(500).json({ success: false, message: err.message });
   } finally {
@@ -759,7 +805,42 @@ router.get("/:id/notes", async (req: Request, res: Response) => {
       [id]
     );
 
-    res.json(result.rows);
+    const noteIds = result.rows.map((r: any) => r.id);
+    let attachmentsByNoteId: Record<number, any[]> = {};
+    if (noteIds.length > 0) {
+      try {
+        const attResult = await pool.query(
+          `SELECT id, note_id, file_name AS "fileName", storage_path AS "storagePath",
+                  mime_type AS "mimeType", size_bytes AS "sizeBytes"
+           FROM pending_grant_note_attachments
+           WHERE note_id = ANY($1)
+           ORDER BY id ASC`,
+          [noteIds]
+        );
+        for (const att of attResult.rows) {
+          const url = buildAttachmentPublicUrl(att.storagePath);
+          if (!attachmentsByNoteId[att.note_id]) attachmentsByNoteId[att.note_id] = [];
+          attachmentsByNoteId[att.note_id].push({
+            id: att.id,
+            fileName: att.fileName,
+            mimeType: att.mimeType,
+            sizeBytes: att.sizeBytes ? Number(att.sizeBytes) : 0,
+            url,
+          });
+        }
+      } catch (err: any) {
+        if (err?.code !== "42P01") {
+          console.error("Error fetching pending grant note attachments:", err);
+        }
+      }
+    }
+
+    const rowsWithAttachments = result.rows.map((row: any) => ({
+      ...row,
+      attachments: attachmentsByNoteId[row.id] || [],
+    }));
+
+    res.json(rowsWithAttachments);
   } catch (err: any) {
     console.error("Error fetching pending grant notes:", err);
     res.status(500).json({ success: false, message: err.message });

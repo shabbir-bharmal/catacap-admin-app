@@ -61,6 +61,17 @@ function normalizeLinkTargets(dto: any): NormalizeResult {
     targets.investments = normalizeIntIds((grouped as any).investments);
     targets.groups = normalizeIntIds((grouped as any).groups);
     targets["custom-pages"] = normalizeSlugs((grouped as any)["custom-pages"]);
+    const populatedTypes = [
+      targets.investments.length > 0 ? "investments" : null,
+      targets.groups.length > 0 ? "groups" : null,
+      targets["custom-pages"].length > 0 ? "custom-pages" : null,
+    ].filter((v): v is string => v !== null);
+    if (populatedTypes.length > 1) {
+      return {
+        ok: false,
+        error: `An event can only be linked to one type at a time. Received items for: ${populatedTypes.join(", ")}.`,
+      };
+    }
     return { ok: true, targets };
   }
 
@@ -216,7 +227,7 @@ router.get("/", async (req: Request, res: Response) => {
       `SELECT
          e.id, e.title, e.description, e.event_date, e.event_time,
          e.registration_link, e.status, e.image_file_name, e.image,
-         e.type, e.duration, e.page_url,
+         e.type, e.duration, e.page_url, e.show_on_home,
          ${LINK_TARGETS_BY_TYPE_SUBQUERY} AS link_targets_by_type,
          e.deleted_at,
          du.first_name || ' ' || du.last_name AS deleted_by_name
@@ -244,6 +255,7 @@ router.get("/", async (req: Request, res: Response) => {
         type: r.type,
         duration: r.duration,
         pageUrl: r.page_url,
+        showOnHome: r.show_on_home ?? null,
         linkTargetsByType,
         linkTargetType: legacy.linkTargetType,
         linkTargetIds: legacy.linkTargetIds,
@@ -372,6 +384,7 @@ router.get("/:id", async (req: Request, res: Response) => {
     const result = await pool.query(
       `SELECT e.id, e.title, e.description, e.event_date, e.event_time,
               e.registration_link, e.status, e.image, e.image_file_name, e.type, e.duration, e.page_url,
+              e.show_on_home,
               ${LINK_TARGETS_BY_TYPE_SUBQUERY} AS link_targets_by_type
        FROM events e
        WHERE e.id = $1`,
@@ -399,6 +412,7 @@ router.get("/:id", async (req: Request, res: Response) => {
       type: r.type,
       duration: r.duration,
       pageUrl: r.page_url,
+      showOnHome: r.show_on_home ?? null,
       linkTargetsByType,
       linkTargetType: legacy.linkTargetType,
       linkTargetIds: legacy.linkTargetIds,
@@ -459,13 +473,15 @@ router.post("/", async (req: Request, res: Response) => {
            image_file_name = COALESCE(NULLIF($7, ''), image_file_name),
            image = COALESCE(NULLIF($8, ''), image),
            type = $9, duration = $10, page_url = $11,
-           modified_at = NOW(), modified_by = $12
-         WHERE id = $13`,
+           show_on_home = $12,
+           modified_at = NOW(), modified_by = $13
+         WHERE id = $14`,
         [
           dto.title, dto.description, dto.eventDate, dto.eventTime,
           dto.registrationLink, dto.status,
           imageFileName, image,
           dto.type, dto.duration, dto.pageUrl ?? null,
+          dto.showOnHome === true ? true : dto.showOnHome === false ? false : null,
           userId, dto.id,
         ]
       );
@@ -477,15 +493,16 @@ router.post("/", async (req: Request, res: Response) => {
     } else {
       const result = await client.query(
         `INSERT INTO events (title, description, event_date, event_time, registration_link, status,
-           image_file_name, image, type, duration, page_url,
+           image_file_name, image, type, duration, page_url, show_on_home,
            created_by, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
          RETURNING id`,
         [
           dto.title, dto.description, dto.eventDate, dto.eventTime,
           dto.registrationLink, dto.status,
           imageFileName, image,
           dto.type, dto.duration, dto.pageUrl ?? null,
+          dto.showOnHome === true ? true : dto.showOnHome === false ? false : null,
           userId,
         ]
       );

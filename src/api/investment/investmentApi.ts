@@ -269,29 +269,58 @@ export async function sendInvestmentQrCodeEmail(investmentId: number, investment
     return response.data;
 }
 
+export interface CampaignUpdateAttachmentItem {
+    id: number;
+    filePath: string;
+    fileName: string | null;
+    mimeType: string | null;
+    sizeBytes: number | null;
+    sortOrder: number;
+    fileUrl: string | null;
+}
+
+export interface CampaignUpdateImpactHighlight {
+    label: string;
+    value: string;
+}
+
 export interface CampaignUpdateItem {
     id: number;
     campaignId: number;
     subject: string;
     description: string | null;
-    shortSubject: string | null;
     shortDescription: string | null;
     attachFile: string | null;
+    attachFileName: string | null;
     attachFileUrl: string | null;
+    attachments: CampaignUpdateAttachmentItem[];
     startDate: string | null;
     endDate: string | null;
+    impactHighlights: CampaignUpdateImpactHighlight[] | null;
     createdAt: string;
     updatedAt: string;
 }
 
+export type CampaignUpdateAttachmentInput =
+    | { id: number }
+    | { data: string; name: string };
+
 export interface CampaignUpdatePayload {
     subject: string;
     description?: string | null;
-    shortSubject?: string | null;
     shortDescription?: string | null;
-    attachFile?: string | { data: string; name: string } | null;
+    attachments?: CampaignUpdateAttachmentInput[];
     startDate?: string | null;
     endDate?: string | null;
+    impactHighlights?: CampaignUpdateImpactHighlight[];
+}
+
+export interface CampaignUpdateEmailLogItem {
+    id: number;
+    sentAt: string;
+    recipientCount: number;
+    sentByUserId: string | null;
+    sentByName: string | null;
 }
 
 export async function fetchCampaignUpdates(investmentId: number): Promise<CampaignUpdateItem[]> {
@@ -327,11 +356,21 @@ export async function updateCampaignUpdate(
 export async function sendCampaignUpdateEmail(
     investmentId: number,
     updateId: number
-): Promise<{ success: boolean; message?: string; sent?: number; failed?: number; ccCount?: number }> {
+): Promise<{ success: boolean; message?: string; sent?: number; failed?: number; recipientCount?: number; ccCount?: number }> {
     const response = await axiosInstance.post(
         `/api/admin/investment/${investmentId}/updates/${updateId}/send-email`
     );
     return response.data;
+}
+
+export async function fetchCampaignUpdateEmailLogs(
+    investmentId: number,
+    updateId: number
+): Promise<CampaignUpdateEmailLogItem[]> {
+    const response = await axiosInstance.get<{ success: boolean; items: CampaignUpdateEmailLogItem[] }>(
+        `/api/admin/investment/${investmentId}/updates/${updateId}/email-logs`
+    );
+    return response.data.items || [];
 }
 
 export async function getCampaignUpdateEmailPreview(

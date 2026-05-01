@@ -190,6 +190,19 @@ router.get("/:type", async (req: Request, res: Response) => {
         return;
       }
 
+      case "daf-providers": {
+        const result = await pool.query(
+          `SELECT id,
+                  provider_name AS "value",
+                  provider_url AS "link",
+                  is_active AS "isActive"
+           FROM daf_providers
+           ORDER BY provider_name`
+        );
+        res.json(result.rows);
+        return;
+      }
+
       default:
         res.json([]);
     }
@@ -393,6 +406,14 @@ router.delete("/:type/:id", async (req: Request, res: Response) => {
         break;
       }
 
+      case "daf-providers": {
+        const entity = await pool.query(`SELECT id FROM daf_providers WHERE id = $1`, [id]);
+        if (entity.rows.length === 0) { res.json({ success: false, message: "Record not found." }); return; }
+        await pool.query(`DELETE FROM daf_providers WHERE id = $1`, [id]);
+        result = { success: true, message: "DAF provider deleted successfully." };
+        break;
+      }
+
       default:
         result = { success: false, message: "Invalid configuration type." };
     }
@@ -403,6 +424,29 @@ router.delete("/:type/:id", async (req: Request, res: Response) => {
     res.json(result);
   } catch (err) {
     console.error("SiteConfig Delete error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+router.post("/daf-providers/:id/toggle-active", async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(String(req.params.id), 10);
+    if (isNaN(id) || id <= 0) {
+      res.status(400).json({ success: false, message: "Invalid ID" });
+      return;
+    }
+
+    const updated = await pool.query(
+      `UPDATE daf_providers SET is_active = NOT COALESCE(is_active, false) WHERE id = $1 RETURNING id`,
+      [id]
+    );
+    if (updated.rows.length === 0) {
+      res.json({ success: false, message: "Record not found." });
+      return;
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error("SiteConfig DAF toggle error:", err);
     res.status(500).json({ message: "Internal server error" });
   }
 });
@@ -728,6 +772,23 @@ async function createByType(type: string, dto: any): Promise<{ success: boolean;
       return { success: true, message: "Contact info created successfully." };
     }
 
+    case "daf-providers": {
+      const name = (dto.value ?? "").trim();
+      const url = (dto.link ?? "").trim();
+      if (!name) return { success: false, message: "Provider name is required." };
+      if (!url) return { success: false, message: "Provider URL is required." };
+      const dup = await pool.query(
+        `SELECT 1 FROM daf_providers WHERE LOWER(TRIM(provider_name)) = LOWER($1)`,
+        [name]
+      );
+      if (dup.rows.length > 0) return { success: false, message: "Entered provider name already exists." };
+      await pool.query(
+        `INSERT INTO daf_providers (provider_name, provider_url, is_active) VALUES ($1, $2, $3)`,
+        [name, url, true]
+      );
+      return { success: true, message: "DAF provider created successfully." };
+    }
+
     default:
       return { success: false, message: "Invalid configuration type." };
   }
@@ -912,6 +973,25 @@ async function updateByType(type: string, dto: any): Promise<{ success: boolean;
         [dto.value.trim(), dto.additionalDetails?.trim() || null, id]
       );
       return { success: true, message: "Contact info updated successfully." };
+    }
+
+    case "daf-providers": {
+      const name = (dto.value ?? "").trim();
+      const url = (dto.link ?? "").trim();
+      if (!name) return { success: false, message: "Provider name is required." };
+      if (!url) return { success: false, message: "Provider URL is required." };
+      const entity = await pool.query(`SELECT id FROM daf_providers WHERE id = $1`, [id]);
+      if (entity.rows.length === 0) return { success: false, message: "Record not found." };
+      const dup = await pool.query(
+        `SELECT 1 FROM daf_providers WHERE LOWER(TRIM(provider_name)) = LOWER($1) AND id != $2`,
+        [name, id]
+      );
+      if (dup.rows.length > 0) return { success: false, message: "Entered provider name already exists." };
+      await pool.query(
+        `UPDATE daf_providers SET provider_name = $1, provider_url = $2 WHERE id = $3`,
+        [name, url, id]
+      );
+      return { success: true, message: "DAF provider updated successfully." };
     }
 
     default:

@@ -27,14 +27,14 @@ export async function autoEnrollInvestorIfApplicable(
 
   await client.query(
     `INSERT INTO requests (request_owner_id, group_to_follow_id, status, created_at)
-     SELECT $1, c.owner_group_id, 'accepted', NOW()
+     SELECT $1::varchar, c.owner_group_id, 'accepted', NOW()
      FROM campaigns c
      WHERE c.id = $2
        AND c.owner_group_id IS NOT NULL
        AND c.auto_enroll_investors = TRUE
        AND NOT EXISTS (
          SELECT 1 FROM requests r
-         WHERE r.request_owner_id = $1
+         WHERE r.request_owner_id = $1::varchar
            AND r.group_to_follow_id = c.owner_group_id
            AND r.status = 'accepted'
            AND (r.is_deleted IS NULL OR r.is_deleted = FALSE)

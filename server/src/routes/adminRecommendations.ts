@@ -4,6 +4,7 @@ import pool from "../db.js";
 import { parsePagination, softDeleteFilter, buildSortClause } from "../utils/softDelete.js";
 import { restoreOwningUsersForRecordsInTx } from "../utils/userRestore.js";
 import { autoEnrollInvestorIfApplicable } from "../utils/autoEnrollGroupMembership.js";
+import { backfillCampaignUpdateNotifications } from "../utils/backfillCampaignUpdateNotifications.js";
 import { applyMatchGrants } from "../utils/matchingGrants.js";
 import ExcelJS from "exceljs";
 
@@ -368,6 +369,10 @@ router.put("/:id", async (req: Request, res: Response) => {
       }
     } else if (data.status === "approved" && recommendation.status !== "approved") {
       await autoEnrollInvestorIfApplicable(client, user.id, recommendation.camp_id);
+      // Investor just transitioned into an active state on this campaign;
+      // backfill any past, still-active in-app update notifications they
+      // missed before approval.
+      await backfillCampaignUpdateNotifications(client, user.id, recommendation.camp_id);
 
       // Cascade-approve any pending match recommendations triggered by this one
       const pendingMatches = await client.query(

@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Download, ChevronLeft, ChevronRight, ChevronDown, FileText, Ban, SendHorizonal, X, Mail, Phone, MessageSquare, MessageCircle, Trash2 } from "lucide-react";
+import { Download, ChevronLeft, ChevronRight, ChevronDown, FileText, Ban, SendHorizonal, X, Mail, Phone, MessageSquare, MessageCircle, Trash2, Paperclip } from "lucide-react";
 import { useSort } from "../hooks/useSort";
 import { SortHeader } from "../components/ui/table-sort";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -20,6 +20,7 @@ import { ConfirmationDialog } from "../components/ConfirmationDialog";
 import { PaginationControls } from "@/components/ui/pagination-controls";
 
 import { fetchOtherAssets, updateOtherAsset, exportOtherAssets, fetchOtherAssetNotes, deleteOtherAsset, OtherAssetEntry } from "../api/other-asset/otherAssetApi";
+import { AttachmentsPicker, SelectedAttachment } from "../components/AttachmentsPicker";
 import { currency_format, formatDate } from "../helpers/format";
 
 const STATUS_OPTIONS = ["All", "Pending", "In Transit", "Received", "Rejected"];
@@ -81,6 +82,7 @@ function OtherAssetNotes({ assetId }: { assetId: number }) {
               <th className="px-4 py-2.5 text-left text-xs font-semibold text-white uppercase tracking-wider whitespace-nowrap">Old Status</th>
               <th className="px-4 py-2.5 text-left text-xs font-semibold text-white uppercase tracking-wider whitespace-nowrap">New Status</th>
               <th className="px-4 py-2.5 text-left text-xs font-semibold text-white uppercase tracking-wider whitespace-nowrap">Note</th>
+              <th className="px-4 py-2.5 text-left text-xs font-semibold text-white uppercase tracking-wider whitespace-nowrap">Attachments</th>
             </tr>
           </thead>
           <tbody>
@@ -102,11 +104,38 @@ function OtherAssetNotes({ assetId }: { assetId: number }) {
                   <td className="px-4 py-3 text-sm" data-testid={`text-note-note-${assetId}-${idx}`}>
                     {entry.note}
                   </td>
+                  <td className="px-4 py-3 text-sm align-top max-w-[260px]" data-testid={`text-note-attachments-${assetId}-${idx}`}>
+                    {entry.attachments && entry.attachments.length > 0 ? (
+                      <ul className="space-y-1">
+                        {entry.attachments.map((att, ai) => (
+                          <li key={att.id} className="flex items-center gap-1.5 min-w-0">
+                            <Paperclip className="h-3 w-3 text-muted-foreground shrink-0" />
+                            {att.url ? (
+                              <a
+                                href={att.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[#405189] hover:underline truncate"
+                                title={att.fileName}
+                                data-testid={`link-note-attachment-${assetId}-${idx}-${ai}`}
+                              >
+                                {att.fileName}
+                              </a>
+                            ) : (
+                              <span className="truncate" title={att.fileName}>{att.fileName}</span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-sm text-muted-foreground text-center bg-white dark:bg-background">
+                <td colSpan={6} className="px-4 py-8 text-sm text-muted-foreground text-center bg-white dark:bg-background">
                   No notes available for this grant.
                 </td>
               </tr>
@@ -137,15 +166,23 @@ export default function AdminOtherAssets() {
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectTarget, setRejectTarget] = useState<OtherAssetEntry | null>(null);
   const [rejectNote, setRejectNote] = useState("");
+  const [rejectAttachments, setRejectAttachments] = useState<SelectedAttachment[]>([]);
 
   const [transitDialogOpen, setTransitDialogOpen] = useState(false);
   const [transitTarget, setTransitTarget] = useState<OtherAssetEntry | null>(null);
   const [transitNote, setTransitNote] = useState("");
+  const [transitAttachments, setTransitAttachments] = useState<SelectedAttachment[]>([]);
 
   const [receivedDialogOpen, setReceivedDialogOpen] = useState(false);
   const [receivedTarget, setReceivedTarget] = useState<OtherAssetEntry | null>(null);
   const [receivedNote, setReceivedNote] = useState("");
   const [receivedAmount, setReceivedAmount] = useState("");
+  const [receivedAttachments, setReceivedAttachments] = useState<SelectedAttachment[]>([]);
+
+  const [followUpDialogOpen, setFollowUpDialogOpen] = useState(false);
+  const [followUpTarget, setFollowUpTarget] = useState<OtherAssetEntry | null>(null);
+  const [followUpNote, setFollowUpNote] = useState("");
+  const [followUpAttachments, setFollowUpAttachments] = useState<SelectedAttachment[]>([]);
 
   // Delete state
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -210,8 +247,12 @@ export default function AdminOtherAssets() {
   const openRejectDialog = (grant: OtherAssetEntry) => {
     setRejectTarget(grant);
     setRejectNote("");
+    setRejectAttachments([]);
     setRejectDialogOpen(true);
   };
+
+  const mapAttachmentsForApi = (atts: SelectedAttachment[]) =>
+    atts.map((a) => ({ fileName: a.fileName, mimeType: a.mimeType, base64Data: a.base64Data }));
 
   const confirmReject = async () => {
     if (!rejectTarget) return;
@@ -221,7 +262,8 @@ export default function AdminOtherAssets() {
         id: rejectTarget.id,
         status: "Rejected",
         note: rejectNote.trim(),
-        noteEmail: []
+        noteEmail: [],
+        attachments: mapAttachmentsForApi(rejectAttachments),
       });
       if (res.success) {
         toast({
@@ -229,6 +271,11 @@ export default function AdminOtherAssets() {
           duration: 4000
         });
         queryClient.invalidateQueries({ queryKey: ["otherAssets"] });
+        queryClient.invalidateQueries({ queryKey: ["otherAssetNotes", rejectTarget.id] });
+        setRejectDialogOpen(false);
+        setRejectTarget(null);
+        setRejectNote("");
+        setRejectAttachments([]);
       } else {
         toast({
           title: res.message || "Failed to reject asset",
@@ -244,15 +291,13 @@ export default function AdminOtherAssets() {
       });
     } finally {
       setIsSubmitting(false);
-      setRejectDialogOpen(false);
-      setRejectTarget(null);
-      setRejectNote("");
     }
   };
 
   const openTransitDialog = (grant: OtherAssetEntry) => {
     setTransitTarget(grant);
     setTransitNote("");
+    setTransitAttachments([]);
     setTransitDialogOpen(true);
   };
 
@@ -264,7 +309,8 @@ export default function AdminOtherAssets() {
         id: transitTarget.id,
         status: "In Transit",
         note: transitNote.trim(),
-        noteEmail: []
+        noteEmail: [],
+        attachments: mapAttachmentsForApi(transitAttachments),
       });
       if (res.success) {
         toast({
@@ -272,6 +318,11 @@ export default function AdminOtherAssets() {
           duration: 4000
         });
         queryClient.invalidateQueries({ queryKey: ["otherAssets"] });
+        queryClient.invalidateQueries({ queryKey: ["otherAssetNotes", transitTarget.id] });
+        setTransitDialogOpen(false);
+        setTransitTarget(null);
+        setTransitNote("");
+        setTransitAttachments([]);
       } else {
         toast({
           title: res.message || "Failed to update status",
@@ -287,9 +338,6 @@ export default function AdminOtherAssets() {
       });
     } finally {
       setIsSubmitting(false);
-      setTransitDialogOpen(false);
-      setTransitTarget(null);
-      setTransitNote("");
     }
   };
 
@@ -297,6 +345,7 @@ export default function AdminOtherAssets() {
     setReceivedTarget(grant);
     setReceivedNote("");
     setReceivedAmount(String(grant.receivedAmount ?? 0));
+    setReceivedAttachments([]);
     setReceivedDialogOpen(true);
   };
 
@@ -309,7 +358,8 @@ export default function AdminOtherAssets() {
         status: "Received",
         note: receivedNote.trim(),
         amount: Number(receivedAmount) || 0,
-        noteEmail: []
+        noteEmail: [],
+        attachments: mapAttachmentsForApi(receivedAttachments),
       });
       if (res.success) {
         toast({
@@ -317,6 +367,12 @@ export default function AdminOtherAssets() {
           duration: 4000
         });
         queryClient.invalidateQueries({ queryKey: ["otherAssets"] });
+        queryClient.invalidateQueries({ queryKey: ["otherAssetNotes", receivedTarget.id] });
+        setReceivedDialogOpen(false);
+        setReceivedTarget(null);
+        setReceivedNote("");
+        setReceivedAmount("");
+        setReceivedAttachments([]);
       } else {
         toast({
           title: res.message || "Failed to update status",
@@ -332,10 +388,46 @@ export default function AdminOtherAssets() {
       });
     } finally {
       setIsSubmitting(false);
-      setReceivedDialogOpen(false);
-      setReceivedTarget(null);
-      setReceivedNote("");
-      setReceivedAmount("");
+    }
+  };
+
+  const confirmFollowUp = async () => {
+    if (!followUpTarget) return;
+    setIsSubmitting(true);
+    try {
+      const res = await updateOtherAsset({
+        id: followUpTarget.id,
+        status: followUpTarget.status,
+        note: followUpNote.trim(),
+        noteEmail: [],
+        attachments: mapAttachmentsForApi(followUpAttachments),
+      });
+      if (res.success) {
+        toast({
+          title: res.message || "Note added successfully.",
+          duration: 4000
+        });
+        queryClient.invalidateQueries({ queryKey: ["otherAssets"] });
+        queryClient.invalidateQueries({ queryKey: ["otherAssetNotes", followUpTarget.id] });
+        setFollowUpDialogOpen(false);
+        setFollowUpTarget(null);
+        setFollowUpNote("");
+        setFollowUpAttachments([]);
+      } else {
+        toast({
+          title: res.message || "Failed to add note",
+          variant: "destructive",
+          duration: 4000
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Failed to add note",
+        variant: "destructive",
+        duration: 4000
+      });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -536,6 +628,20 @@ export default function AdminOtherAssets() {
                                   Received
                                 </Button>
                               )}
+                              <Button
+                                size="sm"
+                                className="bg-[#299cdb] hover:bg-[#258cc5] text-white text-[11px] h-7 px-3 uppercase font-semibold"
+                                onClick={() => {
+                                  setFollowUpTarget(grant);
+                                  setFollowUpNote("");
+                                  setFollowUpAttachments([]);
+                                  setFollowUpDialogOpen(true);
+                                }}
+                                disabled={isSubmitting}
+                                data-testid={`button-follow-up-grant-${grant.id}`}
+                              >
+                                Add Note
+                              </Button>
                               {(grant.hasNotes || authUser?.isSuperAdmin) && (
                               <div className="inline-flex rounded-md shadow-sm ml-1">
                                 {grant.hasNotes && (
@@ -616,6 +722,7 @@ export default function AdminOtherAssets() {
           setRejectDialogOpen(open);
           if (!open) {
             setRejectNote("");
+            setRejectAttachments([]);
             setRejectTarget(null);
           }
         }}
@@ -627,7 +734,14 @@ export default function AdminOtherAssets() {
         isSubmitting={isSubmitting}
         confirmButtonClass="bg-[#82b64b] text-white"
         dataTestId="dialog-reject"
-      />
+      >
+        <AttachmentsPicker
+          attachments={rejectAttachments}
+          onChange={setRejectAttachments}
+          disabled={isSubmitting}
+          dataTestId="dialog-reject-attachments"
+        />
+      </ConfirmationDialog>
 
       {/* In Transit Dialog */}
       <ConfirmationDialog
@@ -636,6 +750,7 @@ export default function AdminOtherAssets() {
           setTransitDialogOpen(open);
           if (!open) {
             setTransitNote("");
+            setTransitAttachments([]);
             setTransitTarget(null);
           }
         }}
@@ -647,7 +762,14 @@ export default function AdminOtherAssets() {
         isSubmitting={isSubmitting}
         confirmButtonClass="bg-[#2185d0] text-white"
         dataTestId="dialog-transit"
-      />
+      >
+        <AttachmentsPicker
+          attachments={transitAttachments}
+          onChange={setTransitAttachments}
+          disabled={isSubmitting}
+          dataTestId="dialog-transit-attachments"
+        />
+      </ConfirmationDialog>
 
       {/* Received Dialog */}
       <ConfirmationDialog
@@ -656,6 +778,7 @@ export default function AdminOtherAssets() {
           setReceivedDialogOpen(open);
           if (!open) {
             setReceivedNote("");
+            setReceivedAttachments([]);
             setReceivedTarget(null);
             setReceivedAmount("");
           }
@@ -676,6 +799,40 @@ export default function AdminOtherAssets() {
             <Input type="number" value={receivedAmount} onChange={(e) => setReceivedAmount(e.target.value)} className="pl-7" data-testid="input-received-amount" />
           </div>
         </div>
+        <AttachmentsPicker
+          attachments={receivedAttachments}
+          onChange={setReceivedAttachments}
+          disabled={isSubmitting}
+          dataTestId="dialog-received-attachments"
+        />
+      </ConfirmationDialog>
+
+      <ConfirmationDialog
+        open={followUpDialogOpen}
+        onOpenChange={(open) => {
+          setFollowUpDialogOpen(open);
+          if (!open) {
+            setFollowUpNote("");
+            setFollowUpAttachments([]);
+            setFollowUpTarget(null);
+          }
+        }}
+        title="Add Note to this asset request"
+        noteLabel="Add a note"
+        noteValue={followUpNote}
+        onNoteChange={setFollowUpNote}
+        onConfirm={confirmFollowUp}
+        isSubmitting={isSubmitting}
+        confirmLabel="SAVE"
+        confirmButtonClass="bg-[#299cdb] text-white"
+        dataTestId="dialog-follow-up"
+      >
+        <AttachmentsPicker
+          attachments={followUpAttachments}
+          onChange={setFollowUpAttachments}
+          disabled={isSubmitting}
+          dataTestId="dialog-follow-up-attachments"
+        />
       </ConfirmationDialog>
 
       <ConfirmationDialog

@@ -1113,7 +1113,11 @@ router.put("/update-group-investments", async (req: Request, res: Response) => {
           `SELECT id, name, stage, property, target, description FROM campaigns WHERE id IN (${placeholders})`,
           ids
         );
-        return result.rows.filter((c: any) => !NON_NOTIFY_STAGES.includes(c.stage));
+        return result.rows.filter((c: any) => {
+          const stageNum = Number(c.stage);
+          if (!Number.isFinite(stageNum)) return true;
+          return !NON_NOTIFY_STAGES.includes(stageNum);
+        });
       };
 
       let membersRows: any[] | null = null;

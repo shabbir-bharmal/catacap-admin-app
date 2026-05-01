@@ -9,6 +9,15 @@ export interface PendingGrantParams {
   status?: string;
   isDeleted?: boolean;
   dafProvider?: string;
+  foundationGrantsOnly?: boolean;
+}
+
+export interface NoteAttachmentEntry {
+  id: number;
+  fileName: string;
+  mimeType: string | null;
+  sizeBytes: number;
+  url: string | null;
 }
 
 export interface NoteEntry {
@@ -18,6 +27,13 @@ export interface NoteEntry {
   note: string;
   userName: string;
   createdAt: string;
+  attachments?: NoteAttachmentEntry[];
+}
+
+export interface AttachmentUploadInput {
+  fileName: string;
+  mimeType: string;
+  base64Data: string;
 }
 
 export interface PendingGrantEntry {
@@ -61,6 +77,7 @@ export async function fetchPendingGrants(
     if (params.status && params.status !== "All") queryParams.Status = params.status;
     if (params.isDeleted !== undefined) queryParams.IsDeleted = params.isDeleted.toString();
     if (params.dafProvider && params.dafProvider !== "All") queryParams.DafProvider = params.dafProvider;
+    if (params.foundationGrantsOnly) queryParams.foundationGrantsOnly = "true";
   }
 
   const response = await axiosInstance.get<PaginatedPendingGrantResponse>(
@@ -77,6 +94,7 @@ export interface UpdatePendingGrantPayload {
   amount?: number;
   note?: string;
   noteEmail?: string[];
+  attachments?: AttachmentUploadInput[];
 }
 
 export interface UpdatePendingGrantResponse {
@@ -135,8 +153,11 @@ export interface DafProviderEntry {
 }
 
 export async function fetchDafProviders(): Promise<DafProviderEntry[]> {
-  const response = await axiosInstance.get<DafProviderEntry[]>(
-    "/api/admin/pending-grant/daf-providers"
+  const response = await axiosInstance.get<DafProviderEntry[] | { items?: DafProviderEntry[]; data?: DafProviderEntry[] }>(
+    "/api/admin/site-configuration/daf-providers"
   );
-  return response.data;
+  const data = response.data;
+  if (Array.isArray(data)) return data;
+  const anyData = data as { items?: DafProviderEntry[]; data?: DafProviderEntry[] } | null | undefined;
+  return anyData?.items ?? anyData?.data ?? [];
 }
