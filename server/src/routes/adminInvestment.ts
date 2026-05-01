@@ -278,14 +278,22 @@ router.get("/names", async (req: Request, res: Response) => {
       );
       res.json(result.rows.map((r: any) => ({ id: Number(r.id), name: r.name })));
     } else if (stage === 11) {
-      // Active investable campaigns: Private (1) or Public (2) and is_active = true
+      // Match-grant eligible campaigns:
+      //   Private (1), Public (2), Completed - Ongoing (7), Completed - Ongoing/Private (9)
+      // Excludes: Closed - Invested (3), Closed - Not Invested (4), New (5),
+      //           Compliance Review (6), Vetting (8), CataCap Portfolio (10).
       const result = await pool.query(
         `SELECT id, name FROM campaigns
-         WHERE stage IN ($1, $2) AND is_active = true
+         WHERE stage IN ($1, $2, $3, $4)
          AND TRIM(COALESCE(name, '')) != ''
          AND (is_deleted IS NULL OR is_deleted = false)
          ORDER BY name ASC`,
-        [InvestmentStageEnum.Private, InvestmentStageEnum.Public]
+        [
+          InvestmentStageEnum.Private,
+          InvestmentStageEnum.Public,
+          InvestmentStageEnum.CompletedOngoing,
+          InvestmentStageEnum.CompletedOngoingPrivate,
+        ]
       );
       res.json(result.rows.map((r: any) => ({ id: Number(r.id), name: r.name })));
     } else {

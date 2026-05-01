@@ -222,14 +222,19 @@ function CampaignMultiSelect({
           <ChevronDown className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[340px] p-0" align="start">
+      <PopoverContent
+        className="w-[min(90vw,720px)] p-0"
+        align="start"
+        side="bottom"
+        avoidCollisions={false}
+      >
         <Command shouldFilter={false}>
           <CommandInput
             placeholder="Filter campaigns…"
             value={filter}
             onValueChange={setFilter}
           />
-          <CommandList className="max-h-60">
+          <CommandList className="max-h-[60vh] overflow-y-auto">
             {filtered.length === 0 && <CommandEmpty>No campaigns found.</CommandEmpty>}
             <CommandGroup>
               {filtered.map((c) => (
@@ -372,7 +377,7 @@ function GrantFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="w-[90vw] max-w-[90vw] sm:max-w-[90vw] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isEdit ? "Edit Match Grant" : "New Match Grant"}</DialogTitle>
         </DialogHeader>
