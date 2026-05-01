@@ -291,8 +291,6 @@ const THANK_YOU_ALLOWED_EXT_REGEX = /\.(pdf|doc|docx|png|jpe?g|webp)$/i;
 const THANK_YOU_ACCEPT_ATTR =
   ".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg,image/webp";
 
-const PERSONALIZED_THANK_YOU_MAX_CHARS = 1000;
-
 const EMAIL_PREVIEW_CATEGORIES: { category: number; label: string }[] = [
   { category: 8, label: "Donation Confirmation" },
 ];
@@ -304,21 +302,6 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-}
-
-function getPlainTextLengthFromHtml(html: string): number {
-  if (!html) return 0;
-  const stripped = html
-    .replace(/<br\s*\/?>(\s*)/gi, "\n")
-    .replace(/<\/(p|div|li|h\d|tr)>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'");
-  return stripped.replace(/\u200B/g, "").length;
 }
 
 function readFileAsDataUrl(file: File): Promise<string> {
@@ -1534,11 +1517,6 @@ export default function AdminInvestmentEdit() {
     setThankYouAttachmentError("");
   };
 
-  const personalizedThankYouCharCount = useMemo(
-    () => getPlainTextLengthFromHtml(formData.personalizedThankYou || ""),
-    [formData.personalizedThankYou],
-  );
-
   const buildPreviewVariables = useCallback((category: number): Record<string, string> => {
     const investmentLabel = formData.name || investmentName || "this investment";
     const exampleAmount = "$1,000";
@@ -2478,7 +2456,7 @@ export default function AdminInvestmentEdit() {
 
                 <div className="space-y-3">
                   <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <Label htmlFor="personalizedThankYou" className="text-sm">Personalized Thank You (Not to exceed 1,000 characters)</Label>
+                    <Label htmlFor="personalizedThankYou" className="text-sm">Personalized Thank You</Label>
                     <Button
                       type="button"
                       variant="outline"
@@ -2496,16 +2474,8 @@ export default function AdminInvestmentEdit() {
                     placeholder="Personalized Thank You"
                     data-testid="input-thank-you"
                   />
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <div className="text-xs text-muted-foreground">
                     <span>What would you like your customized thank you message — displayed to users following a donation to your investment — to say?</span>
-                    <span
-                      className={cn(
-                        personalizedThankYouCharCount > PERSONALIZED_THANK_YOU_MAX_CHARS && "text-[#f06548] font-medium"
-                      )}
-                      data-testid="text-thank-you-char-count"
-                    >
-                      {personalizedThankYouCharCount.toLocaleString()} / {PERSONALIZED_THANK_YOU_MAX_CHARS.toLocaleString()} characters
-                    </span>
                   </div>
 
                   <div className="space-y-2 pt-2">
