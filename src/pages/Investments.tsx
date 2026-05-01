@@ -104,6 +104,8 @@ interface InvestmentData {
   pdfFileName: string;
   originalPdfFileName: string;
   imageFileName: string;
+  ownerFullName: string | null;
+  ownerEmail: string | null;
 }
 
 const stageOptions = ["New", "Compliance Review", "Private", "Public", "Completed - Ongoing", "Closed - Invested", "Closed - Not Invested", "Vetting", "Completed - Ongoing/Private"];
@@ -215,7 +217,9 @@ export default function InvestmentsPage() {
           noteEntries: [],
           pdfFileName: item.pdfFileName,
           originalPdfFileName: item.originalPdfFileName,
-          imageFileName: item.imageFileName || ""
+          imageFileName: item.imageFileName || "",
+          ownerFullName: item.ownerFullName || null,
+          ownerEmail: item.ownerEmail || null,
         }));
         setInvestments(mappedItems);
         setTotalCount(response.totalCount);
@@ -548,6 +552,9 @@ export default function InvestmentsPage() {
                       Name
                     </SortHeader>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+                      Owner
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
                       Stage / Funding Close
                     </th>
                     <SortHeader field="catacapFunding" sortField={sortField} sortDir={sortDir} handleSort={handleSort}>
@@ -566,13 +573,13 @@ export default function InvestmentsPage() {
                 <tbody>
                   {isLoading ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
+                      <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
                         Loading investments...
                       </td>
                     </tr>
                   ) : paginatedInvestments.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
+                      <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
                         No investments found.
                       </td>
                     </tr>
@@ -589,6 +596,18 @@ export default function InvestmentsPage() {
                             <span className="text-sm font-medium" data-testid={`text-name-${inv.id}`}>
                               {inv.name}
                             </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            {inv.ownerFullName ? (
+                              <div className="text-sm" data-testid={`text-owner-${inv.id}`}>
+                                <div className="font-medium">{inv.ownerFullName}</div>
+                                {inv.ownerEmail && (
+                                  <div className="text-xs text-muted-foreground">{inv.ownerEmail}</div>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-sm text-muted-foreground" data-testid={`text-owner-${inv.id}`}>—</span>
+                            )}
                           </td>
                           <td className="px-4 py-3">
                             <div className="text-sm" data-testid={`text-stage-${inv.id}`}>
@@ -773,7 +792,7 @@ export default function InvestmentsPage() {
                         </tr>
                         {expandedRow === inv.id && (
                           <tr className="border-b" data-testid={`row-notes-${inv.id}`}>
-                            <td colSpan={8} className="p-4 bg-muted/30">
+                            <td colSpan={9} className="p-4 bg-muted/30">
                               <div className="overflow-x-auto rounded-lg border shadow-sm">
                                 <table className="w-full" data-testid={`table-notes-${inv.id}`}>
                                   <thead>
