@@ -7,6 +7,7 @@ import { runWelcomeSeries } from "./welcomeSeries.js";
 import { runWeeklyKenStats } from "./weeklyKenStats.js";
 import { runCampaignUpdateNotifications } from "./campaignUpdateNotifications.js";
 import { runExpireMatchGrants } from "./expireMatchGrants.js";
+import { runBackupDatabase } from "./backupDatabase.js";
 
 const LOCK_KEYS: Record<string, number> = {
   SendReminderEmail: 900001,
@@ -16,15 +17,19 @@ const LOCK_KEYS: Record<string, number> = {
   WeeklyKenStats: 900005,
   CampaignUpdateNotifications: 900005,
   ExpireMatchGrants: 900006,
+  BackupDatabase: 900007,
 };
 
-const JOB_RUNNERS: Record<string, () => Promise<void>> = {
+type JobResult = Record<string, unknown> | void;
+
+const JOB_RUNNERS: Record<string, () => Promise<JobResult>> = {
   SendReminderEmail: runSendReminderEmail,
   DeleteArchivedUsers: runDailyCleanup,
   DeleteTestUsers: runDeleteTestUsers,
   WelcomeSeries: runWelcomeSeries,
   WeeklyKenStats: runWeeklyKenStats,
   ExpireMatchGrants: runExpireMatchGrants,
+  BackupDatabase: runBackupDatabase,
 };
 
 const WEEKLY_JOBS: Record<string, number> = {
@@ -92,14 +97,28 @@ async function logJobRun(
   jobName: string,
   startTime: Date,
   status: "Success" | "Failed",
-  errorMessage: string | null
+  errorMessage: string | null,
+  metadata?: Record<string, unknown> | null
 ): Promise<void> {
   try {
     const hasStatusCol = await pool.query(
       `SELECT 1 FROM information_schema.columns
        WHERE table_schema = 'public' AND table_name = 'scheduler_logs' AND column_name = 'status'`
     );
-    if (hasStatusCol.rows.length > 0) {
+    const hasMetadataCol = await pool.query(
+      `SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'scheduler_logs' AND column_name = 'metadata'`
+    );
+    const metadataValue = metadata && Object.keys(metadata).length > 0 ? metadata : null;
+
+    if (hasStatusCol.rows.length > 0 && hasMetadataCol.rows.length > 0) {
+      await pool.query(
+        `INSERT INTO scheduler_logs
+          (start_time, end_time, error_message, job_name, status, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [startTime, new Date(), errorMessage, jobName, status, metadataValue]
+      );
+    } else if (hasStatusCol.rows.length > 0) {
       await pool.query(
         `INSERT INTO scheduler_logs
           (start_time, end_time, error_message, job_name, status)
@@ -147,6 +166,7 @@ function getDefaultConfigs(): SchedulerConfigRow[] {
     { job_name: "WeeklyKenStats", hour: 12, minute: 0, timezone: "America/Los_Angeles", is_enabled: true },
     { job_name: "CampaignUpdateNotifications", hour: 6, minute: 0, timezone: "America/New_York", is_enabled: true },
     { job_name: "ExpireMatchGrants", hour: 1, minute: 0, timezone: "America/New_York", is_enabled: true },
+    { job_name: "BackupDatabase", hour: 3, minute: 30, timezone: "America/New_York", is_enabled: true },
   ];
 }
 
@@ -180,10 +200,18 @@ function scheduleJob(config: SchedulerConfigRow): void {
       console.log(`[SCHEDULER] Running ${job_name} job...`);
       await withAdvisoryLock(lockKey, job_name, async () => {
         try {
-          await runner();
+          const result = await runner();
           console.log(`[SCHEDULER] ${job_name} completed successfully.`);
           if (job_name !== "SendReminderEmail" && job_name !== "WelcomeSeries") {
-            await logJobRun(job_name, startTime, "Success", null);
+            await logJobRun(
+              job_name,
+              startTime,
+              "Success",
+              null,
+              (result && typeof result === "object" ? result : null) as
+                | Record<string, unknown>
+                | null,
+            );
           }
         } catch (err: unknown) {
           const message = extractSchedulerErrorMessage(err);
@@ -236,10 +264,18 @@ export async function executeJobWithLock(jobName: string): Promise<{ executed: b
     }
 
     try {
-      await runner();
+      const result = await runner();
       console.log(`[SCHEDULER] ${jobName} completed successfully.`);
       if (jobName !== "SendReminderEmail" && jobName !== "WelcomeSeries") {
-        await logJobRun(jobName, startTime, "Success", null);
+        await logJobRun(
+          jobName,
+          startTime,
+          "Success",
+          null,
+          (result && typeof result === "object" ? result : null) as
+            | Record<string, unknown>
+            | null,
+        );
       }
     } catch (err: unknown) {
       const message = extractSchedulerErrorMessage(err);
