@@ -1,0 +1,187 @@
+Release: 30_04_2026
+====================
+
+Migrations
+----------
+
+1) 2026_04_30_campaign_investment_notification_recipients.sql
+   Schema:
+     CREATE TABLE campaign_investment_notification_recipients (
+       id          SERIAL PRIMARY KEY,
+       campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+       name        TEXT NOT NULL DEFAULT '',
+       email       TEXT NOT NULL,
+       position    INTEGER NOT NULL DEFAULT 0,
+       created_at  TIMESTAMP NOT NULL DEFAULT NOW()
+     );
+     INDEX idx_cinr_campaign_id ON (campaign_id)
+
+   Intent:
+     Per-campaign list of {name, email} pairs that receive a notification
+     email (template id = 16, "Campaign Investment Notification") whenever
+     a new investment is recorded against the campaign. Replaces the
+     legacy single-address column campaigns.investment_informational_email,
+     which is preserved as a fallback used only when the recipients list
+     for the campaign is empty.
+
+     Wiring:
+       - GET  /api/admin/investment/:id  -> returns investmentNotificationRecipients
+       - PUT  /api/admin/investment/:id  -> replaces the full recipients
+                                            list (DELETE then INSERTs)
+                                            inside its own short BEGIN/COMMIT
+                                            block; failure throws to surface
+                                            a 500 rather than silent partial
+                                            success.
+       - Email is fired (fire-and-forget) AFTER COMMIT in:
+           server/src/routes/adminOtherAssets.ts (asset payment received)
+           server/src/routes/adminPendingGrants.ts (grant approved)
+       - When the recipients list is empty, sendNewInvestmentNotifications
+         falls back to campaigns.investment_informational_email, then
+         campaigns.contact_info_email_address.
+
+   Idempotency:
+     - CREATE TABLE IF NOT EXISTS
+     - Foreign key added inside a guarded DO block that checks
+       information_schema.table_constraints first
+     - CREATE INDEX IF NOT EXISTS
+     - Whole script wrapped in BEGIN/COMMIT
+     - Mirrored at runtime by ensureInvestmentNotificationRecipientsTable
+       in server/src/db.ts so fresh environments self-heal on boot
+
+   Rollback:
+     BEGIN;
+       DROP INDEX IF EXISTS idx_cinr_campaign_id;
+       DROP TABLE IF EXISTS campaign_investment_notification_recipients;
+     COMMIT;
+     (Also remove the ensure* call from server/src/db.ts and the helper
+     module server/src/utils/investmentNotifications.ts if reverting code.)
+
+2) 2026_04_30_campaign_match_grants.sql
+   Schema:
+     CREATE TABLE campaign_match_grants (
+       id                  SERIAL PRIMARY KEY,
+       name                TEXT NOT NULL DEFAULT '',
+       donor_user_id       VARCHAR(450) NOT NULL REFERENCES users(id),
+       total_cap           NUMERIC(15,2) NULL,
+       amount_used         NUMERIC(15,2) NOT NULL DEFAULT 0,
+       match_type          TEXT NOT NULL DEFAULT 'full'  CHECK IN ('full','capped'),
+       per_investment_cap  NUMERIC(15,2) NULL,
+       is_active           BOOLEAN NOT NULL DEFAULT TRUE,
+       notes               TEXT NULL,
+       created_at          TIMESTAMP NOT NULL DEFAULT NOW(),
+       updated_at          TIMESTAMP NOT NULL DEFAULT NOW()
+     );
+
+     CREATE TABLE campaign_match_grant_campaigns (
+       id              SERIAL PRIMARY KEY,
+       match_grant_id  INTEGER NOT NULL REFERENCES campaign_match_grants(id) ON DELETE CASCADE,
+       campaign_id     INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+       UNIQUE (match_grant_id, campaign_id)
+     );
+
+     CREATE TABLE campaign_match_grant_activity (
+       id                              SERIAL PRIMARY KEY,
+       match_grant_id                  INTEGER NOT NULL REFERENCES campaign_match_grants(id) ON DELETE CASCADE,
+       campaign_id                     INTEGER NULL,
+       triggered_by_user_id            VARCHAR(450) NULL,
+       triggered_by_recommendation_id  INTEGER NULL,
+       donor_recommendation_id         INTEGER NULL,
+       amount                          NUMERIC(15,2) NOT NULL,
+       created_at                      TIMESTAMP NOT NULL DEFAULT NOW()
+     );
+
+   Intent:
+     Per-campaign investment matching. When a recommendation for a campaign
+     is approved, any active match grant covering that campaign automatically
+     draws on the donor's wallet (up to total_cap / per_investment_cap limits)
+     and creates an approved recommendation on behalf of the donor.
+
+     Type notes:
+       users.id        -> character varying(450)  => donor_user_id/triggered_by_user_id = VARCHAR(450)
+       campaigns.id    -> integer                 => campaign_id = INTEGER
+       recommendations.id -> integer              => FK references = INTEGER
+
+     Wiring:
+       - GET    /api/admin/matching            -> list all grants with utilization
+       - POST   /api/admin/matching            -> create new grant
+       - PUT    /api/admin/matching/:id        -> update grant (replaces campaign list)
+       - DELETE /api/admin/matching/:id        -> delete grant (cascades to campaigns + activity)
+       - GET    /api/admin/matching/:id/activity -> activity log for a grant
+       - GET    /api/admin/matching/donor-search?q= -> user search for donor picker
+       - Matching fires fire-and-forget AFTER COMMIT in:
+           server/src/routes/adminRecommendations.ts PUT /:id
+           (when status transitions to "approved" for the first time)
+       - Helper: server/src/utils/matchingGrants.ts -> applyMatchGrants()
+       - Sidebar: "Matching" under "Donations to Invest" group (GitMerge icon)
+       - Frontend page: src/pages/AdminMatching.tsx -> /matching route
+
+   Idempotency:
+     - All CREATE TABLE/INDEX wrapped in IF NOT EXISTS
+     - Foreign keys added inside guarded DO $$ blocks checking
+       information_schema.table_constraints
+     - Whole script wrapped in BEGIN/COMMIT
+
+   Rollback:
+     BEGIN;
+       DROP TABLE IF EXISTS campaign_match_grant_activity;
+       DROP TABLE IF EXISTS campaign_match_grant_campaigns;
+       DROP TABLE IF EXISTS campaign_match_grants;
+     COMMIT;
+     (Also remove adminMatching.ts route, matchingGrants.ts helper,
+     AdminMatching.tsx page, and revert adminRecommendations.ts trigger.)
+
+3) 2026_04_30_campaign_match_grants_v2.sql  (escrow + expiry)
+   Schema change (ALTER TABLE only, not a new table):
+     campaign_match_grants
+       + reserved_amount  NUMERIC(15,2) NOT NULL DEFAULT 0
+       + expires_at       TIMESTAMP NULL
+
+   Intent:
+     Adds escrow model and optional deadline to match grants.
+
+     Escrow model:
+       - When a grant with a total_cap is saved, the full cap amount is
+         immediately deducted from the donor's wallet (via
+         account_balance_change_logs) and stored in reserved_amount.
+       - When a match fires, amount_used is incremented; no additional
+         wallet deduction occurs (funds were already reserved).
+       - On grant deletion: (reserved_amount - amount_used) is returned to
+         the donor's wallet and logged.
+       - On grant PUT where the cap changes: old unused reservation is
+         returned first, then a fresh reservation for the new cap is taken.
+       - Unlimited grants (total_cap = NULL) keep the previous
+         live-wallet pay-as-you-go behaviour; reserved_amount stays 0.
+
+     Expiry:
+       - expires_at is an optional TIMESTAMP (UTC).  If set and past, the
+         daily ExpireMatchGrants scheduler job (lock key 900006, 01:00 ET)
+         deactivates the grant and returns any unused reserved funds.
+       - The matching helper (applyMatchGrants) also skips expired grants
+         at match-fire time (defence in depth).
+       - Frontend shows the expiry date on grant cards with an "Expired"
+         badge if the date has passed.
+
+     Scheduler job:
+       - server/src/scheduler/expireMatchGrants.ts → runExpireMatchGrants()
+       - Registered in scheduler/index.ts (LOCK_KEYS, JOB_RUNNERS, getDefaultConfigs)
+       - Added to DB scheduler_configurations: job_name='ExpireMatchGrants',
+         hour=1, minute=0, timezone='America/New_York'
+
+     Frontend changes (AdminMatching.tsx):
+       - New "Grant Expiry Date" date field in the create/edit dialog
+       - Escrow hint: when editing, shows "effective available = live
+         balance + unused reservation" so admins know true budget
+       - Grant cards show "Escrowed: $X" and "Expires: date" inline
+
+   Idempotency:
+     ALTER TABLE uses ADD COLUMN IF NOT EXISTS; safe to re-run.
+
+   Rollback:
+     BEGIN;
+       ALTER TABLE campaign_match_grants
+         DROP COLUMN IF EXISTS reserved_amount,
+         DROP COLUMN IF EXISTS expires_at;
+     COMMIT;
+     (Also remove expireMatchGrants.ts, revert scheduler/index.ts import,
+     revert matchingGrants.ts escrow logic, revert adminMatching.ts helpers,
+     revert AdminMatching.tsx form/card changes.)

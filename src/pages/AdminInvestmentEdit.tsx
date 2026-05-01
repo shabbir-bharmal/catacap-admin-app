@@ -36,7 +36,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import BannerCropper from "@/components/BannerCropper";
 import { MultiSelectPopover } from "@/components/MultiSelectPopover";
-import { CalendarIcon, ArrowLeft, Download, ChevronDown, Copy, QrCode, Mail, User, Briefcase, ImageIcon, Settings, ArrowRight, CheckCircle2, Check, Pencil, Trash2, HelpCircle, FileText, Clock, X as XIcon } from "lucide-react";
+import { CalendarIcon, ArrowLeft, Download, ChevronDown, Copy, QrCode, Mail, User, Briefcase, ImageIcon, Settings, ArrowRight, CheckCircle2, Check, Pencil, Trash2, HelpCircle, FileText, Clock, X as XIcon, Plus } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { QRCodeCanvas } from "qrcode.react";
 
@@ -178,6 +178,7 @@ interface FormData {
   debtInterestRate: string;
   metaTitle: string;
   metaDescription: string;
+  investmentNotificationRecipients: { name: string; email: string }[];
 }
 
 const defaultFormData: FormData = {
@@ -239,6 +240,7 @@ const defaultFormData: FormData = {
   debtInterestRate: "",
   metaTitle: "",
   metaDescription: "",
+  investmentNotificationRecipients: [{ name: "", email: "" }],
 };
 
 interface ThemeItem { id: number; name: string; }
@@ -1142,6 +1144,13 @@ export default function AdminInvestmentEdit() {
       contactInfoFullName: data.contactInfoFullName ?? "",
       email: data.contactInfoEmailAddress ?? data.email ?? "",
       investmentInfoEmail: data.investmentInformationalEmail ?? data.investmentInfoEmail ?? "",
+      investmentNotificationRecipients:
+        Array.isArray(data.investmentNotificationRecipients) && data.investmentNotificationRecipients.length > 0
+          ? data.investmentNotificationRecipients.map((r: any) => ({
+              name: r?.name ?? "",
+              email: r?.email ?? "",
+            }))
+          : [{ name: "", email: "" }],
       contactInfoPhoneNumber: data.contactInfoPhoneNumber ?? "",
       impactAssetsFundingStatus: (data.impactAssetsFundingStatus && data.impactAssetsFundingStatus.toLowerCase() === "yes") ? "Yes" : (data.impactAssetsFundingStatus && data.impactAssetsFundingStatus.toLowerCase() === "not sure") ? "Not sure" : "No",
       hasCorporateBankAccount: data.hasCorporateBankAccount === true ? "Yes" : data.hasCorporateBankAccount === false ? "No" : "",
@@ -1679,6 +1688,9 @@ export default function AdminInvestmentEdit() {
         debtInterestRate: formData.debtInterestRate ? Number(String(formData.debtInterestRate).replace(/[^0-9.]/g, "")) : null,
         metaTitle: formData.metaTitle?.trim(),
         metaDescription: formData.metaDescription?.trim(),
+        investmentNotificationRecipients: (formData.investmentNotificationRecipients || [])
+          .map((r) => ({ name: (r.name || "").trim(), email: (r.email || "").trim().toLowerCase() }))
+          .filter((r) => r.email && r.email.includes("@")),
         tileImage: tileImage || "",
         image: image || "",
         pdfPresentation: pdf || "",
@@ -2043,6 +2055,76 @@ export default function AdminInvestmentEdit() {
                   <div className="space-y-1.5">
                     <Label htmlFor="investmentInfoEmail" className="text-sm">Investment Informational email</Label>
                     <Input id="investmentInfoEmail" type="email" value={formData.investmentInfoEmail} onChange={(e) => upd("investmentInfoEmail", e.target.value)} placeholder="Investment informational email" data-testid="input-info-email" />
+                  </div>
+                </div>
+
+                <div className="space-y-2 pt-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label className="text-sm">Investment Update Recipients</Label>
+                      <p className="text-xs text-muted-foreground">
+                        These people will be emailed each time someone invests in this campaign. If left empty, the Investment Informational email above is used.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        upd("investmentNotificationRecipients", [
+                          ...(formData.investmentNotificationRecipients || []),
+                          { name: "", email: "" },
+                        ])
+                      }
+                      data-testid="button-add-notification-recipient"
+                    >
+                      <Plus className="h-4 w-4 mr-1" /> Add
+                    </Button>
+                  </div>
+
+                  <div className="space-y-2">
+                    {(formData.investmentNotificationRecipients || []).map((row, idx) => (
+                      <div key={idx} className="grid grid-cols-1 sm:grid-cols-[1fr_1.4fr_auto] gap-2 items-start">
+                        <Input
+                          value={row.name}
+                          onChange={(e) => {
+                            const next = [...(formData.investmentNotificationRecipients || [])];
+                            next[idx] = { ...next[idx], name: e.target.value };
+                            upd("investmentNotificationRecipients", next);
+                          }}
+                          placeholder="Name (optional)"
+                          data-testid={`input-notif-name-${idx}`}
+                        />
+                        <Input
+                          type="email"
+                          value={row.email}
+                          onChange={(e) => {
+                            const next = [...(formData.investmentNotificationRecipients || [])];
+                            next[idx] = { ...next[idx], email: e.target.value };
+                            upd("investmentNotificationRecipients", next);
+                          }}
+                          placeholder="email@example.com"
+                          data-testid={`input-notif-email-${idx}`}
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            const list = formData.investmentNotificationRecipients || [];
+                            const next = list.filter((_, i) => i !== idx);
+                            upd(
+                              "investmentNotificationRecipients",
+                              next.length > 0 ? next : [{ name: "", email: "" }],
+                            );
+                          }}
+                          aria-label="Remove recipient"
+                          data-testid={`button-remove-notif-${idx}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
@@ -3297,7 +3379,7 @@ export default function AdminInvestmentEdit() {
                 {/* Total raised outside of CataCap */}
                 <div className="space-y-1.5" ref={raisedRef}>
                   <Label htmlFor="addedTotalAdminRaised" className="text-sm">Total raised outside of CataCap <span className="text-[#f06548]">*</span></Label>
-                  <Input id="addedTotalAdminRaised" type="number" min={0} value={formData.addedTotalAdminRaised} onChange={(e) => upd("addedTotalAdminRaised", e.target.value.replace(/[^0-9.]/g, ""))} onWheel={(e) => e.currentTarget.blur()} onKeyDown={(e) => { if (["e", "E", "+", "-"].includes(e.key)) e.preventDefault(); }} placeholder="Enter total raised to Date" className={fe("addedTotalAdminRaised")} data-testid="input-admin-raised" />
+                  <Input id="addedTotalAdminRaised" type="number" min={0} step={1} value={formData.addedTotalAdminRaised} onChange={(e) => upd("addedTotalAdminRaised", e.target.value.replace(/[^0-9]/g, ""))} onWheel={(e) => e.currentTarget.blur()} onKeyDown={(e) => { if (["e", "E", "+", "-", "."].includes(e.key)) e.preventDefault(); }} placeholder="Enter total raised to Date" className={fe("addedTotalAdminRaised")} data-testid="input-admin-raised" />
                   {errors.addedTotalAdminRaised && <p className="text-[#f06548] text-xs">Total raised outside of CataCap is required.</p>}
                 </div>
               </CardContent>

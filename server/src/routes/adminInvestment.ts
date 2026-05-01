@@ -10,6 +10,10 @@ import { uploadBase64Image, resolveFileUrl, extractStoragePath, getSupabaseConfi
 import { logAudit } from "../utils/auditLog.js";
 import { restoreOwningUsersForRecordsInTx } from "../utils/userRestore.js";
 import { findOrCreateAnonymousUser } from "../utils/anonymousUser.js";
+import {
+  getInvestmentNotificationRecipients,
+  replaceInvestmentNotificationRecipients,
+} from "../utils/investmentNotifications.js";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
 dayjs.extend(utc);
@@ -205,6 +209,17 @@ router.get("/names", async (req: Request, res: Response) => {
           InvestmentStageEnum.CompletedOngoing,
           InvestmentStageEnum.CompletedOngoingPrivate,
         ]
+      );
+      res.json(result.rows.map((r: any) => ({ id: Number(r.id), name: r.name })));
+    } else if (stage === 11) {
+      // Active investable campaigns: Private (1) or Public (2) and is_active = true
+      const result = await pool.query(
+        `SELECT id, name FROM campaigns
+         WHERE stage IN ($1, $2) AND is_active = true
+         AND TRIM(COALESCE(name, '')) != ''
+         AND (is_deleted IS NULL OR is_deleted = false)
+         ORDER BY name ASC`,
+        [InvestmentStageEnum.Private, InvestmentStageEnum.Public]
       );
       res.json(result.rows.map((r: any) => ({ id: Number(r.id), name: r.name })));
     } else {
@@ -977,6 +992,8 @@ router.get("/:id", async (req: Request, res: Response) => {
     );
     const investmentTag = tagResult.rows.map((t: any) => ({ tag: t.tag }));
 
+    const investmentNotificationRecipients = await getInvestmentNotificationRecipients(id);
+
     let terms = c.terms || "";
     if (terms) terms = normalizeMentionFormat(terms);
 
@@ -1055,6 +1072,7 @@ router.get("/:id", async (req: Request, res: Response) => {
       thankYouAttachments,
       ownerGroupId: c.owner_group_id,
       autoEnrollInvestors: c.auto_enroll_investors ?? false,
+      investmentNotificationRecipients,
     };
 
     res.json(campaign);
@@ -1674,6 +1692,15 @@ router.put("/:id", async (req: Request, res: Response) => {
     let finalStage = campaign.stage;
     let finalProperty = campaign.property;
     let finalAddedTotalAdminRaised = campaign.addedTotalAdminRaised;
+    if (finalAddedTotalAdminRaised !== undefined && finalAddedTotalAdminRaised !== null) {
+      const raw = String(finalAddedTotalAdminRaised).trim();
+      if (raw === "") {
+        finalAddedTotalAdminRaised = null;
+      } else {
+        const parsed = Number(raw);
+        finalAddedTotalAdminRaised = Number.isFinite(parsed) ? Math.trunc(parsed) : null;
+      }
+    }
     let finalIsActive = campaign.isActive;
     let finalGroupForPrivateAccessId = campaign.groupForPrivateAccessDto?.id || campaign.groupForPrivateAccessId || null;
     let finalOwnerGroupId =
@@ -1983,6 +2010,26 @@ router.put("/:id", async (req: Request, res: Response) => {
       await handleTagMappings(id, campaign.investmentTag);
     }
 
+    if (Array.isArray(campaign.investmentNotificationRecipients)) {
+      const recipientsClient = await pool.connect();
+      try {
+        await recipientsClient.query("BEGIN");
+        await replaceInvestmentNotificationRecipients(
+          recipientsClient,
+          id,
+          campaign.investmentNotificationRecipients,
+        );
+        await recipientsClient.query("COMMIT");
+      } catch (recipErr: any) {
+        await recipientsClient.query("ROLLBACK").catch(() => {});
+        // Surface the failure so the request returns 500 rather than
+        // silently reporting success while the recipients list was not saved.
+        throw recipErr;
+      } finally {
+        recipientsClient.release();
+      }
+    }
+
     const auditOldValues: Record<string, any> = {
       name: existing.name,
       description: existing.description,
@@ -2095,8 +2142,8 @@ router.put("/:id", async (req: Request, res: Response) => {
       [id]
     );
     const investmentTag = tagResult.rows.map((t: any) => ({ tag: t.tag }));
-
     const thankYouAttachments = await loadThankYouAttachments(id);
+    const updatedNotificationRecipients = await getInvestmentNotificationRecipients(id);
 
     res.json({
       success: true,
@@ -2105,13 +2152,24 @@ router.put("/:id", async (req: Request, res: Response) => {
         ...mapCampaignRow(updatedCampaign),
         investmentNotes,
         investmentTag,
+        investmentNotificationRecipients: updatedNotificationRecipients,
         thankYouAttachments,
         ownerGroupId: updatedCampaign.owner_group_id,
         autoEnrollInvestors: updatedCampaign.auto_enroll_investors ?? false,
       },
     });
   } catch (err: any) {
-    console.error("Error updating investment:", err);
+    console.error("Error updating investment:", {
+      message: err?.message,
+      code: err?.code,
+      detail: err?.detail,
+      hint: err?.hint,
+      table: err?.table,
+      column: err?.column,
+      constraint: err?.constraint,
+      where: err?.where,
+      stack: err?.stack,
+    });
     res.status(500).json({ success: false, message: err.message });
   }
 });

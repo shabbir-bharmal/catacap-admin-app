@@ -11,12 +11,12 @@ import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { Search, Download, Check, X, Pencil, Eye, History, Crown, Users as UsersIcon, Loader2, Trash2, BarChart3 } from "lucide-react";
+import { Search, Download, Check, X, Pencil, Eye, History, Crown, Users as UsersIcon, Loader2, Trash2, BarChart3, TrendingUp } from "lucide-react";
 import { useSort } from "../hooks/useSort";
 import { useDebounce } from "../hooks/useDebounce";
 import { SortHeader } from "../components/ui/table-sort";
 import { PaginationControls } from "@/components/ui/pagination-controls";
-import { fetchGroups, exportGroupsData, updateGroupSettings, fetchGroupLeaders, fetchGroupChampions, deleteGroup, type GroupApiItem, type GroupLeader, type Champion } from "../api/group/groupApi";
+import { fetchGroups, exportGroupsData, updateGroupSettings, fetchGroupLeaders, fetchGroupChampions, deleteGroup, fetchGroupAllMembers, fetchGroupCampaignInvestments, type GroupApiItem, type GroupLeader, type Champion, type GroupAllMember, type GroupCampaignInvestment } from "../api/group/groupApi";
 import { AuditLogModal } from "../components/AuditLogModal";
 import { currency_format } from "@/helpers/format";
 import { ConfirmationDialog } from "../components/ConfirmationDialog";
@@ -79,6 +79,54 @@ export default function GroupsPage() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  const [isMembersDialogOpen, setIsMembersDialogOpen] = useState(false);
+  const [membersDialogGroupName, setMembersDialogGroupName] = useState("");
+  const [membersList, setMembersList] = useState<GroupAllMember[]>([]);
+  const [isMembersLoading, setIsMembersLoading] = useState(false);
+
+  // Campaign investments modal
+  const [isInvestmentsDialogOpen, setIsInvestmentsDialogOpen] = useState(false);
+  const [investmentsDialogGroupName, setInvestmentsDialogGroupName] = useState("");
+  const [investmentsCampaigns, setInvestmentsCampaigns] = useState<GroupCampaignInvestment[]>([]);
+  const [isInvestmentsLoading, setIsInvestmentsLoading] = useState(false);
+
+  const openInvestmentsDialog = async (groupId: number, groupName: string) => {
+    setInvestmentsDialogGroupName(groupName);
+    setInvestmentsCampaigns([]);
+    setIsInvestmentsDialogOpen(true);
+    setIsInvestmentsLoading(true);
+    try {
+      const data = await fetchGroupCampaignInvestments(groupId);
+      setInvestmentsCampaigns(data.campaigns || []);
+      if (data.groupName) setInvestmentsDialogGroupName(data.groupName);
+    } catch (err) {
+      console.error("Failed to load group campaign investments", err);
+      toast({ title: "Error", description: "Failed to load investments.", variant: "destructive" });
+    } finally {
+      setIsInvestmentsLoading(false);
+    }
+  };
+
+  const openMembersDialog = async (groupId: number, groupName: string) => {
+    setMembersDialogGroupName(groupName);
+    setMembersList([]);
+    setIsMembersDialogOpen(true);
+    setIsMembersLoading(true);
+    try {
+      const data = await fetchGroupAllMembers(groupId);
+      setMembersList(data.members || []);
+    } catch (err) {
+      console.error("Failed to load group members", err);
+      toast({
+        title: "Error",
+        description: "Failed to load members.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsMembersLoading(false);
+    }
+  };
 
   const openDeleteDialog = (id: number) => {
     setDeleteTargetId(id);
@@ -378,9 +426,20 @@ export default function GroupsPage() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-center">
-                          <span className="text-sm" data-testid={`text-membercount-${group.id}`}>
-                            {group.memberCount}
-                          </span>
+                          {group.memberCount > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => openMembersDialog(group.id, group.groupName)}
+                              className="text-sm font-medium text-[#405189] hover:underline focus:outline-none focus:underline"
+                              data-testid={`button-membercount-${group.id}`}
+                            >
+                              {group.memberCount}
+                            </button>
+                          ) : (
+                            <span className="text-sm text-muted-foreground" data-testid={`text-membercount-${group.id}`}>
+                              {group.memberCount}
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-right whitespace-nowrap">
                           <span className="text-sm font-medium" data-testid={`text-memberinvestedtotal-${group.id}`}>
@@ -388,9 +447,20 @@ export default function GroupsPage() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-center">
-                          <span className="text-sm" data-testid={`text-investmentcount-${group.id}`}>
-                            {group.investmentCount}
-                          </span>
+                          {group.investmentCount > 0 ? (
+                            <button
+                              className="text-sm font-medium text-[#405189] hover:underline hover:text-[#405189]/80 transition-colors"
+                              onClick={() => openInvestmentsDialog(group.id, group.groupName)}
+                              data-testid={`button-investmentcount-${group.id}`}
+                              title="View campaigns"
+                            >
+                              {group.investmentCount}
+                            </button>
+                          ) : (
+                            <span className="text-sm text-muted-foreground" data-testid={`text-investmentcount-${group.id}`}>
+                              0
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-center">
                           <Badge
@@ -592,6 +662,154 @@ export default function GroupsPage() {
                 setLeaders={setManagedLeaders}
                 cardClassName="border-0 shadow-none"
               />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Group Members Modal */}
+      <Dialog open={isMembersDialogOpen} onOpenChange={setIsMembersDialogOpen}>
+        <DialogContent className="sm:max-w-2xl p-0 overflow-hidden border-none shadow-2xl [&>button]:text-white">
+          <DialogHeader className="p-6 bg-[#405189] text-white">
+            <DialogTitle className="text-xl font-bold flex items-center gap-2">
+              <UsersIcon className="h-5 w-5" />
+              Members - {membersDialogGroupName}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="p-4 min-h-[300px] max-h-[70vh] flex flex-col">
+            {isMembersLoading ? (
+              <div className="flex-1 flex flex-col items-center justify-center py-12 text-muted-foreground gap-3">
+                <Loader2 className="h-8 w-8 animate-spin text-[#405189]" />
+                <p className="text-sm font-medium">Loading members...</p>
+              </div>
+            ) : membersList.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center py-12 text-muted-foreground gap-2">
+                <UsersIcon className="h-8 w-8" />
+                <p className="text-sm">No members in this group.</p>
+              </div>
+            ) : (
+              <div className="flex-1 overflow-auto">
+                <div className="text-xs text-muted-foreground mb-2 px-1" data-testid="text-members-count">
+                  {membersList.length} {membersList.length === 1 ? "member" : "members"}
+                </div>
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50 sticky top-0">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-semibold text-muted-foreground uppercase text-xs tracking-wider">Name</th>
+                      <th className="px-3 py-2 text-left font-semibold text-muted-foreground uppercase text-xs tracking-wider">Email</th>
+                      <th className="px-3 py-2 text-left font-semibold text-muted-foreground uppercase text-xs tracking-wider">Role</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {membersList.map((m) => (
+                      <tr key={m.id} data-testid={`row-member-${m.id}`}>
+                        <td className="px-3 py-2" data-testid={`text-member-name-${m.id}`}>{m.fullName || "—"}</td>
+                        <td className="px-3 py-2 text-muted-foreground" data-testid={`text-member-email-${m.id}`}>{m.email || "—"}</td>
+                        <td className="px-3 py-2" data-testid={`text-member-role-${m.id}`}>
+                          <Badge
+                            className={`no-default-hover-elevate no-default-active-elevate border-0 ${
+                              m.role === "Owner"
+                                ? "bg-[#405189]/15 text-[#405189]"
+                                : m.role === "Leader"
+                                  ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                                  : "bg-muted text-muted-foreground"
+                            }`}
+                          >
+                            {m.role}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Campaign Investments Modal */}
+      <Dialog open={isInvestmentsDialogOpen} onOpenChange={setIsInvestmentsDialogOpen}>
+        <DialogContent className="sm:max-w-2xl p-0 overflow-hidden border-none shadow-2xl">
+          <DialogHeader className="p-6 bg-[#405189] text-white">
+            <DialogTitle className="text-xl font-bold flex items-center gap-2">
+              <TrendingUp className="h-5 w-5" />
+              Investments — {investmentsDialogGroupName}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="p-4 min-h-[200px]">
+            {isInvestmentsLoading ? (
+              <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                <span className="text-sm">Loading campaigns…</span>
+              </div>
+            ) : investmentsCampaigns.length === 0 ? (
+              <div className="py-12 text-center text-sm text-muted-foreground">
+                No linked campaigns found for this group.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="px-3 py-2 text-left font-semibold text-muted-foreground uppercase text-xs tracking-wider">Campaign</th>
+                      <th className="px-3 py-2 text-left font-semibold text-muted-foreground uppercase text-xs tracking-wider">Stage</th>
+                      <th className="px-3 py-2 text-center font-semibold text-muted-foreground uppercase text-xs tracking-wider">Access</th>
+                      <th className="px-3 py-2 text-right font-semibold text-muted-foreground uppercase text-xs tracking-wider">Group Investors</th>
+                      <th className="px-3 py-2 text-right font-semibold text-muted-foreground uppercase text-xs tracking-wider">Group Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {investmentsCampaigns.map((c) => (
+                      <tr key={c.id} className="hover:bg-muted/30" data-testid={`row-campaign-investment-${c.id}`}>
+                        <td className="px-3 py-2.5 font-medium" data-testid={`text-campaign-name-${c.id}`}>
+                          {c.name}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <Badge
+                            className={cn(
+                              "no-default-hover-elevate no-default-active-elevate border-0 text-xs",
+                              c.stage === 2 || c.stage === 7 ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" :
+                              c.stage === 3 ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" :
+                              c.stage === 1 || c.stage === 9 ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" :
+                              "bg-muted text-muted-foreground",
+                            )}
+                          >
+                            {c.stageLabel}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
+                          {c.isPrivateAccess ? (
+                            <Badge className="no-default-hover-elevate no-default-active-elevate border-0 bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 text-xs">
+                              Private
+                            </Badge>
+                          ) : (
+                            <Badge className="no-default-hover-elevate no-default-active-elevate border-0 bg-muted text-muted-foreground text-xs">
+                              Linked
+                            </Badge>
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5 text-right tabular-nums" data-testid={`text-investor-count-${c.id}`}>
+                          {c.investorCount}
+                        </td>
+                        <td className="px-3 py-2.5 text-right font-medium tabular-nums" data-testid={`text-total-invested-${c.id}`}>
+                          {c.totalInvested > 0 ? currency_format(c.totalInvested) : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {investmentsCampaigns.some((c) => c.totalInvested > 0) && (
+                    <tfoot>
+                      <tr className="border-t bg-muted/30 font-semibold">
+                        <td className="px-3 py-2" colSpan={4}>Total</td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {currency_format(investmentsCampaigns.reduce((s, c) => s + c.totalInvested, 0))}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
             )}
           </div>
         </DialogContent>

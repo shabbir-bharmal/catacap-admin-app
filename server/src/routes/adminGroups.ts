@@ -95,18 +95,24 @@ router.get("/", async (req: Request, res: Response) => {
     }
 
     const memberPlaceholders = groupIds.map((_: any, i: number) => `$${i + 1}`).join(", ");
-    const memberResult = await pool.query(
-      `SELECT group_to_follow_id, COUNT(*) as cnt
+    // Pull the raw user IDs per group so we can dedupe owner / leaders against
+    // accepted request members (someone can be both an owner and a member).
+    const memberRowsResult = await pool.query(
+      `SELECT group_to_follow_id, request_owner_id
        FROM requests
        WHERE group_to_follow_id IN (${memberPlaceholders})
          AND status = 'accepted'
-         AND (is_deleted IS NULL OR is_deleted = false)
-       GROUP BY group_to_follow_id`,
+         AND (is_deleted IS NULL OR is_deleted = false)`,
       groupIds
     );
-    const memberCounts: Record<number, number> = {};
-    for (const row of memberResult.rows) {
-      memberCounts[row.group_to_follow_id] = parseInt(row.cnt);
+    const memberUserIdsByGroup: Record<number, Set<string>> = {};
+    for (const row of memberRowsResult.rows) {
+      if (!memberUserIdsByGroup[row.group_to_follow_id]) {
+        memberUserIdsByGroup[row.group_to_follow_id] = new Set<string>();
+      }
+      if (row.request_owner_id) {
+        memberUserIdsByGroup[row.group_to_follow_id].add(row.request_owner_id);
+      }
     }
 
     const memberInvestedResult = await pool.query(
@@ -163,19 +169,28 @@ router.get("/", async (req: Request, res: Response) => {
 
     let result = groups.map((g: any) => {
       let leaderNames: string[] = [];
+      const leaderUserIds: string[] = [];
       if (g.leaders) {
         try {
           const parsed = JSON.parse(g.leaders);
-          leaderNames = parsed
-            .map((l: any) => {
-              const uid = l.UserId || l.userId;
-              return uid && userNameLookup[uid] ? userNameLookup[uid] : null;
-            })
-            .filter(Boolean);
+          for (const l of parsed) {
+            const uid = l.UserId || l.userId;
+            if (uid) {
+              leaderUserIds.push(uid);
+              if (userNameLookup[uid]) leaderNames.push(userNameLookup[uid]);
+            }
+          }
         } catch {}
       }
 
       const ownerName = g.owner_id ? (userNameLookup[g.owner_id] || "") : "";
+
+      // Member count = distinct user IDs across accepted requests + owner + leaders.
+      // Using a Set dedupes the case where the owner or a leader also has an
+      // accepted request row.
+      const allMemberIds = new Set<string>(memberUserIdsByGroup[g.id] || []);
+      if (g.owner_id) allMemberIds.add(g.owner_id);
+      for (const uid of leaderUserIds) allMemberIds.add(uid);
 
       const campaigns = campaignsByGroup[g.id] || [];
       const activeCampaigns = campaigns.filter((c: any) => c.is_active === true);
@@ -196,7 +211,7 @@ router.get("/", async (req: Request, res: Response) => {
         leader: leaderNames.join(", "),
         groupOwner: ownerName,
         groupOwnerId: g.owner_id || null,
-        member: memberCounts[g.id] || 0,
+        member: allMemberIds.size,
         memberInvestedTotal: memberInvestedTotals[g.id] || 0,
         groupThemes: g.group_themes,
         investment: allCampaignIds.size,
@@ -352,7 +367,8 @@ router.get("/export", async (req: Request, res: Response) => {
   try {
     const groupsResult = await pool.query(
       `SELECT g.id, g.name, g.identifier, g.is_deactivated, g.is_corporate_group,
-              g.is_private_group, g.featured_group, g.leaders, g.group_themes
+              g.is_private_group, g.featured_group, g.leaders, g.group_themes,
+              g.owner_id
        FROM groups g
        WHERE (g.is_deleted IS NULL OR g.is_deleted = false)
        ORDER BY g.id DESC`
@@ -386,21 +402,27 @@ router.get("/export", async (req: Request, res: Response) => {
       }
     }
 
-    let memberCounts: Record<number, number> = {};
+    // Per-group set of user IDs of accepted-request members. We later union
+    // owner_id and leader IDs into this set so the count includes them once.
+    const memberUserIdsByGroup: Record<number, Set<string>> = {};
     let memberInvestedTotals: Record<number, number> = {};
     if (groupIds.length > 0) {
       const memberPlaceholders = groupIds.map((_: any, i: number) => `$${i + 1}`).join(", ");
-      const memberResult = await pool.query(
-        `SELECT group_to_follow_id, COUNT(*) as cnt
+      const memberRowsResult = await pool.query(
+        `SELECT group_to_follow_id, request_owner_id
          FROM requests
          WHERE group_to_follow_id IN (${memberPlaceholders})
            AND status = 'accepted'
-           AND (is_deleted IS NULL OR is_deleted = false)
-         GROUP BY group_to_follow_id`,
+           AND (is_deleted IS NULL OR is_deleted = false)`,
         groupIds
       );
-      for (const row of memberResult.rows) {
-        memberCounts[row.group_to_follow_id] = parseInt(row.cnt);
+      for (const row of memberRowsResult.rows) {
+        if (!memberUserIdsByGroup[row.group_to_follow_id]) {
+          memberUserIdsByGroup[row.group_to_follow_id] = new Set<string>();
+        }
+        if (row.request_owner_id) {
+          memberUserIdsByGroup[row.group_to_follow_id].add(row.request_owner_id);
+        }
       }
 
       const memberInvestedResult = await pool.query(
@@ -482,17 +504,24 @@ router.get("/export", async (req: Request, res: Response) => {
 
     for (const g of sortedGroups) {
       let leaderNames: string[] = [];
+      const leaderUserIds: string[] = [];
       if (g.leaders) {
         try {
           const parsed = JSON.parse(g.leaders);
-          leaderNames = parsed
-            .map((l: any) => {
-              const uid = l.UserId || l.userId;
-              return uid && leaderNameLookup[uid] ? leaderNameLookup[uid] : null;
-            })
-            .filter(Boolean);
+          for (const l of parsed) {
+            const uid = l.UserId || l.userId;
+            if (uid) {
+              leaderUserIds.push(uid);
+              if (leaderNameLookup[uid]) leaderNames.push(leaderNameLookup[uid]);
+            }
+          }
         } catch {}
       }
+
+      // Member count = distinct user IDs across accepted requests + owner + leaders.
+      const allMemberIds = new Set<string>(memberUserIdsByGroup[g.id] || []);
+      if (g.owner_id) allMemberIds.add(g.owner_id);
+      for (const uid of leaderUserIds) allMemberIds.add(uid);
 
       const campaigns = campaignsByGroup[g.id] || [];
       const activeCampaigns = campaigns.filter((c: any) => c.is_active === true);
@@ -517,7 +546,7 @@ router.get("/export", async (req: Request, res: Response) => {
         g.name || "",
         url,
         leaderNames.join(", "),
-        memberCounts[g.id] || 0,
+        allMemberIds.size,
         memInvested,
         allCampaignIds.size,
         g.is_private_group ? "Private" : "Public",
@@ -1817,6 +1846,93 @@ router.delete("/:id", async (req: Request, res: Response) => {
   }
 });
 
+router.get("/:id/all-members", async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ message: "Invalid group id" });
+      return;
+    }
+
+    const groupResult = await pool.query(
+      `SELECT id, name, owner_id, leaders FROM groups WHERE id = $1`,
+      [id]
+    );
+    if (groupResult.rows.length === 0) {
+      res.status(404).json({ message: "Group not found" });
+      return;
+    }
+    const group = groupResult.rows[0];
+
+    const memberResult = await pool.query(
+      `SELECT DISTINCT request_owner_id
+       FROM requests
+       WHERE group_to_follow_id = $1
+         AND status = 'accepted'
+         AND (is_deleted IS NULL OR is_deleted = false)
+         AND request_owner_id IS NOT NULL`,
+      [id]
+    );
+    const memberIds = new Set<string>(
+      memberResult.rows.map((r: any) => r.request_owner_id)
+    );
+
+    const leaderIds = new Set<string>();
+    if (group.leaders) {
+      try {
+        const parsed = JSON.parse(group.leaders);
+        for (const l of parsed) {
+          const uid = l.UserId || l.userId;
+          if (uid) leaderIds.add(uid);
+        }
+      } catch {}
+    }
+
+    // Role priority (highest wins): Owner > Leader > Member.
+    const roleByUserId = new Map<string, "Owner" | "Leader" | "Member">();
+    for (const uid of memberIds) roleByUserId.set(uid, "Member");
+    for (const uid of leaderIds) roleByUserId.set(uid, "Leader");
+    if (group.owner_id) roleByUserId.set(group.owner_id, "Owner");
+
+    const allUserIds = [...roleByUserId.keys()];
+    if (allUserIds.length === 0) {
+      res.json({ groupId: id, groupName: group.name, members: [] });
+      return;
+    }
+
+    const placeholders = allUserIds.map((_, i) => `$${i + 1}`).join(", ");
+    const usersResult = await pool.query(
+      `SELECT id,
+              COALESCE(first_name, '') AS first_name,
+              COALESCE(last_name, '') AS last_name,
+              COALESCE(email, '') AS email
+       FROM users
+       WHERE id IN (${placeholders})
+         AND (is_deleted IS NULL OR is_deleted = false)`,
+      allUserIds
+    );
+
+    const members = usersResult.rows.map((u: any) => ({
+      id: u.id,
+      fullName: `${u.first_name} ${u.last_name}`.trim(),
+      email: u.email,
+      role: roleByUserId.get(u.id) || "Member",
+    }));
+
+    const rolePriority: Record<string, number> = { Owner: 0, Leader: 1, Member: 2 };
+    members.sort((a: any, b: any) => {
+      const r = (rolePriority[a.role] ?? 99) - (rolePriority[b.role] ?? 99);
+      if (r !== 0) return r;
+      return (a.fullName || "").localeCompare(b.fullName || "");
+    });
+
+    res.json({ groupId: id, groupName: group.name, members });
+  } catch (err) {
+    console.error("Get group all-members error:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
 router.get("/:id/users", async (req: Request, res: Response) => {
   try {
     const id = parseInt(String(req.params.id), 10);
@@ -2124,6 +2240,73 @@ router.put("/:id/transaction-history", async (req: Request, res: Response) => {
   }
 });
 
+// ------------------------------------------------------------------ //
+// GET /:id/campaign-investments
+// Admin view: campaigns linked to this group + member investment totals
+// ------------------------------------------------------------------ //
+router.get("/:id/campaign-investments", async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(id)) {
+      res.status(400).json({ message: "Invalid group id." });
+      return;
+    }
+
+    const groupCheck = await pool.query(`SELECT id, name FROM groups WHERE id = $1`, [id]);
+    if (groupCheck.rows.length === 0) {
+      res.status(404).json({ message: "Group not found." });
+      return;
+    }
+
+    // Campaigns linked to this group, enriched with group-member investment totals
+    const result = await pool.query(
+      `WITH group_members AS (
+         SELECT DISTINCT request_owner_id AS user_id
+           FROM requests
+          WHERE group_to_follow_id = $1 AND status = 'accepted'
+         UNION
+         SELECT owner_id AS user_id FROM groups WHERE id = $1
+       )
+       SELECT c.id,
+              c.name,
+              c.stage,
+              c.is_active,
+              (c.group_for_private_access_id = $1) AS is_private_access,
+              COUNT(DISTINCT r.user_id)::int         AS investor_count,
+              COALESCE(SUM(r.amount), 0)             AS total_invested
+         FROM campaigns c
+         LEFT JOIN campaign_groups cg
+           ON cg.campaigns_id = c.id AND cg.groups_id = $1
+         LEFT JOIN recommendations r
+           ON r.campaign_id = c.id
+          AND r.user_id IN (SELECT user_id FROM group_members)
+          AND r.status = 'approved'
+        WHERE cg.campaigns_id IS NOT NULL
+           OR c.group_for_private_access_id = $1
+        GROUP BY c.id, c.name, c.stage, c.is_active, c.group_for_private_access_id
+        ORDER BY c.name`,
+      [id],
+    );
+
+    res.json({
+      groupName: groupCheck.rows[0].name,
+      campaigns: result.rows.map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        stage: r.stage,
+        stageLabel: STAGE_LABELS[r.stage] || `Stage ${r.stage}`,
+        isActive: r.is_active,
+        isPrivateAccess: r.is_private_access === true,
+        investorCount: parseInt(r.investor_count) || 0,
+        totalInvested: parseFloat(r.total_invested) || 0,
+      })),
+    });
+  } catch (err) {
+    console.error("Get group campaign investments error:", err);
+    res.status(500).json({ message: "Internal server error." });
+  }
+});
+
 router.get("/:id/investments", async (req: Request, res: Response) => {
   try {
     const id = parseInt(String(req.params.id), 10);
@@ -2250,7 +2433,7 @@ async function processGroupMembers(jsonData: string | null, ownerId?: string): P
 
   const placeholders = userIds.map((_: any, i: number) => `$${i + 1}`).join(", ");
   const usersResult = await pool.query(
-    `SELECT id, COALESCE(first_name, '') || ' ' || COALESCE(last_name, '') as full_name, picture_file_name
+    `SELECT id, COALESCE(first_name, '') || ' ' || COALESCE(last_name, '') as full_name, picture_file_name, email
      FROM users WHERE id IN (${placeholders}) AND (is_deleted IS NULL OR is_deleted = false)`,
     userIds
   );
@@ -2268,6 +2451,7 @@ async function processGroupMembers(jsonData: string | null, ownerId?: string): P
       roleAndTitle: m.RoleAndTitle || m.roleAndTitle,
       description: m.Description || m.description,
       fullName: user?.full_name || null,
+      email: user?.email || null,
       pictureFileName: resolveFileUrl(user?.picture_file_name, "users") || null,
     };
 

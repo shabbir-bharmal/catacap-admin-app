@@ -12,6 +12,8 @@ import {
 } from "../utils/noteAttachments.js";
 import { autoEnrollInvestorIfApplicable } from "../utils/autoEnrollGroupMembership.js";
 import { backfillCampaignUpdateNotifications } from "../utils/backfillCampaignUpdateNotifications.js";
+import { sendNewInvestmentNotifications } from "../utils/investmentNotifications.js";
+import { applyMatchGrants } from "../utils/matchingGrants.js";
 import ExcelJS from "exceljs";
 
 const router = Router();
@@ -427,6 +429,14 @@ router.put("/:id", async (req: Request, res: Response) => {
     );
     const loginUserName = loginUserResult.rows[0]?.user_name?.trim().toLowerCase() || "";
 
+    let notifyAfterCommit:
+      | { campaignId: number; donorDisplayName: string; amount: number }
+      | null = null;
+    let matchAfterCommit: {
+      campaignId: number; userId: string; recId: number;
+      amount: number; email: string; campaignName: string;
+    } | null = null;
+
     await client.query("BEGIN");
     await client.query(`UPDATE pending_grants SET modified_date = NOW() WHERE id = $1`, [id]);
 
@@ -494,9 +504,9 @@ router.put("/:id", async (req: Request, res: Response) => {
         const totalAvailable = newBalance + totalGroupBalance;
         const finalInvestmentAmount = Math.min(totalAvailable, investedSum);
 
-        await client.query(
+        const newRecResult = await client.query(
           `INSERT INTO recommendations (user_email, user_full_name, campaign_id, status, amount, date_created, pending_grants_id, user_id)
-           VALUES ($1, $2, $3, 'pending', $4, NOW(), $5, $6)`,
+           VALUES ($1, $2, $3, 'pending', $4, NOW(), $5, $6) RETURNING id`,
           [
             grant.user_email,
             `${grant.first_name || ""} ${grant.last_name || ""}`.trim(),
@@ -506,6 +516,17 @@ router.put("/:id", async (req: Request, res: Response) => {
             grant.uid,
           ]
         );
+        const newRecId: number | null = newRecResult.rows[0]?.id ?? null;
+        if (newRecId) {
+          matchAfterCommit = {
+            campaignId: Number(grant.camp_id),
+            userId: grant.uid,
+            recId: newRecId,
+            amount: finalInvestmentAmount,
+            email: grant.user_email,
+            campaignName: grant.campaign_name || "",
+          };
+        }
 
         await autoEnrollInvestorIfApplicable(client, grant.uid, grant.camp_id);
 
@@ -579,6 +600,19 @@ router.put("/:id", async (req: Request, res: Response) => {
         // notifications for any past, still-active updates that fired
         // before they showed up in user_investments.
         await backfillCampaignUpdateNotifications(client, grant.uid, grant.camp_id);
+
+        // Defer the email until after COMMIT so we never notify
+        // recipients of an investment that ends up rolled back.
+        const donorDisplayNameApproved =
+          `${grant.first_name || ""} ${grant.last_name || ""}`.trim() ||
+          grant.user_name ||
+          grant.user_email ||
+          "An investor";
+        notifyAfterCommit = {
+          campaignId: Number(grant.camp_id),
+          donorDisplayName: donorDisplayNameApproved,
+          amount: finalInvestmentAmount,
+        };
       }
 
       await client.query(`UPDATE users SET is_active = true, is_free_user = false WHERE id = $1`, [grant.uid]);
@@ -729,6 +763,23 @@ router.put("/:id", async (req: Request, res: Response) => {
     }
 
     await client.query("COMMIT");
+
+    if (notifyAfterCommit) {
+      sendNewInvestmentNotifications(notifyAfterCommit).catch((err) =>
+        console.error("Investment notification email failed:", err?.message || err),
+      );
+    }
+    if (matchAfterCommit) {
+      applyMatchGrants({
+        campaignId: matchAfterCommit.campaignId,
+        investorUserId: matchAfterCommit.userId,
+        triggeringRecommendationId: matchAfterCommit.recId,
+        investmentAmount: matchAfterCommit.amount,
+        investorEmail: matchAfterCommit.email,
+        campaignName: matchAfterCommit.campaignName,
+      }).catch((err) => console.error("applyMatchGrants (pendingGrants) error:", err?.message || err));
+    }
+
     res.json({ success: true, message: `Grant set ${data.status}` });
   } catch (err: any) {
     await client.query("ROLLBACK").catch(() => {});

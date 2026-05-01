@@ -5,6 +5,7 @@ import { parsePagination, softDeleteFilter, buildSortClause } from "../utils/sof
 import { restoreOwningUsersForRecordsInTx } from "../utils/userRestore.js";
 import { autoEnrollInvestorIfApplicable } from "../utils/autoEnrollGroupMembership.js";
 import { backfillCampaignUpdateNotifications } from "../utils/backfillCampaignUpdateNotifications.js";
+import { applyMatchGrants } from "../utils/matchingGrants.js";
 import ExcelJS from "exceljs";
 
 const router = Router();
@@ -318,15 +319,125 @@ router.put("/:id", async (req: Request, res: Response) => {
         `UPDATE recommendations SET rejection_memo = $1, rejected_by = $2, rejection_date = NOW() WHERE id = $3`,
         [rejectionMemo, loginUserId, id]
       );
+
+      // Cascade-reject any pending match recommendations triggered by this one
+      const pendingMatches = await client.query(
+        `SELECT a.id AS activity_id, a.donor_recommendation_id, a.match_grant_id, a.amount,
+                cmg.reserved_amount, cmg.donor_user_id,
+                u.account_balance AS donor_balance, u.user_name AS donor_user_name
+           FROM campaign_match_grant_activity a
+           JOIN campaign_match_grants cmg ON cmg.id = a.match_grant_id
+           JOIN users u ON u.id = cmg.donor_user_id
+          WHERE a.triggered_by_recommendation_id = $1
+            AND a.donor_recommendation_id IS NOT NULL`,
+        [id]
+      );
+      for (const m of pendingMatches.rows) {
+        // Reject the donor's pending match recommendation
+        await client.query(
+          `UPDATE recommendations SET status = 'rejected', rejection_date = NOW() WHERE id = $1`,
+          [m.donor_recommendation_id]
+        );
+        // Unwind amount_used on the grant
+        const matchAmt = parseFloat(m.amount) || 0;
+        await client.query(
+          `UPDATE campaign_match_grants SET amount_used = GREATEST(0, amount_used - $1), updated_at = NOW() WHERE id = $2`,
+          [matchAmt, m.match_grant_id]
+        );
+        // For live-wallet grants (no escrow), restore funds to donor
+        const isLiveWallet = parseFloat(m.reserved_amount) <= 0;
+        if (isLiveWallet && matchAmt > 0) {
+          const donorBal = parseFloat(m.donor_balance) || 0;
+          const restored = parseFloat((donorBal + matchAmt).toFixed(2));
+          await client.query(`UPDATE users SET account_balance = $1 WHERE id = $2`, [restored, m.donor_user_id]);
+          await client.query(
+            `INSERT INTO account_balance_change_logs
+               (user_id, payment_type, investment_name, campaign_id, old_value, user_name, new_value, change_date, comment)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8)`,
+            [
+              m.donor_user_id,
+              "Match grant – match cancelled",
+              recommendation.campaign_name,
+              recommendation.campaign_id,
+              donorBal,
+              m.donor_user_name,
+              restored,
+              `Pending match of $${matchAmt.toFixed(2)} cancelled because investor's recommendation was rejected`,
+            ]
+          );
+        }
+      }
     } else if (data.status === "approved" && recommendation.status !== "approved") {
       await autoEnrollInvestorIfApplicable(client, user.id, recommendation.camp_id);
       // Investor just transitioned into an active state on this campaign;
       // backfill any past, still-active in-app update notifications they
       // missed before approval.
       await backfillCampaignUpdateNotifications(client, user.id, recommendation.camp_id);
+
+      // Cascade-approve any pending match recommendations triggered by this one
+      const pendingMatches = await client.query(
+        `SELECT a.donor_recommendation_id, a.match_grant_id, a.amount,
+                cmg.reserved_amount, cmg.donor_user_id,
+                u.account_balance AS donor_balance, u.user_name AS donor_user_name
+           FROM campaign_match_grant_activity a
+           JOIN campaign_match_grants cmg ON cmg.id = a.match_grant_id
+           JOIN users u ON u.id = cmg.donor_user_id
+          WHERE a.triggered_by_recommendation_id = $1
+            AND a.donor_recommendation_id IS NOT NULL`,
+        [id]
+      );
+      for (const m of pendingMatches.rows) {
+        await client.query(
+          `UPDATE recommendations SET status = 'approved' WHERE id = $1`,
+          [m.donor_recommendation_id]
+        );
+        const matchAmt = parseFloat(m.amount) || 0;
+        const isEscrow = parseFloat(m.reserved_amount) > 0;
+        if (isEscrow) {
+          // Log the escrow match being confirmed
+          await client.query(
+            `INSERT INTO account_balance_change_logs
+               (user_id, payment_type, investment_name, campaign_id, old_value, user_name, new_value, change_date, comment)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8)`,
+            [
+              m.donor_user_id,
+              "Match grant – escrow applied",
+              recommendation.campaign_name,
+              recommendation.campaign_id,
+              parseFloat(m.donor_balance) || 0,
+              m.donor_user_name,
+              parseFloat(m.donor_balance) || 0,
+              `$${matchAmt.toFixed(2)} escrow match confirmed for ${recommendation.campaign_name}`,
+            ]
+          );
+        }
+      }
     }
 
+    const wasNewlyApproved =
+      data.status === "approved" && recommendation.status !== "approved";
+    const wasNewlyPending =
+      data.status === "pending" && recommendation.status !== "pending";
+
     await client.query("COMMIT");
+
+    // Fire matching when investment first becomes pending OR approved (if not already matched)
+    if ((wasNewlyPending || wasNewlyApproved) && recommendation.camp_id) {
+      // Only fire if there's no existing pending/approved match for this recommendation
+      applyMatchGrants({
+        campaignId: recommendation.camp_id,
+        investorUserId: user.id,
+        triggeringRecommendationId: id,
+        investmentAmount: parseFloat(data.amount || recommendation.amount) || 0,
+        investorEmail: recommendation.user_email || "",
+        campaignName: recommendation.campaign_name || "",
+      }).catch((err) =>
+        console.error(
+          "applyMatchGrants fire-and-forget error:",
+          err?.message || err,
+        ),
+      );
+    }
 
     const rejectingUserResult = await pool.query(
       `SELECT first_name FROM users WHERE id = $1`,

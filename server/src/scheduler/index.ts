@@ -6,6 +6,7 @@ import { runDeleteTestUsers } from "./deleteTestUsers.js";
 import { runWelcomeSeries } from "./welcomeSeries.js";
 import { runWeeklyKenStats } from "./weeklyKenStats.js";
 import { runCampaignUpdateNotifications } from "./campaignUpdateNotifications.js";
+import { runExpireMatchGrants } from "./expireMatchGrants.js";
 
 const LOCK_KEYS: Record<string, number> = {
   SendReminderEmail: 900001,
@@ -14,6 +15,7 @@ const LOCK_KEYS: Record<string, number> = {
   WelcomeSeries: 900004,
   WeeklyKenStats: 900005,
   CampaignUpdateNotifications: 900005,
+  ExpireMatchGrants: 900006,
 };
 
 const JOB_RUNNERS: Record<string, () => Promise<void>> = {
@@ -22,6 +24,7 @@ const JOB_RUNNERS: Record<string, () => Promise<void>> = {
   DeleteTestUsers: runDeleteTestUsers,
   WelcomeSeries: runWelcomeSeries,
   WeeklyKenStats: runWeeklyKenStats,
+  ExpireMatchGrants: runExpireMatchGrants,
 };
 
 const WEEKLY_JOBS: Record<string, number> = {
@@ -143,6 +146,7 @@ function getDefaultConfigs(): SchedulerConfigRow[] {
     { job_name: "WelcomeSeries", hour: 9, minute: 0, timezone: "America/New_York", is_enabled: true },
     { job_name: "WeeklyKenStats", hour: 12, minute: 0, timezone: "America/Los_Angeles", is_enabled: true },
     { job_name: "CampaignUpdateNotifications", hour: 6, minute: 0, timezone: "America/New_York", is_enabled: true },
+    { job_name: "ExpireMatchGrants", hour: 1, minute: 0, timezone: "America/New_York", is_enabled: true },
   ];
 }
 

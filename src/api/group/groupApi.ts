@@ -218,6 +218,7 @@ export interface GroupLeader {
     linkedinUrl: string;
     pictureFileName?: string | null;
     isOwner?: boolean;
+    email?: string | null;
 }
 
 export interface GroupLeadersSectionProps {
@@ -250,6 +251,26 @@ export async function fetchGroupDetail(identifier: string): Promise<GroupDetail>
 
 export async function fetchGroupLeaders(groupId: number): Promise<GroupLeadersResponse> {
     const response = await axiosInstance.get<GroupLeadersResponse>(`/api/admin/group/${groupId}/leaders`);
+    return response.data;
+}
+
+export interface GroupAllMember {
+    id: string;
+    fullName: string;
+    email: string;
+    role: "Owner" | "Leader" | "Member";
+}
+
+export interface GroupAllMembersResponse {
+    groupId: number;
+    groupName: string;
+    members: GroupAllMember[];
+}
+
+export async function fetchGroupAllMembers(groupId: number): Promise<GroupAllMembersResponse> {
+    const response = await axiosInstance.get<GroupAllMembersResponse>(
+        `/api/admin/group/${groupId}/all-members`
+    );
     return response.data;
 }
 
@@ -339,5 +360,28 @@ export async function updateGroupInvestments(groupId: number, campaignIds: numbe
     const response = await axiosInstance.put("/api/admin/group/update-group-investments", campaignIds, {
         params: { groupId }
     });
+    return response.data;
+}
+
+export interface GroupCampaignInvestment {
+    id: number;
+    name: string;
+    stage: number;
+    stageLabel: string;
+    isActive: boolean;
+    isPrivateAccess: boolean;
+    investorCount: number;
+    totalInvested: number;
+}
+
+export interface GroupCampaignInvestmentsResponse {
+    groupName: string;
+    campaigns: GroupCampaignInvestment[];
+}
+
+export async function fetchGroupCampaignInvestments(groupId: number): Promise<GroupCampaignInvestmentsResponse> {
+    const response = await axiosInstance.get<GroupCampaignInvestmentsResponse>(
+        `/api/admin/group/${groupId}/campaign-investments`,
+    );
     return response.data;
 }
