@@ -110,6 +110,14 @@ You are a senior software engineer working with Node.js (Express), React (Vite),
 - The `/Back-End` folder contains .NET reference code only and must NOT be modified; all code changes must be made only in the Node.js (`server/`) and React (`src/`) code
 - Any database schema or data change executed via direct `pool` calls (e.g. `pool.query`, `client.query`, runtime `ensure*` helpers in `server/src/db.ts`, ad-hoc one-off scripts) must FIRST be written as a SQL migration file under `releases/<DD_MM_YYYY>/migrations/` and documented in that release's `docs.txt` (schema, intent, idempotency, rollback). Migrations must be idempotent (`IF NOT EXISTS`, guarded `DO` blocks, etc.) and wrapped in a transaction. Do not apply schema/data changes that exist only in code or only in the live database — the migration file is the source of truth and must land in the same change set.
 
+## Recent changes
+- **Pending match projection** (May 2026) — Pending recommendations and pending DAFs that will trigger match grants when they land are now surfaced read-only across the admin UI. Helper at `server/src/utils/pendingMatches.ts` (`projectPendingMatchesForCampaign`, `projectPendingMatchesForGrant`, `projectPendingTotalsForAllGrants`) mirrors the live `applySingleGrant` algorithm (capped/full, per-investment cap, donor≠trigger, expiry, escrow remaining, donor wallet balance for unlimited grants). Surfaced in:
+  - `/api/admin/investment/:id/investors` — appends `projected_match` rows (negative synthetic sourceId, status=pending) and adds `pending: true`-flagged entries to the trigger investor's `triggeredMatches`. Adds `pendingMatchAmount` and `pendingMatchCount` to the response. Totals (amount/contributions/distinct investors) include projections.
+  - `/api/admin/investment/:id/investors/export` — Excel includes projected rows as “Projected match from <grant> for <trigger>’s $X”; summary line calls out pending totals.
+  - `/api/admin/matching` — each grant gets `pendingAmount` + `pendingCount`.
+  - `/api/admin/matching/:id/activity` — returns `pendingItems` and `pendingTotal` alongside actual `items`.
+  Frontend: amber pending badges on `InvestmentInvestors` (replaces single-badge MatchAnnotation with a multi-badge layout that splits actual vs pending triggered matches), amber projected rows highlighted; `AdminMatching` grant card shows pending stat in header and the activity panel renders a separate amber Pending section below actual activity.
+
 ## Architecture
 - Use modular structure (controller, service, etc.)
 - Keep code production-ready

@@ -3,6 +3,10 @@ import type { Request, Response } from "express";
 import ExcelJS from "exceljs";
 import pool from "../db.js";
 import { runRetroactiveSweep } from "../utils/matchingGrants.js";
+import {
+  projectPendingMatchesForGrant,
+  projectPendingTotalsForAllGrants,
+} from "../utils/pendingMatches.js";
 
 const router = Router();
 
@@ -103,31 +107,34 @@ async function returnUnusedFunds(
 // ------------------------------------------------------------------ //
 router.get("/", async (req: Request, res: Response) => {
   try {
-    const grantsResult = await pool.query(
-      `SELECT cmg.id,
-              cmg.name,
-              cmg.donor_user_id,
-              u.email          AS donor_email,
-              CONCAT(u.first_name, ' ', u.last_name) AS donor_full_name,
-              u.user_name      AS donor_user_name,
-              u.account_balance AS donor_balance,
-              cmg.total_cap,
-              cmg.amount_used,
-              cmg.reserved_amount,
-              cmg.match_type,
-              cmg.per_investment_cap,
-              cmg.is_active,
-              cmg.notes,
-              cmg.expires_at,
-              cmg.retroactive_from,
-              cmg.created_at,
-              cmg.updated_at,
-              (SELECT COUNT(*) FROM campaign_match_grant_activity a
-                WHERE a.match_grant_id = cmg.id) AS times_used
-         FROM campaign_match_grants cmg
-         LEFT JOIN users u ON u.id = cmg.donor_user_id
-        ORDER BY cmg.created_at DESC`,
-    );
+    const [grantsResult, pendingTotals] = await Promise.all([
+      pool.query(
+        `SELECT cmg.id,
+                cmg.name,
+                cmg.donor_user_id,
+                u.email          AS donor_email,
+                CONCAT(u.first_name, ' ', u.last_name) AS donor_full_name,
+                u.user_name      AS donor_user_name,
+                u.account_balance AS donor_balance,
+                cmg.total_cap,
+                cmg.amount_used,
+                cmg.reserved_amount,
+                cmg.match_type,
+                cmg.per_investment_cap,
+                cmg.is_active,
+                cmg.notes,
+                cmg.expires_at,
+                cmg.retroactive_from,
+                cmg.created_at,
+                cmg.updated_at,
+                (SELECT COUNT(*) FROM campaign_match_grant_activity a
+                  WHERE a.match_grant_id = cmg.id) AS times_used
+           FROM campaign_match_grants cmg
+           LEFT JOIN users u ON u.id = cmg.donor_user_id
+          ORDER BY cmg.created_at DESC`,
+      ),
+      projectPendingTotalsForAllGrants(),
+    ]);
 
     const grants = await Promise.all(
       grantsResult.rows.map(async (g: any) => {
@@ -139,6 +146,7 @@ router.get("/", async (req: Request, res: Response) => {
             ORDER BY c.name`,
           [g.id],
         );
+        const pending = pendingTotals[g.id] || { pendingAmount: 0, pendingCount: 0 };
         return {
           id: g.id,
           name: g.name || "",
@@ -158,6 +166,8 @@ router.get("/", async (req: Request, res: Response) => {
           createdAt: g.created_at,
           updatedAt: g.updated_at,
           timesUsed: parseInt(g.times_used) || 0,
+          pendingAmount: pending.pendingAmount,
+          pendingCount: pending.pendingCount,
           campaigns: campResult.rows.map((c: any) => ({ id: c.id, name: c.name })),
         };
       }),
@@ -180,21 +190,24 @@ router.get("/:id/activity", async (req: Request, res: Response) => {
       res.status(400).json({ success: false, message: "Invalid id" });
       return;
     }
-    const result = await pool.query(
-      `SELECT a.id, a.amount, a.created_at,
-              c.name   AS campaign_name,
-              CONCAT(iu.first_name, ' ', iu.last_name) AS investor_full_name,
-              iu.email AS investor_email,
-              a.triggered_by_recommendation_id,
-              a.donor_recommendation_id
-         FROM campaign_match_grant_activity a
-         LEFT JOIN campaigns c ON c.id = a.campaign_id
-         LEFT JOIN users iu ON iu.id = a.triggered_by_user_id
-        WHERE a.match_grant_id = $1
-        ORDER BY a.created_at DESC
-        LIMIT 500`,
-      [id],
-    );
+    const [result, projections] = await Promise.all([
+      pool.query(
+        `SELECT a.id, a.amount, a.created_at,
+                c.name   AS campaign_name,
+                CONCAT(iu.first_name, ' ', iu.last_name) AS investor_full_name,
+                iu.email AS investor_email,
+                a.triggered_by_recommendation_id,
+                a.donor_recommendation_id
+           FROM campaign_match_grant_activity a
+           LEFT JOIN campaigns c ON c.id = a.campaign_id
+           LEFT JOIN users iu ON iu.id = a.triggered_by_user_id
+          WHERE a.match_grant_id = $1
+          ORDER BY a.created_at DESC
+          LIMIT 500`,
+        [id],
+      ),
+      projectPendingMatchesForGrant(id),
+    ]);
     res.json({
       success: true,
       items: result.rows.map((r: any) => ({
@@ -207,6 +220,18 @@ router.get("/:id/activity", async (req: Request, res: Response) => {
         triggeringRecommendationId: r.triggered_by_recommendation_id,
         donorRecommendationId: r.donor_recommendation_id,
       })),
+      pendingItems: projections.map((p, idx) => ({
+        id: `pending-${id}-${idx}`,
+        amount: p.projectedAmount,
+        triggerDate: p.trigger.triggerDate,
+        campaignName: p.trigger.campaignName,
+        investorFullName: p.trigger.triggerName,
+        investorEmail: p.trigger.triggerEmail,
+        triggerType: p.trigger.triggerType,
+        triggerStatus: p.trigger.triggerStatus,
+        triggerAmount: p.trigger.triggerAmount,
+      })),
+      pendingTotal: Math.round(projections.reduce((s, p) => s + p.projectedAmount, 0) * 100) / 100,
     });
   } catch (err: any) {
     console.error("Error fetching match grant activity:", err);

@@ -41,6 +41,8 @@ interface MatchGrant {
   retroactiveFrom: string | null;
   createdAt: string;
   timesUsed: number;
+  pendingAmount?: number;
+  pendingCount?: number;
   campaigns: Campaign[];
 }
 interface ActivityEntry {
@@ -52,6 +54,22 @@ interface ActivityEntry {
   investorEmail: string;
   triggeringRecommendationId: number | null;
   donorRecommendationId: number | null;
+}
+interface PendingActivityEntry {
+  id: string;
+  amount: number;
+  triggerDate: string | null;
+  campaignName: string;
+  investorFullName: string;
+  investorEmail: string;
+  triggerType: "recommendation" | "pending_grant";
+  triggerStatus: string;
+  triggerAmount: number;
+}
+interface ActivityResponse {
+  items: ActivityEntry[];
+  pendingItems: PendingActivityEntry[];
+  pendingTotal: number;
 }
 interface DonorOption { id: string; email: string; fullName: string; accountBalance: number; }
 
@@ -81,9 +99,13 @@ async function fetchMatchGrants(): Promise<MatchGrant[]> {
   const { data } = await axiosInstance.get("/api/admin/matching");
   return data.items || [];
 }
-async function fetchActivity(grantId: number): Promise<ActivityEntry[]> {
+async function fetchActivity(grantId: number): Promise<ActivityResponse> {
   const { data } = await axiosInstance.get(`/api/admin/matching/${grantId}/activity`);
-  return data.items || [];
+  return {
+    items: data.items || [],
+    pendingItems: data.pendingItems || [],
+    pendingTotal: data.pendingTotal || 0,
+  };
 }
 async function fetchCampaignOptions(): Promise<Campaign[]> {
   const { data } = await axiosInstance.get("/api/admin/investment/names?stage=11");
@@ -606,7 +628,7 @@ function GrantFormDialog({
 // Activity panel (expandable per grant)
 // ------------------------------------------------------------------ //
 function ActivityPanel({ grantId }: { grantId: number }) {
-  const { data: items = [], isLoading } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ["match-activity", grantId],
     queryFn: () => fetchActivity(grantId),
     staleTime: 30_000,
@@ -620,7 +642,11 @@ function ActivityPanel({ grantId }: { grantId: number }) {
     );
   }
 
-  if (items.length === 0) {
+  const items = data?.items || [];
+  const pendingItems = data?.pendingItems || [];
+  const pendingTotal = data?.pendingTotal || 0;
+
+  if (items.length === 0 && pendingItems.length === 0) {
     return (
       <div className="py-4 text-center text-sm text-muted-foreground">
         No matching activity recorded yet.
@@ -628,37 +654,106 @@ function ActivityPanel({ grantId }: { grantId: number }) {
     );
   }
 
+  const triggerStatusLabel = (s: string) => {
+    const v = (s || "").toLowerCase();
+    if (v === "in transit") return "In Transit";
+    if (v === "received") return "Received";
+    return "Pending";
+  };
+
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="bg-[#405189] text-white">
-            <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Date</th>
-            <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Campaign</th>
-            <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Investor</th>
-            <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Matched</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((a, idx) => (
-            <tr
-              key={a.id}
-              className={idx % 2 === 0 ? "bg-background" : "bg-muted/30"}
-              data-testid={`row-activity-${a.id}`}
-            >
-              <td className="px-3 py-2 whitespace-nowrap">{formatDate(a.createdAt)}</td>
-              <td className="px-3 py-2">{a.campaignName}</td>
-              <td className="px-3 py-2">
-                <div className="font-medium">{a.investorFullName || "—"}</div>
-                <div className="text-xs text-muted-foreground">{a.investorEmail}</div>
-              </td>
-              <td className="px-3 py-2 text-right font-medium tabular-nums">
-                {currency_format(a.amount)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="space-y-4">
+      {items.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-[#405189] text-white">
+                <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Date</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Campaign</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Investor</th>
+                <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Matched</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((a, idx) => (
+                <tr
+                  key={a.id}
+                  className={idx % 2 === 0 ? "bg-background" : "bg-muted/30"}
+                  data-testid={`row-activity-${a.id}`}
+                >
+                  <td className="px-3 py-2 whitespace-nowrap">{formatDate(a.createdAt)}</td>
+                  <td className="px-3 py-2">{a.campaignName}</td>
+                  <td className="px-3 py-2">
+                    <div className="font-medium">{a.investorFullName || "—"}</div>
+                    <div className="text-xs text-muted-foreground">{a.investorEmail}</div>
+                  </td>
+                  <td className="px-3 py-2 text-right font-medium tabular-nums">
+                    {currency_format(a.amount)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {pendingItems.length > 0 && (
+        <div className="rounded-md border border-amber-300 bg-amber-50/50 dark:bg-amber-950/20">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-amber-200">
+            <div className="flex items-center gap-2 text-sm font-medium text-amber-900 dark:text-amber-200">
+              <Clock className="h-4 w-4" />
+              Pending matches ({pendingItems.length})
+              <span className="text-xs font-normal text-amber-800/80 dark:text-amber-300/80">
+                — escrowed; will fire when these investments land
+              </span>
+            </div>
+            <div className="text-sm font-semibold text-amber-900 dark:text-amber-200 tabular-nums">
+              {currency_format(pendingTotal)}
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-amber-100/70 dark:bg-amber-900/30 text-amber-900 dark:text-amber-100">
+                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Trigger Date</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Campaign</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Investor</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Trigger</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider whitespace-nowrap">Will Match</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingItems.map((p) => (
+                  <tr
+                    key={p.id}
+                    className="border-t border-amber-200/60"
+                    data-testid={`row-pending-activity-${p.id}`}
+                  >
+                    <td className="px-3 py-2 whitespace-nowrap text-amber-900 dark:text-amber-200">
+                      {p.triggerDate ? formatDate(p.triggerDate) : "—"}
+                    </td>
+                    <td className="px-3 py-2">{p.campaignName}</td>
+                    <td className="px-3 py-2">
+                      <div className="font-medium">{p.investorFullName || "—"}</div>
+                      <div className="text-xs text-muted-foreground">{p.investorEmail}</div>
+                    </td>
+                    <td className="px-3 py-2 text-xs">
+                      <div className="tabular-nums">{currency_format(p.triggerAmount)}</div>
+                      <div className="text-muted-foreground">
+                        {p.triggerType === "pending_grant" ? "DAF · " : "Rec · "}
+                        {triggerStatusLabel(p.triggerStatus)}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-right font-semibold tabular-nums text-amber-900 dark:text-amber-200">
+                      {currency_format(p.amount)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -893,6 +988,17 @@ export default function AdminMatching() {
                                   ({currency_format(Math.max(0, g.reservedAmount - g.amountUsed))} remaining)
                                 </span>
                               )}
+                            </span>
+                          )}
+                          {(g.pendingAmount ?? 0) > 0 && (
+                            <span data-testid={`text-pending-${g.id}`}>
+                              <span className="font-medium text-foreground">Pending matches:</span>{" "}
+                              <span className="text-amber-700 dark:text-amber-300 font-medium">
+                                {currency_format(g.pendingAmount || 0)}
+                              </span>
+                              <span className="text-xs ml-1 text-muted-foreground">
+                                ({g.pendingCount} {g.pendingCount === 1 ? "trigger" : "triggers"})
+                              </span>
                             </span>
                           )}
                           <span>

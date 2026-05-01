@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pg from "pg";
 import pool from "../db.js";
+import { projectPendingMatchesForCampaign } from "../utils/pendingMatches.js";
 import { parsePagination, softDeleteFilter, buildSortClause, handleMissingTableError } from "../utils/softDelete.js";
 import { sendTemplateEmail } from "../utils/emailService.js";
 import { Resend } from "resend";
@@ -953,7 +954,7 @@ router.get("/:id/investors", async (req: Request, res: Response) => {
       return;
     }
 
-    const [rowsResult, summaryResult, nameResult, matchInfo] = await Promise.all([
+    const [rowsResult, summaryResult, nameResult, matchInfo, projections] = await Promise.all([
       pool.query(
         `${unifiedInvestorsCTE({ campaignParamIdx: 1 })}
          SELECT source_id, source_type, name, email, amount, date_created, status
@@ -970,13 +971,16 @@ router.get("/:id/investors", async (req: Request, res: Response) => {
       ),
       pool.query(`SELECT name FROM campaigns WHERE id = $1`, [id]),
       fetchMatchInfoForCampaign(id),
+      projectPendingMatchesForCampaign(id),
     ]);
 
-    const items = rowsResult.rows.map((r: any) => {
+    const items: any[] = rowsResult.rows.map((r: any) => {
       const sourceId = Number(r.source_id);
       const sourceType = r.source_type as "recommendation" | "pending_grant";
       const matchAsDonor = sourceType === "recommendation" ? matchInfo.asMatch[sourceId] || null : null;
-      const triggeredMatches = sourceType === "recommendation" ? matchInfo.triggeredBy[sourceId] || [] : [];
+      const triggeredMatches = sourceType === "recommendation"
+        ? (matchInfo.triggeredBy[sourceId] || []).map((t) => ({ ...t, pending: false as const }))
+        : [];
       return {
         sourceId,
         sourceType,
@@ -986,13 +990,87 @@ router.get("/:id/investors", async (req: Request, res: Response) => {
         date: r.date_created ? new Date(r.date_created).toISOString() : null,
         status: r.status as "pending" | "in transit" | "received",
         match: (matchAsDonor || triggeredMatches.length > 0)
-          ? { asMatch: matchAsDonor, triggeredMatches }
+          ? { asMatch: matchAsDonor ? { ...matchAsDonor, pending: false as const } : null, triggeredMatches }
           : null,
       };
     });
 
-    const totalAmount = parseFloat(summaryResult.rows[0]?.total_amount) || 0;
-    const totalInvestors = parseInt(summaryResult.rows[0]?.total_investors) || 0;
+    // ── Inject pending match projections ─────────────────────────────────
+    // 1. Append projection donor rows (status=pending) so admins can see who
+    //    will match each pending DAF when it lands. 2. Append "pending"
+    //    triggered annotations on the trigger investor's existing row.
+    const indexByKey = new Map<string, any>();
+    for (const it of items) indexByKey.set(`${it.sourceType}:${it.sourceId}`, it);
+
+    let projectedTotal = 0;
+    for (const p of projections) {
+      const triggerKey = `${p.trigger.triggerType}:${p.trigger.triggerId}`;
+      const triggerRow = indexByKey.get(triggerKey);
+      if (triggerRow) {
+        const tm = (triggerRow.match?.triggeredMatches as any[] | undefined) || [];
+        tm.push({
+          grantName: p.grantName,
+          donorName: p.donorName,
+          donorRecId: null,
+          matchAmount: p.projectedAmount,
+          pending: true,
+        });
+        triggerRow.match = {
+          asMatch: triggerRow.match?.asMatch ?? null,
+          triggeredMatches: tm,
+        };
+      }
+
+      // Synthetic negative id guarantees no collision with real rec/pg ids.
+      const syntheticId = -(p.grantId * 10_000_000 + p.trigger.triggerId);
+      items.push({
+        sourceId: syntheticId,
+        sourceType: "projected_match",
+        name: p.donorName,
+        email: p.donorEmail || null,
+        totalAmount: p.projectedAmount,
+        date: p.trigger.triggerDate ? new Date(p.trigger.triggerDate).toISOString() : null,
+        status: "pending",
+        match: {
+          asMatch: {
+            grantName: p.grantName,
+            triggeredRecId: p.trigger.triggerType === "recommendation" ? p.trigger.triggerId : null,
+            triggeredName: p.trigger.triggerName,
+            triggeredAmount: p.trigger.triggerAmount,
+            matchAmount: p.projectedAmount,
+            pending: true,
+          },
+          triggeredMatches: [],
+        },
+      });
+      projectedTotal += p.projectedAmount;
+    }
+
+    // Sort once more so projected rows slot into the amount-DESC ordering.
+    items.sort((a, b) => {
+      if (b.totalAmount !== a.totalAmount) return b.totalAmount - a.totalAmount;
+      return (a.name || "").localeCompare(b.name || "");
+    });
+
+    const baseTotalAmount = parseFloat(summaryResult.rows[0]?.total_amount) || 0;
+    const baseTotalInvestors = parseInt(summaryResult.rows[0]?.total_investors) || 0;
+    const totalAmount = Math.round((baseTotalAmount + projectedTotal) * 100) / 100;
+
+    // For distinct-investor count, fold projection donor emails in.
+    const baseEmails = new Set<string>();
+    for (const r of rowsResult.rows) {
+      const k = String(r.email || "").trim().toLowerCase();
+      if (k) baseEmails.add(k);
+    }
+    let extraInvestors = 0;
+    for (const p of projections) {
+      const k = String(p.donorEmail || "").trim().toLowerCase();
+      if (k && !baseEmails.has(k)) {
+        baseEmails.add(k);
+        extraInvestors += 1;
+      }
+    }
+    const totalInvestors = baseTotalInvestors + extraInvestors;
 
     res.json({
       campaignId: id,
@@ -1000,6 +1078,8 @@ router.get("/:id/investors", async (req: Request, res: Response) => {
       totalInvestors,
       totalContributions: items.length,
       totalAmount,
+      pendingMatchAmount: Math.round(projectedTotal * 100) / 100,
+      pendingMatchCount: projections.length,
       items,
     });
   } catch (err) {
@@ -1016,7 +1096,7 @@ router.get("/:id/investors/export", async (req: Request, res: Response) => {
       return;
     }
 
-    const [rowsResult, summaryResult, nameResult, matchInfo] = await Promise.all([
+    const [rowsResult, summaryResult, nameResult, matchInfo, projections] = await Promise.all([
       pool.query(
         `${unifiedInvestorsCTE({ campaignParamIdx: 1 })}
          SELECT source_id, source_type, name, email, amount, date_created, status
@@ -1033,33 +1113,93 @@ router.get("/:id/investors/export", async (req: Request, res: Response) => {
       ),
       pool.query(`SELECT name FROM campaigns WHERE id = $1`, [id]),
       fetchMatchInfoForCampaign(id),
+      projectPendingMatchesForCampaign(id),
     ]);
 
-    if (rowsResult.rows.length === 0) {
+    if (rowsResult.rows.length === 0 && projections.length === 0) {
       res.json({ success: false, message: "There are no investors to export for this investment." });
       return;
     }
 
-    const totalAmount = parseFloat(summaryResult.rows[0]?.total_amount) || 0;
-    const totalInvestors = parseInt(summaryResult.rows[0]?.total_investors) || 0;
+    const baseTotalAmount = parseFloat(summaryResult.rows[0]?.total_amount) || 0;
+    const baseTotalInvestors = parseInt(summaryResult.rows[0]?.total_investors) || 0;
+    const projectedTotal = projections.reduce((s, p) => s + p.projectedAmount, 0);
+    const totalAmount = Math.round((baseTotalAmount + projectedTotal) * 100) / 100;
+
+    const baseEmails = new Set<string>();
+    for (const r of rowsResult.rows) {
+      const k = String(r.email || "").trim().toLowerCase();
+      if (k) baseEmails.add(k);
+    }
+    let extraInvestors = 0;
+    for (const p of projections) {
+      const k = String(p.donorEmail || "").trim().toLowerCase();
+      if (k && !baseEmails.has(k)) { baseEmails.add(k); extraInvestors += 1; }
+    }
+    const totalInvestors = baseTotalInvestors + extraInvestors;
     const campaignName = nameResult.rows[0]?.name || `Investment #${id}`;
 
     const fmtUsd = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+    // Pending triggered annotations indexed by base row key.
+    const pendingTriggeredByKey = new Map<string, { grantName: string; matchAmount: number }[]>();
+    for (const p of projections) {
+      const key = `${p.trigger.triggerType}:${p.trigger.triggerId}`;
+      if (!pendingTriggeredByKey.has(key)) pendingTriggeredByKey.set(key, []);
+      pendingTriggeredByKey.get(key)!.push({ grantName: p.grantName, matchAmount: p.projectedAmount });
+    }
+
     const buildMatchText = (sourceId: number, sourceType: string): string => {
-      if (sourceType !== "recommendation") return "";
-      const asMatch = matchInfo.asMatch[sourceId];
-      if (asMatch) {
-        const who = asMatch.triggeredName || "another investor";
-        const amt = asMatch.triggeredAmount != null ? ` ${fmtUsd(asMatch.triggeredAmount)}` : "";
-        return `Match contribution from "${asMatch.grantName}" for ${who}${amt ? "'s " + amt.trim() : ""}`;
+      const parts: string[] = [];
+      if (sourceType === "recommendation") {
+        const asMatch = matchInfo.asMatch[sourceId];
+        if (asMatch) {
+          const who = asMatch.triggeredName || "another investor";
+          const amt = asMatch.triggeredAmount != null ? ` ${fmtUsd(asMatch.triggeredAmount)}` : "";
+          parts.push(`Match contribution from "${asMatch.grantName}" for ${who}${amt ? "'s " + amt.trim() : ""}`);
+        }
+        const triggered = matchInfo.triggeredBy[sourceId];
+        if (triggered && triggered.length > 0) {
+          parts.push(triggered.map(t => `+${fmtUsd(t.matchAmount)} from "${t.grantName}"`).join("; "));
+        }
       }
-      const triggered = matchInfo.triggeredBy[sourceId];
-      if (triggered && triggered.length > 0) {
-        return triggered.map(t => `+${fmtUsd(t.matchAmount)} from "${t.grantName}"`).join("; ");
+      const pending = pendingTriggeredByKey.get(`${sourceType}:${sourceId}`);
+      if (pending && pending.length > 0) {
+        parts.push(`Pending: ${pending.map(t => `+${fmtUsd(t.matchAmount)} from "${t.grantName}"`).join("; ")}`);
       }
-      return "";
+      return parts.join(" · ");
     };
+
+    // Build the export rows: actual rows first, then projected match rows
+    // appended (each annotated as "Projected match from <grant>").
+    const exportRows: Array<{
+      name: string; email: string; status: string; date: Date | null; amount: number; matchText: string;
+    }> = [];
+    for (const r of rowsResult.rows) {
+      exportRows.push({
+        name: r.name || "Anonymous",
+        email: r.email || "",
+        status: r.status,
+        date: r.date_created ? new Date(r.date_created) : null,
+        amount: parseFloat(r.amount) || 0,
+        matchText: buildMatchText(Number(r.source_id), r.source_type),
+      });
+    }
+    for (const p of projections) {
+      const who = p.trigger.triggerName || "another investor";
+      exportRows.push({
+        name: p.donorName,
+        email: p.donorEmail || "",
+        status: "pending",
+        date: p.trigger.triggerDate ? new Date(p.trigger.triggerDate) : null,
+        amount: p.projectedAmount,
+        matchText: `Projected match from "${p.grantName}" for ${who}'s ${fmtUsd(p.trigger.triggerAmount)}`,
+      });
+    }
+    exportRows.sort((a, b) => {
+      if (b.amount !== a.amount) return b.amount - a.amount;
+      return (a.name || "").localeCompare(b.name || "");
+    });
 
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet("Investors");
@@ -1068,9 +1208,15 @@ router.get("/:id/investors/export", async (req: Request, res: Response) => {
     titleRow.getCell(1).font = { bold: true, size: 14 };
     worksheet.mergeCells(titleRow.number, 1, titleRow.number, 8);
 
-    const summaryRow = worksheet.addRow([
-      `${totalInvestors} investor${totalInvestors === 1 ? "" : "s"} · ${rowsResult.rows.length} contribution${rowsResult.rows.length === 1 ? "" : "s"} · Total raised: ${fmtUsd(totalAmount)}`,
-    ]);
+    const summaryParts: string[] = [
+      `${totalInvestors} investor${totalInvestors === 1 ? "" : "s"}`,
+      `${exportRows.length} contribution${exportRows.length === 1 ? "" : "s"}`,
+      `Total raised: ${fmtUsd(totalAmount)}`,
+    ];
+    if (projectedTotal > 0) {
+      summaryParts.push(`(includes ${fmtUsd(projectedTotal)} pending matches across ${projections.length} projection${projections.length === 1 ? "" : "s"})`);
+    }
+    const summaryRow = worksheet.addRow([summaryParts.join(" · ")]);
     summaryRow.getCell(1).font = { italic: true };
     worksheet.mergeCells(summaryRow.number, 1, summaryRow.number, 8);
 
@@ -1083,20 +1229,18 @@ router.get("/:id/investors/export", async (req: Request, res: Response) => {
       s === "in transit" ? "In Transit" : s === "received" ? "Received" : "Pending";
 
     let rank = 0;
-    for (const r of rowsResult.rows) {
+    for (const r of exportRows) {
       rank += 1;
-      const amount = parseFloat(r.amount) || 0;
-      const pct = totalAmount > 0 ? amount / totalAmount : 0;
-      const matchText = buildMatchText(Number(r.source_id), r.source_type);
+      const pct = totalAmount > 0 ? r.amount / totalAmount : 0;
       const dataRow = worksheet.addRow([
         rank,
         r.name || "Anonymous",
         r.email || "",
         statusLabel(r.status),
-        r.date_created ? new Date(r.date_created) : null,
-        Math.round(amount * 100) / 100,
+        r.date,
+        Math.round(r.amount * 100) / 100,
         pct,
-        matchText,
+        r.matchText,
       ]);
       dataRow.getCell(5).numFmt = "mm/dd/yyyy";
       dataRow.getCell(6).numFmt = "$#,##0.00";

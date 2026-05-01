@@ -30,35 +30,77 @@ function formatDate(iso: string | null): string {
 
 function MatchAnnotation({ match, idx }: { match: InvestmentMatchInfo | null; idx: number }) {
   if (!match) return null;
+  const badges: JSX.Element[] = [];
+
   if (match.asMatch) {
-    const who = match.asMatch.triggeredName || "another investor";
-    const triggeredAmt = match.asMatch.triggeredAmount;
-    return (
+    const am = match.asMatch;
+    const who = am.triggeredName || "another investor";
+    const triggeredAmt = am.triggeredAmount;
+    const isPending = am.pending === true;
+    badges.push(
       <div
-        className="mt-1 inline-flex items-center gap-1 rounded-md border border-violet-200 bg-violet-50 px-2 py-0.5 text-xs text-violet-800"
-        data-testid={`text-match-as-donor-${idx}`}
-        title={`This is a match contribution from "${match.asMatch.grantName}"`}
+        key="as-donor"
+        className={
+          isPending
+            ? "mt-1 inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs text-amber-900"
+            : "mt-1 inline-flex items-center gap-1 rounded-md border border-violet-200 bg-violet-50 px-2 py-0.5 text-xs text-violet-800"
+        }
+        data-testid={isPending ? `text-pending-match-as-donor-${idx}` : `text-match-as-donor-${idx}`}
+        title={
+          isPending
+            ? `Projected match — will fire when ${who}'s pending investment lands. Funds remain in escrow until then.`
+            : `This is a match contribution from "${am.grantName}"`
+        }
       >
-        <span className="font-medium">↪ Match for {who}{triggeredAmt != null ? ` (${currency_format(triggeredAmt)})` : ""}</span>
-        <span className="text-violet-600">· {match.asMatch.grantName}</span>
-      </div>
+        <span className="font-medium">
+          {isPending ? "⧗ Pending match for " : "↪ Match for "}
+          {who}{triggeredAmt != null ? ` (${currency_format(triggeredAmt)})` : ""}
+        </span>
+        <span className={isPending ? "text-amber-700" : "text-violet-600"}>· {am.grantName}</span>
+      </div>,
     );
   }
+
   if (match.triggeredMatches && match.triggeredMatches.length > 0) {
-    const total = match.triggeredMatches.reduce((s, t) => s + (t.matchAmount || 0), 0);
-    const grantNames = match.triggeredMatches.map(t => t.grantName).join(", ");
-    return (
-      <div
-        className="mt-1 inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-800"
-        data-testid={`text-match-triggered-${idx}`}
-        title={match.triggeredMatches.map(t => `+${currency_format(t.matchAmount)} from "${t.grantName}"`).join("\n")}
-      >
-        <span className="font-medium">+ {currency_format(total)} matched</span>
-        <span className="text-emerald-700">· {grantNames}</span>
-      </div>
-    );
+    const actual = match.triggeredMatches.filter(t => !t.pending);
+    const pending = match.triggeredMatches.filter(t => t.pending);
+    if (actual.length > 0) {
+      const total = actual.reduce((s, t) => s + (t.matchAmount || 0), 0);
+      const grantNames = Array.from(new Set(actual.map(t => t.grantName))).join(", ");
+      badges.push(
+        <div
+          key="triggered"
+          className="mt-1 inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-800"
+          data-testid={`text-match-triggered-${idx}`}
+          title={actual.map(t => `+${currency_format(t.matchAmount)} from "${t.grantName}"`).join("\n")}
+        >
+          <span className="font-medium">+ {currency_format(total)} matched</span>
+          <span className="text-emerald-700">· {grantNames}</span>
+        </div>,
+      );
+    }
+    if (pending.length > 0) {
+      const total = pending.reduce((s, t) => s + (t.matchAmount || 0), 0);
+      const grantNames = Array.from(new Set(pending.map(t => t.grantName))).join(", ");
+      badges.push(
+        <div
+          key="triggered-pending"
+          className="mt-1 inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs text-amber-900"
+          data-testid={`text-match-triggered-pending-${idx}`}
+          title={
+            "Projected matches that will fire when this pending investment lands:\n" +
+            pending.map(t => `+${currency_format(t.matchAmount)} from "${t.grantName}"`).join("\n")
+          }
+        >
+          <span className="font-medium">⧗ + {currency_format(total)} pending match</span>
+          <span className="text-amber-700">· {grantNames}</span>
+        </div>,
+      );
+    }
   }
-  return null;
+
+  if (badges.length === 0) return null;
+  return <div className="flex flex-wrap gap-1">{badges}</div>;
 }
 
 export default function InvestmentInvestors() {
@@ -136,6 +178,14 @@ export default function InvestmentInvestors() {
                     {data.totalContributions.toLocaleString()} {data.totalContributions === 1 ? "contribution" : "contributions"}
                     {" · "}
                     Total raised: <span className="font-medium">{currency_format(totalAmount)}</span>
+                    {data.pendingMatchAmount != null && data.pendingMatchAmount > 0 && (
+                      <>
+                        {" · "}
+                        <span className="text-amber-700 dark:text-amber-400" data-testid="text-pending-match-summary">
+                          includes <span className="font-medium">{currency_format(data.pendingMatchAmount)}</span> pending matches
+                        </span>
+                      </>
+                    )}
                   </p>
                 )}
               </div>
@@ -178,10 +228,15 @@ export default function InvestmentInvestors() {
                     {items.map((it, idx) => {
                       const pct = totalAmount > 0 ? (it.totalAmount / totalAmount) * 100 : 0;
                       const rowKey = `${it.sourceType}-${it.sourceId}`;
+                      const isProjected = it.sourceType === "projected_match";
                       return (
                         <tr
                           key={rowKey}
-                          className="border-b last:border-b-0 hover:bg-muted/20"
+                          className={
+                            isProjected
+                              ? "border-b last:border-b-0 bg-amber-50/60 hover:bg-amber-50 dark:bg-amber-950/20"
+                              : "border-b last:border-b-0 hover:bg-muted/20"
+                          }
                           data-testid={`row-investor-${idx}`}
                         >
                           <td className="px-3 py-2 text-muted-foreground tabular-nums">{idx + 1}</td>

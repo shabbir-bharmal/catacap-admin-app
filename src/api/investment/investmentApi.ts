@@ -124,6 +124,7 @@ export interface InvestmentMatchAsDonor {
     triggeredName: string | null;
     triggeredAmount: number | null;
     matchAmount: number;
+    pending?: boolean;
 }
 
 export interface InvestmentMatchTriggered {
@@ -131,6 +132,7 @@ export interface InvestmentMatchTriggered {
     donorName: string | null;
     donorRecId: number | null;
     matchAmount: number;
+    pending?: boolean;
 }
 
 export interface InvestmentMatchInfo {
@@ -140,7 +142,7 @@ export interface InvestmentMatchInfo {
 
 export interface InvestmentInvestor {
     sourceId: number;
-    sourceType: "recommendation" | "pending_grant";
+    sourceType: "recommendation" | "pending_grant" | "projected_match";
     name: string;
     email: string | null;
     totalAmount: number;
@@ -155,6 +157,8 @@ export interface InvestmentInvestorsResponse {
     totalInvestors: number;
     totalContributions: number;
     totalAmount: number;
+    pendingMatchAmount?: number;
+    pendingMatchCount?: number;
     items: InvestmentInvestor[];
 }
 
