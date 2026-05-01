@@ -20,6 +20,72 @@ dayjs.extend(utc);
 
 const router = Router();
 
+// ── Unified investor source ──────────────────────────────────────────
+// Combines recommendations (status approved/pending, not linked to a Rejected
+// pending grant) with pending_grants in 'Pending' status that don't yet have
+// a recommendation row. Status mapping per row:
+//   pending grant linked & pg.status='Received'   → 'received'
+//   pending grant linked & pg.status='In Transit' → 'in transit'
+//   pending grant linked & pg.status='Pending'    → 'pending'  (rare; usually no rec exists yet)
+//   direct rec (no pg link), rec.status='approved' → 'received'
+//   direct rec (no pg link), rec.status='pending'  → 'pending'
+//   pending_grants in 'Pending' (no rec yet)       → 'pending'
+function unifiedInvestorsCTE(scope: { campaignParamIdx?: number } = {}): string {
+  const idx = scope.campaignParamIdx;
+  const recCampaignFilter = idx ? `AND r.campaign_id = $${idx}` : "";
+  const pgCampaignFilter = idx ? `AND pg.campaign_id = $${idx}` : "";
+  return `WITH unified_investors AS (
+    SELECT
+      r.campaign_id,
+      r.id AS source_id,
+      'recommendation'::text AS source_type,
+      LOWER(TRIM(r.user_email)) AS email_key,
+      r.user_email AS email,
+      COALESCE(NULLIF(TRIM(r.user_full_name), ''), r.user_email) AS name,
+      r.amount::numeric AS amount,
+      r.date_created,
+      CASE
+        WHEN LOWER(COALESCE(pg.status, '')) = 'received'   THEN 'received'
+        WHEN LOWER(COALESCE(pg.status, '')) = 'in transit' THEN 'in transit'
+        WHEN LOWER(COALESCE(pg.status, '')) = 'pending'    THEN 'pending'
+        WHEN LOWER(r.status) = 'approved' THEN 'received'
+        ELSE 'pending'
+      END AS status
+    FROM recommendations r
+    LEFT JOIN pending_grants pg ON r.pending_grants_id = pg.id
+    WHERE (r.is_deleted IS NULL OR r.is_deleted = false)
+      AND LOWER(r.status) IN ('approved', 'pending')
+      AND r.amount > 0
+      AND r.user_email IS NOT NULL
+      AND (pg.id IS NULL OR LOWER(COALESCE(pg.status, '')) <> 'rejected')
+      ${recCampaignFilter}
+    UNION ALL
+    SELECT
+      pg.campaign_id,
+      pg.id AS source_id,
+      'pending_grant'::text AS source_type,
+      LOWER(TRIM(u.email)) AS email_key,
+      u.email AS email,
+      COALESCE(NULLIF(TRIM(CONCAT_WS(' ', u.first_name, u.last_name)), ''), u.email) AS name,
+      COALESCE(NULLIF(pg.amount, '')::numeric, 0) AS amount,
+      pg.created_date AS date_created,
+      'pending'::text AS status
+    FROM pending_grants pg
+    JOIN users u ON pg.user_id = u.id
+    WHERE pg.campaign_id IS NOT NULL
+      AND LOWER(COALESCE(pg.status, '')) = 'pending'
+      AND (pg.is_deleted IS NULL OR pg.is_deleted = false)
+      AND COALESCE(NULLIF(pg.amount, '')::numeric, 0) > 0
+      AND u.email IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM recommendations r2
+        WHERE r2.pending_grants_id = pg.id
+          AND (r2.is_deleted IS NULL OR r2.is_deleted = false)
+      )
+      ${pgCampaignFilter}
+  )`;
+}
+
 const InvestmentStageEnum: Record<string, number> = {
   Private: 1,
   Public: 2,
@@ -809,51 +875,42 @@ router.get("/:id/investors", async (req: Request, res: Response) => {
       return;
     }
 
-    const PREDICATE = `r.campaign_id = $1
-         AND (r.is_deleted IS NULL OR r.is_deleted = false)
-         AND (LOWER(r.status) = 'approved' OR LOWER(r.status) = 'pending')
-         AND r.amount > 0
-         AND r.user_email IS NOT NULL`;
-
-    const [groupedResult, totalResult, nameResult] = await Promise.all([
+    const [rowsResult, summaryResult, nameResult] = await Promise.all([
       pool.query(
-        `SELECT
-           COALESCE(NULLIF(TRIM(MAX(r.user_full_name)), ''), MAX(r.user_email)) AS name,
-           MAX(r.user_email) AS email,
-           COUNT(*) AS contributions,
-           COALESCE(SUM(r.amount), 0) AS total_amount,
-           MAX(r.date_created) AS last_contribution_at
-         FROM recommendations r
-         WHERE ${PREDICATE}
-         GROUP BY LOWER(TRIM(r.user_email))
-         ORDER BY total_amount DESC, name ASC`,
+        `${unifiedInvestorsCTE({ campaignParamIdx: 1 })}
+         SELECT source_id, source_type, name, email, amount, date_created, status
+           FROM unified_investors
+          ORDER BY amount DESC, name ASC, date_created DESC`,
         [id],
       ),
       pool.query(
-        `SELECT COALESCE(SUM(r.amount), 0) AS total_amount
-         FROM recommendations r
-         WHERE ${PREDICATE}`,
+        `${unifiedInvestorsCTE({ campaignParamIdx: 1 })}
+         SELECT COALESCE(SUM(amount), 0) AS total_amount,
+                COUNT(DISTINCT email_key) AS total_investors
+           FROM unified_investors`,
         [id],
       ),
       pool.query(`SELECT name FROM campaigns WHERE id = $1`, [id]),
     ]);
 
-    const items = groupedResult.rows.map((r: any) => ({
+    const items = rowsResult.rows.map((r: any) => ({
+      sourceId: Number(r.source_id),
+      sourceType: r.source_type,
       name: r.name || "Anonymous",
       email: r.email || null,
-      contributions: parseInt(r.contributions) || 0,
-      totalAmount: parseFloat(r.total_amount) || 0,
-      lastContributionAt: r.last_contribution_at
-        ? new Date(r.last_contribution_at).toISOString()
-        : null,
+      totalAmount: parseFloat(r.amount) || 0,
+      date: r.date_created ? new Date(r.date_created).toISOString() : null,
+      status: r.status as "pending" | "in transit" | "received",
     }));
 
-    const totalAmount = parseFloat(totalResult.rows[0]?.total_amount) || 0;
+    const totalAmount = parseFloat(summaryResult.rows[0]?.total_amount) || 0;
+    const totalInvestors = parseInt(summaryResult.rows[0]?.total_investors) || 0;
 
     res.json({
       campaignId: id,
       campaignName: nameResult.rows[0]?.name || `Investment #${id}`,
-      totalInvestors: items.length,
+      totalInvestors,
+      totalContributions: items.length,
       totalAmount,
       items,
     });
@@ -871,41 +928,31 @@ router.get("/:id/investors/export", async (req: Request, res: Response) => {
       return;
     }
 
-    const PREDICATE = `r.campaign_id = $1
-         AND (r.is_deleted IS NULL OR r.is_deleted = false)
-         AND (LOWER(r.status) = 'approved' OR LOWER(r.status) = 'pending')
-         AND r.amount > 0
-         AND r.user_email IS NOT NULL`;
-
-    const [groupedResult, totalResult, nameResult] = await Promise.all([
+    const [rowsResult, summaryResult, nameResult] = await Promise.all([
       pool.query(
-        `SELECT
-           COALESCE(NULLIF(TRIM(MAX(r.user_full_name)), ''), MAX(r.user_email)) AS name,
-           MAX(r.user_email) AS email,
-           COUNT(*) AS contributions,
-           COALESCE(SUM(r.amount), 0) AS total_amount,
-           MAX(r.date_created) AS last_contribution_at
-         FROM recommendations r
-         WHERE ${PREDICATE}
-         GROUP BY LOWER(TRIM(r.user_email))
-         ORDER BY total_amount DESC, name ASC`,
+        `${unifiedInvestorsCTE({ campaignParamIdx: 1 })}
+         SELECT name, email, amount, date_created, status
+           FROM unified_investors
+          ORDER BY amount DESC, name ASC, date_created DESC`,
         [id],
       ),
       pool.query(
-        `SELECT COALESCE(SUM(r.amount), 0) AS total_amount
-         FROM recommendations r
-         WHERE ${PREDICATE}`,
+        `${unifiedInvestorsCTE({ campaignParamIdx: 1 })}
+         SELECT COALESCE(SUM(amount), 0) AS total_amount,
+                COUNT(DISTINCT email_key) AS total_investors
+           FROM unified_investors`,
         [id],
       ),
       pool.query(`SELECT name FROM campaigns WHERE id = $1`, [id]),
     ]);
 
-    if (groupedResult.rows.length === 0) {
+    if (rowsResult.rows.length === 0) {
       res.json({ success: false, message: "There are no investors to export for this investment." });
       return;
     }
 
-    const totalAmount = parseFloat(totalResult.rows[0]?.total_amount) || 0;
+    const totalAmount = parseFloat(summaryResult.rows[0]?.total_amount) || 0;
+    const totalInvestors = parseInt(summaryResult.rows[0]?.total_investors) || 0;
     const campaignName = nameResult.rows[0]?.name || `Investment #${id}`;
 
     const workbook = new ExcelJS.Workbook();
@@ -913,43 +960,48 @@ router.get("/:id/investors/export", async (req: Request, res: Response) => {
 
     const titleRow = worksheet.addRow([campaignName]);
     titleRow.getCell(1).font = { bold: true, size: 14 };
-    worksheet.mergeCells(titleRow.number, 1, titleRow.number, 6);
+    worksheet.mergeCells(titleRow.number, 1, titleRow.number, 7);
 
     const summaryRow = worksheet.addRow([
-      `${groupedResult.rows.length} investor${groupedResult.rows.length === 1 ? "" : "s"} · Total raised: $${totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      `${totalInvestors} investor${totalInvestors === 1 ? "" : "s"} · ${rowsResult.rows.length} contribution${rowsResult.rows.length === 1 ? "" : "s"} · Total raised: $${totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
     ]);
     summaryRow.getCell(1).font = { italic: true };
-    worksheet.mergeCells(summaryRow.number, 1, summaryRow.number, 6);
+    worksheet.mergeCells(summaryRow.number, 1, summaryRow.number, 7);
 
     worksheet.addRow([]);
 
-    const headerRow = worksheet.addRow(["#", "Name", "Email", "Contributions", "Amount Invested", "% of Total"]);
+    const headerRow = worksheet.addRow(["#", "Name", "Email", "Status", "Date", "Amount Invested", "% of Total"]);
     headerRow.eachCell((cell) => { cell.font = { bold: true }; });
 
+    const statusLabel = (s: string) =>
+      s === "in transit" ? "In Transit" : s === "received" ? "Received" : "Pending";
+
     let rank = 0;
-    for (const r of groupedResult.rows) {
+    for (const r of rowsResult.rows) {
       rank += 1;
-      const amount = parseFloat(r.total_amount) || 0;
+      const amount = parseFloat(r.amount) || 0;
       const pct = totalAmount > 0 ? amount / totalAmount : 0;
       const dataRow = worksheet.addRow([
         rank,
         r.name || "Anonymous",
         r.email || "",
-        parseInt(r.contributions) || 0,
+        statusLabel(r.status),
+        r.date_created ? new Date(r.date_created) : null,
         Math.round(amount * 100) / 100,
         pct,
       ]);
-      dataRow.getCell(5).numFmt = "$#,##0.00";
-      dataRow.getCell(6).numFmt = "0.00%";
+      dataRow.getCell(5).numFmt = "mm/dd/yyyy";
+      dataRow.getCell(6).numFmt = "$#,##0.00";
+      dataRow.getCell(7).numFmt = "0.00%";
     }
 
-    const totalsRow = worksheet.addRow(["", "Total", "", "", Math.round(totalAmount * 100) / 100, 1]);
+    const totalsRow = worksheet.addRow(["", "Total", "", "", "", Math.round(totalAmount * 100) / 100, 1]);
     totalsRow.eachCell((cell) => { cell.font = { bold: true }; });
-    totalsRow.getCell(5).numFmt = "$#,##0.00";
-    totalsRow.getCell(6).numFmt = "0.00%";
+    totalsRow.getCell(6).numFmt = "$#,##0.00";
+    totalsRow.getCell(7).numFmt = "0.00%";
 
     worksheet.columns.forEach((col, idx) => {
-      col.alignment = { horizontal: idx === 0 || idx >= 3 ? "right" : "left" };
+      col.alignment = { horizontal: idx === 0 || idx >= 5 ? "right" : "left" };
       let maxLen = 10;
       col.eachCell?.({ includeEmpty: false }, (cell) => {
         const len = String(cell.value ?? "").length;
@@ -1065,10 +1117,10 @@ router.get("/:id", async (req: Request, res: Response) => {
     const id = c.id;
 
     const balanceResult = await pool.query(
-      `SELECT COALESCE(SUM(CASE WHEN LOWER(status) = 'approved' OR LOWER(status) = 'pending' THEN amount ELSE 0 END), 0) AS balance,
-              COUNT(DISTINCT CASE WHEN (LOWER(status) = 'approved' OR LOWER(status) = 'pending') AND amount > 0 AND user_email IS NOT NULL THEN user_email END) AS investors
-       FROM recommendations
-       WHERE campaign_id = $1 AND (is_deleted IS NULL OR is_deleted = false)`,
+      `${unifiedInvestorsCTE({ campaignParamIdx: 1 })}
+       SELECT COALESCE(SUM(amount), 0) AS balance,
+              COUNT(DISTINCT email_key) AS investors
+         FROM unified_investors`,
       [id]
     );
     const currentBalance = parseFloat(balanceResult.rows[0]?.balance) || 0;
@@ -1201,14 +1253,12 @@ router.get("/", async (req: Request, res: Response) => {
     const investmentStatusRaw = req.query.InvestmentStatus || req.query.investmentStatus;
 
     const recResult = await pool.query(
-      `SELECT campaign_id,
+      `${unifiedInvestorsCTE()}
+       SELECT campaign_id,
               SUM(amount) AS current_balance,
-              COUNT(DISTINCT LOWER(TRIM(user_email))) AS number_of_investors
-       FROM recommendations
-       WHERE amount > 0 AND user_email IS NOT NULL
-         AND (LOWER(status) = 'approved' OR LOWER(status) = 'pending')
-         AND (is_deleted IS NULL OR is_deleted = false)
-       GROUP BY campaign_id`
+              COUNT(DISTINCT email_key) AS number_of_investors
+         FROM unified_investors
+        GROUP BY campaign_id`
     );
     const recMap: Record<number, { currentBalance: number; numberOfInvestors: number }> = {};
     for (const r of recResult.rows) {

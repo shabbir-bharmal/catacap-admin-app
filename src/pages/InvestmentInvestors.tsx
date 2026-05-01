@@ -1,12 +1,32 @@
 import { useEffect, useState } from "react";
 import { useLocation, useRoute } from "wouter";
-import { exportInvestmentInvestors, fetchInvestmentInvestors, type InvestmentInvestorsResponse } from "../api/investment/investmentApi";
+import { exportInvestmentInvestors, fetchInvestmentInvestors, type InvestmentContributionStatus, type InvestmentInvestorsResponse } from "../api/investment/investmentApi";
 import { AdminLayout } from "../components/AdminLayout";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { ChevronLeft, Download } from "lucide-react";
 import { currency_format } from "@/helpers/format";
 import { useToast } from "@/hooks/use-toast";
+
+const STATUS_LABEL: Record<InvestmentContributionStatus, string> = {
+  "pending": "Pending",
+  "in transit": "In Transit",
+  "received": "Received",
+};
+
+const STATUS_BADGE_CLASS: Record<InvestmentContributionStatus, string> = {
+  "pending": "bg-amber-100 text-amber-800 hover:bg-amber-100 border-amber-200",
+  "in transit": "bg-blue-100 text-blue-800 hover:bg-blue-100 border-blue-200",
+  "received": "bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border-emerald-200",
+};
+
+function formatDate(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
 
 export default function InvestmentInvestors() {
   const [, params] = useRoute("/investments/:id/investors");
@@ -80,6 +100,8 @@ export default function InvestmentInvestors() {
                   <p className="text-sm text-muted-foreground" data-testid="text-investors-summary">
                     {data.totalInvestors.toLocaleString()} {data.totalInvestors === 1 ? "investor" : "investors"}
                     {" · "}
+                    {data.totalContributions.toLocaleString()} {data.totalContributions === 1 ? "contribution" : "contributions"}
+                    {" · "}
                     Total raised: <span className="font-medium">{currency_format(totalAmount)}</span>
                   </p>
                 )}
@@ -113,6 +135,8 @@ export default function InvestmentInvestors() {
                       <th className="px-3 py-2 text-left font-medium text-muted-foreground w-12">#</th>
                       <th className="px-3 py-2 text-left font-medium text-muted-foreground">Name</th>
                       <th className="px-3 py-2 text-left font-medium text-muted-foreground">Email</th>
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">Status</th>
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">Date</th>
                       <th className="px-3 py-2 text-right font-medium text-muted-foreground">Amount Invested</th>
                       <th className="px-3 py-2 text-right font-medium text-muted-foreground">% of Total</th>
                     </tr>
@@ -120,9 +144,10 @@ export default function InvestmentInvestors() {
                   <tbody>
                     {items.map((it, idx) => {
                       const pct = totalAmount > 0 ? (it.totalAmount / totalAmount) * 100 : 0;
+                      const rowKey = `${it.sourceType}-${it.sourceId}`;
                       return (
                         <tr
-                          key={`${it.email ?? "anon"}-${idx}`}
+                          key={rowKey}
                           className="border-b last:border-b-0 hover:bg-muted/20"
                           data-testid={`row-investor-${idx}`}
                         >
@@ -142,6 +167,14 @@ export default function InvestmentInvestors() {
                               "—"
                             )}
                           </td>
+                          <td className="px-3 py-2" data-testid={`text-investor-status-${idx}`}>
+                            <Badge variant="outline" className={STATUS_BADGE_CLASS[it.status]}>
+                              {STATUS_LABEL[it.status]}
+                            </Badge>
+                          </td>
+                          <td className="px-3 py-2 text-muted-foreground tabular-nums" data-testid={`text-investor-date-${idx}`}>
+                            {formatDate(it.date)}
+                          </td>
                           <td className="px-3 py-2 text-right tabular-nums" data-testid={`text-investor-amount-${idx}`}>
                             {currency_format(it.totalAmount)}
                           </td>
@@ -155,7 +188,7 @@ export default function InvestmentInvestors() {
                   <tfoot>
                     <tr className="border-t-2 font-medium bg-muted/30">
                       <td className="px-3 py-2"></td>
-                      <td className="px-3 py-2" colSpan={2}>Total</td>
+                      <td className="px-3 py-2" colSpan={4}>Total</td>
                       <td className="px-3 py-2 text-right tabular-nums" data-testid="text-investors-total-amount">
                         {currency_format(totalAmount)}
                       </td>

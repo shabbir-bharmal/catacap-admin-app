@@ -116,18 +116,23 @@ export async function deleteInvestment(investmentId: number): Promise<any> {
     return response.data;
 }
 
+export type InvestmentContributionStatus = "pending" | "in transit" | "received";
+
 export interface InvestmentInvestor {
+    sourceId: number;
+    sourceType: "recommendation" | "pending_grant";
     name: string;
     email: string | null;
-    contributions: number;
     totalAmount: number;
-    lastContributionAt: string | null;
+    date: string | null;
+    status: InvestmentContributionStatus;
 }
 
 export interface InvestmentInvestorsResponse {
     campaignId: number;
     campaignName: string;
     totalInvestors: number;
+    totalContributions: number;
     totalAmount: number;
     items: InvestmentInvestor[];
 }

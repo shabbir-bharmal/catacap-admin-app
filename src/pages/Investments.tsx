@@ -928,8 +928,10 @@ export default function InvestmentsPage() {
               {investorsData
                 ? `${investorsData.totalInvestors.toLocaleString()} ${
                     investorsData.totalInvestors === 1 ? "investor" : "investors"
+                  } · ${investorsData.totalContributions.toLocaleString()} ${
+                    investorsData.totalContributions === 1 ? "contribution" : "contributions"
                   } · ${currency_format(investorsData.totalAmount)} total`
-                : "Approved and pending recommendations grouped by investor."}
+                : "Pending, in transit and received contributions for this investment."}
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-[60vh] overflow-y-auto">
@@ -952,8 +954,8 @@ export default function InvestmentsPage() {
                     <th className="py-2 pr-3 text-left font-medium text-muted-foreground">
                       Investor
                     </th>
-                    <th className="py-2 px-3 text-right font-medium text-muted-foreground">
-                      Contributions
+                    <th className="py-2 px-3 text-left font-medium text-muted-foreground">
+                      Status
                     </th>
                     <th className="py-2 pl-3 text-right font-medium text-muted-foreground">
                       Amount
@@ -961,31 +963,44 @@ export default function InvestmentsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {investorsData.items.map((it, idx) => (
-                    <tr
-                      key={`${it.email ?? "anon"}-${idx}`}
-                      className="border-b last:border-b-0"
-                      data-testid={`row-investor-${idx}`}
-                    >
-                      <td className="py-2 pr-3">
-                        <div className="font-medium" data-testid={`text-investor-name-${idx}`}>
-                          {it.name}
-                        </div>
-                        {it.email && (
-                          <div className="text-xs text-muted-foreground">{it.email}</div>
-                        )}
-                      </td>
-                      <td className="py-2 px-3 text-right tabular-nums">
-                        {it.contributions.toLocaleString()}
-                      </td>
-                      <td
-                        className="py-2 pl-3 text-right tabular-nums"
-                        data-testid={`text-investor-amount-${idx}`}
+                  {investorsData.items.map((it, idx) => {
+                    const statusLabel = it.status === "in transit" ? "In Transit" : it.status === "received" ? "Received" : "Pending";
+                    const statusClass = it.status === "received"
+                      ? "bg-emerald-100 text-emerald-800 border-emerald-200"
+                      : it.status === "in transit"
+                      ? "bg-blue-100 text-blue-800 border-blue-200"
+                      : "bg-amber-100 text-amber-800 border-amber-200";
+                    return (
+                      <tr
+                        key={`${it.sourceType}-${it.sourceId}`}
+                        className="border-b last:border-b-0"
+                        data-testid={`row-investor-${idx}`}
                       >
-                        {currency_format(it.totalAmount)}
-                      </td>
-                    </tr>
-                  ))}
+                        <td className="py-2 pr-3">
+                          <div className="font-medium" data-testid={`text-investor-name-${idx}`}>
+                            {it.name}
+                          </div>
+                          {it.email && (
+                            <div className="text-xs text-muted-foreground">{it.email}</div>
+                          )}
+                        </td>
+                        <td className="py-2 px-3">
+                          <span
+                            className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium ${statusClass}`}
+                            data-testid={`badge-status-${idx}`}
+                          >
+                            {statusLabel}
+                          </span>
+                        </td>
+                        <td
+                          className="py-2 pl-3 text-right tabular-nums"
+                          data-testid={`text-investor-amount-${idx}`}
+                        >
+                          {currency_format(it.totalAmount)}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2">
