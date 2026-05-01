@@ -883,6 +883,68 @@ router.get("/:id/notes/export", async (req: Request, res: Response) => {
   }
 });
 
+async function fetchMatchInfoForCampaign(campaignId: number) {
+  const result = await pool.query(
+    `SELECT a.match_grant_id,
+            cmg.name AS grant_name,
+            a.triggered_by_recommendation_id AS triggered_rec_id,
+            COALESCE(NULLIF(TRIM(tr.user_full_name), ''), tr.user_email) AS triggered_name,
+            tr.amount::numeric AS triggered_amount,
+            a.donor_recommendation_id AS donor_rec_id,
+            COALESCE(NULLIF(TRIM(dr.user_full_name), ''), dr.user_email) AS donor_name,
+            a.amount::numeric AS match_amount
+       FROM campaign_match_grant_activity a
+       JOIN campaign_match_grants cmg ON cmg.id = a.match_grant_id
+       LEFT JOIN recommendations tr ON tr.id = a.triggered_by_recommendation_id
+       LEFT JOIN recommendations dr ON dr.id = a.donor_recommendation_id
+      WHERE a.campaign_id = $1
+      ORDER BY a.id`,
+    [campaignId],
+  );
+
+  // Map: rec id of the donor (match contribution) → describes which investment it matches
+  const asMatch: Record<number, {
+    grantName: string;
+    triggeredRecId: number | null;
+    triggeredName: string | null;
+    triggeredAmount: number | null;
+    matchAmount: number;
+  }> = {};
+
+  // Map: rec id of the triggering investor → list of matches their investment generated
+  const triggeredBy: Record<number, Array<{
+    grantName: string;
+    donorName: string | null;
+    donorRecId: number | null;
+    matchAmount: number;
+  }>> = {};
+
+  for (const row of result.rows) {
+    const matchAmount = parseFloat(row.match_amount) || 0;
+    if (row.donor_rec_id != null) {
+      asMatch[Number(row.donor_rec_id)] = {
+        grantName: row.grant_name,
+        triggeredRecId: row.triggered_rec_id != null ? Number(row.triggered_rec_id) : null,
+        triggeredName: row.triggered_name || null,
+        triggeredAmount: row.triggered_amount != null ? parseFloat(row.triggered_amount) : null,
+        matchAmount,
+      };
+    }
+    if (row.triggered_rec_id != null) {
+      const tid = Number(row.triggered_rec_id);
+      if (!triggeredBy[tid]) triggeredBy[tid] = [];
+      triggeredBy[tid].push({
+        grantName: row.grant_name,
+        donorName: row.donor_name || null,
+        donorRecId: row.donor_rec_id != null ? Number(row.donor_rec_id) : null,
+        matchAmount,
+      });
+    }
+  }
+
+  return { asMatch, triggeredBy };
+}
+
 router.get("/:id/investors", async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -891,7 +953,7 @@ router.get("/:id/investors", async (req: Request, res: Response) => {
       return;
     }
 
-    const [rowsResult, summaryResult, nameResult] = await Promise.all([
+    const [rowsResult, summaryResult, nameResult, matchInfo] = await Promise.all([
       pool.query(
         `${unifiedInvestorsCTE({ campaignParamIdx: 1 })}
          SELECT source_id, source_type, name, email, amount, date_created, status
@@ -907,17 +969,27 @@ router.get("/:id/investors", async (req: Request, res: Response) => {
         [id],
       ),
       pool.query(`SELECT name FROM campaigns WHERE id = $1`, [id]),
+      fetchMatchInfoForCampaign(id),
     ]);
 
-    const items = rowsResult.rows.map((r: any) => ({
-      sourceId: Number(r.source_id),
-      sourceType: r.source_type,
-      name: r.name || "Anonymous",
-      email: r.email || null,
-      totalAmount: parseFloat(r.amount) || 0,
-      date: r.date_created ? new Date(r.date_created).toISOString() : null,
-      status: r.status as "pending" | "in transit" | "received",
-    }));
+    const items = rowsResult.rows.map((r: any) => {
+      const sourceId = Number(r.source_id);
+      const sourceType = r.source_type as "recommendation" | "pending_grant";
+      const matchAsDonor = sourceType === "recommendation" ? matchInfo.asMatch[sourceId] || null : null;
+      const triggeredMatches = sourceType === "recommendation" ? matchInfo.triggeredBy[sourceId] || [] : [];
+      return {
+        sourceId,
+        sourceType,
+        name: r.name || "Anonymous",
+        email: r.email || null,
+        totalAmount: parseFloat(r.amount) || 0,
+        date: r.date_created ? new Date(r.date_created).toISOString() : null,
+        status: r.status as "pending" | "in transit" | "received",
+        match: (matchAsDonor || triggeredMatches.length > 0)
+          ? { asMatch: matchAsDonor, triggeredMatches }
+          : null,
+      };
+    });
 
     const totalAmount = parseFloat(summaryResult.rows[0]?.total_amount) || 0;
     const totalInvestors = parseInt(summaryResult.rows[0]?.total_investors) || 0;
@@ -944,10 +1016,10 @@ router.get("/:id/investors/export", async (req: Request, res: Response) => {
       return;
     }
 
-    const [rowsResult, summaryResult, nameResult] = await Promise.all([
+    const [rowsResult, summaryResult, nameResult, matchInfo] = await Promise.all([
       pool.query(
         `${unifiedInvestorsCTE({ campaignParamIdx: 1 })}
-         SELECT name, email, amount, date_created, status
+         SELECT source_id, source_type, name, email, amount, date_created, status
            FROM unified_investors
           ORDER BY amount DESC, name ASC, date_created DESC`,
         [id],
@@ -960,6 +1032,7 @@ router.get("/:id/investors/export", async (req: Request, res: Response) => {
         [id],
       ),
       pool.query(`SELECT name FROM campaigns WHERE id = $1`, [id]),
+      fetchMatchInfoForCampaign(id),
     ]);
 
     if (rowsResult.rows.length === 0) {
@@ -971,22 +1044,39 @@ router.get("/:id/investors/export", async (req: Request, res: Response) => {
     const totalInvestors = parseInt(summaryResult.rows[0]?.total_investors) || 0;
     const campaignName = nameResult.rows[0]?.name || `Investment #${id}`;
 
+    const fmtUsd = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+    const buildMatchText = (sourceId: number, sourceType: string): string => {
+      if (sourceType !== "recommendation") return "";
+      const asMatch = matchInfo.asMatch[sourceId];
+      if (asMatch) {
+        const who = asMatch.triggeredName || "another investor";
+        const amt = asMatch.triggeredAmount != null ? ` ${fmtUsd(asMatch.triggeredAmount)}` : "";
+        return `Match contribution from "${asMatch.grantName}" for ${who}${amt ? "'s " + amt.trim() : ""}`;
+      }
+      const triggered = matchInfo.triggeredBy[sourceId];
+      if (triggered && triggered.length > 0) {
+        return triggered.map(t => `+${fmtUsd(t.matchAmount)} from "${t.grantName}"`).join("; ");
+      }
+      return "";
+    };
+
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet("Investors");
 
     const titleRow = worksheet.addRow([campaignName]);
     titleRow.getCell(1).font = { bold: true, size: 14 };
-    worksheet.mergeCells(titleRow.number, 1, titleRow.number, 7);
+    worksheet.mergeCells(titleRow.number, 1, titleRow.number, 8);
 
     const summaryRow = worksheet.addRow([
-      `${totalInvestors} investor${totalInvestors === 1 ? "" : "s"} · ${rowsResult.rows.length} contribution${rowsResult.rows.length === 1 ? "" : "s"} · Total raised: $${totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      `${totalInvestors} investor${totalInvestors === 1 ? "" : "s"} · ${rowsResult.rows.length} contribution${rowsResult.rows.length === 1 ? "" : "s"} · Total raised: ${fmtUsd(totalAmount)}`,
     ]);
     summaryRow.getCell(1).font = { italic: true };
-    worksheet.mergeCells(summaryRow.number, 1, summaryRow.number, 7);
+    worksheet.mergeCells(summaryRow.number, 1, summaryRow.number, 8);
 
     worksheet.addRow([]);
 
-    const headerRow = worksheet.addRow(["#", "Name", "Email", "Status", "Date", "Amount Invested", "% of Total"]);
+    const headerRow = worksheet.addRow(["#", "Name", "Email", "Status", "Date", "Amount Invested", "% of Total", "Match"]);
     headerRow.eachCell((cell) => { cell.font = { bold: true }; });
 
     const statusLabel = (s: string) =>
@@ -997,6 +1087,7 @@ router.get("/:id/investors/export", async (req: Request, res: Response) => {
       rank += 1;
       const amount = parseFloat(r.amount) || 0;
       const pct = totalAmount > 0 ? amount / totalAmount : 0;
+      const matchText = buildMatchText(Number(r.source_id), r.source_type);
       const dataRow = worksheet.addRow([
         rank,
         r.name || "Anonymous",
@@ -1005,25 +1096,28 @@ router.get("/:id/investors/export", async (req: Request, res: Response) => {
         r.date_created ? new Date(r.date_created) : null,
         Math.round(amount * 100) / 100,
         pct,
+        matchText,
       ]);
       dataRow.getCell(5).numFmt = "mm/dd/yyyy";
       dataRow.getCell(6).numFmt = "$#,##0.00";
       dataRow.getCell(7).numFmt = "0.00%";
+      dataRow.getCell(8).alignment = { wrapText: true, vertical: "top" };
     }
 
-    const totalsRow = worksheet.addRow(["", "Total", "", "", "", Math.round(totalAmount * 100) / 100, 1]);
+    const totalsRow = worksheet.addRow(["", "Total", "", "", "", Math.round(totalAmount * 100) / 100, 1, ""]);
     totalsRow.eachCell((cell) => { cell.font = { bold: true }; });
     totalsRow.getCell(6).numFmt = "$#,##0.00";
     totalsRow.getCell(7).numFmt = "0.00%";
 
     worksheet.columns.forEach((col, idx) => {
-      col.alignment = { horizontal: idx === 0 || idx >= 5 ? "right" : "left" };
+      col.alignment = { horizontal: idx === 0 || (idx >= 5 && idx <= 6) ? "right" : "left", vertical: "top" };
       let maxLen = 10;
       col.eachCell?.({ includeEmpty: false }, (cell) => {
         const len = String(cell.value ?? "").length;
         if (len > maxLen) maxLen = len;
       });
-      col.width = maxLen + 4;
+      // Cap the Match column width so very long descriptions don't blow out the layout
+      col.width = idx === 7 ? Math.min(maxLen + 4, 70) : maxLen + 4;
     });
 
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");

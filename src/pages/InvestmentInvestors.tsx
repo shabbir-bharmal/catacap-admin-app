@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation, useRoute } from "wouter";
-import { exportInvestmentInvestors, fetchInvestmentInvestors, type InvestmentContributionStatus, type InvestmentInvestorsResponse } from "../api/investment/investmentApi";
+import { exportInvestmentInvestors, fetchInvestmentInvestors, type InvestmentContributionStatus, type InvestmentInvestorsResponse, type InvestmentMatchInfo } from "../api/investment/investmentApi";
 import { AdminLayout } from "../components/AdminLayout";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,39 @@ function formatDate(iso: string | null): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
+
+function MatchAnnotation({ match, idx }: { match: InvestmentMatchInfo | null; idx: number }) {
+  if (!match) return null;
+  if (match.asMatch) {
+    const who = match.asMatch.triggeredName || "another investor";
+    const triggeredAmt = match.asMatch.triggeredAmount;
+    return (
+      <div
+        className="mt-1 inline-flex items-center gap-1 rounded-md border border-violet-200 bg-violet-50 px-2 py-0.5 text-xs text-violet-800"
+        data-testid={`text-match-as-donor-${idx}`}
+        title={`This is a match contribution from "${match.asMatch.grantName}"`}
+      >
+        <span className="font-medium">↪ Match for {who}{triggeredAmt != null ? ` (${currency_format(triggeredAmt)})` : ""}</span>
+        <span className="text-violet-600">· {match.asMatch.grantName}</span>
+      </div>
+    );
+  }
+  if (match.triggeredMatches && match.triggeredMatches.length > 0) {
+    const total = match.triggeredMatches.reduce((s, t) => s + (t.matchAmount || 0), 0);
+    const grantNames = match.triggeredMatches.map(t => t.grantName).join(", ");
+    return (
+      <div
+        className="mt-1 inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-800"
+        data-testid={`text-match-triggered-${idx}`}
+        title={match.triggeredMatches.map(t => `+${currency_format(t.matchAmount)} from "${t.grantName}"`).join("\n")}
+      >
+        <span className="font-medium">+ {currency_format(total)} matched</span>
+        <span className="text-emerald-700">· {grantNames}</span>
+      </div>
+    );
+  }
+  return null;
 }
 
 export default function InvestmentInvestors() {
@@ -152,8 +185,9 @@ export default function InvestmentInvestors() {
                           data-testid={`row-investor-${idx}`}
                         >
                           <td className="px-3 py-2 text-muted-foreground tabular-nums">{idx + 1}</td>
-                          <td className="px-3 py-2 font-medium" data-testid={`text-investor-name-${idx}`}>
-                            {it.name}
+                          <td className="px-3 py-2 font-medium align-top" data-testid={`text-investor-name-${idx}`}>
+                            <div>{it.name}</div>
+                            <MatchAnnotation match={it.match} idx={idx} />
                           </td>
                           <td className="px-3 py-2 text-muted-foreground" data-testid={`text-investor-email-${idx}`}>
                             {it.email ? (

@@ -118,6 +118,26 @@ export async function deleteInvestment(investmentId: number): Promise<any> {
 
 export type InvestmentContributionStatus = "pending" | "in transit" | "received";
 
+export interface InvestmentMatchAsDonor {
+    grantName: string;
+    triggeredRecId: number | null;
+    triggeredName: string | null;
+    triggeredAmount: number | null;
+    matchAmount: number;
+}
+
+export interface InvestmentMatchTriggered {
+    grantName: string;
+    donorName: string | null;
+    donorRecId: number | null;
+    matchAmount: number;
+}
+
+export interface InvestmentMatchInfo {
+    asMatch: InvestmentMatchAsDonor | null;
+    triggeredMatches: InvestmentMatchTriggered[];
+}
+
 export interface InvestmentInvestor {
     sourceId: number;
     sourceType: "recommendation" | "pending_grant";
@@ -126,6 +146,7 @@ export interface InvestmentInvestor {
     totalAmount: number;
     date: string | null;
     status: InvestmentContributionStatus;
+    match: InvestmentMatchInfo | null;
 }
 
 export interface InvestmentInvestorsResponse {
