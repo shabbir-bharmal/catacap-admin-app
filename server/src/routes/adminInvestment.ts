@@ -1260,15 +1260,14 @@ router.get("/", async (req: Request, res: Response) => {
              c.pdf_file_name, c.meta_title, c.meta_description,
              c.contact_info_email_address,
              c.deleted_at, du.first_name AS deleted_by_first, du.last_name AS deleted_by_last,
-             COALESCE(oue.first_name, ou.first_name) AS owner_first,
-             COALESCE(oue.last_name,  ou.last_name)  AS owner_last,
-             COALESCE(oue.email,      ou.email)      AS owner_email
+             ou.first_name AS owner_first,
+             ou.last_name  AS owner_last,
+             ou.email      AS owner_email
       FROM campaigns c
       LEFT JOIN users du ON c.deleted_by = du.id
-      LEFT JOIN users ou ON c.user_id = ou.id
-      LEFT JOIN users oue
-        ON LOWER(TRIM(oue.email)) = LOWER(TRIM(c.contact_info_email_address))
-       AND (oue.is_deleted IS NULL OR oue.is_deleted = false)
+      LEFT JOIN users ou
+        ON LOWER(TRIM(ou.email)) = LOWER(TRIM(c.contact_info_email_address))
+       AND (ou.is_deleted IS NULL OR ou.is_deleted = false)
       ${whereClause}
     `;
 
