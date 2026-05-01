@@ -45,11 +45,19 @@ function unifiedInvestorsCTE(scope: { campaignParamIdx?: number } = {}): string 
       r.amount::numeric AS amount,
       r.date_created,
       CASE
-        WHEN LOWER(COALESCE(pg.status, '')) = 'received'   THEN 'received'
-        WHEN LOWER(COALESCE(pg.status, '')) = 'in transit' THEN 'in transit'
-        WHEN LOWER(COALESCE(pg.status, '')) = 'pending'    THEN 'pending'
-        WHEN LOWER(r.status) = 'approved' THEN 'received'
-        ELSE 'pending'
+        -- Recommendation linked to a DAF / foundation pending grant: the
+        -- status follows the grant's funding pipeline (received → in transit
+        -- → pending). A manually-approved rec on a DAF is treated as received.
+        WHEN r.pending_grants_id IS NOT NULL THEN
+          CASE
+            WHEN LOWER(COALESCE(pg.status, '')) = 'received'   THEN 'received'
+            WHEN LOWER(COALESCE(pg.status, '')) = 'in transit' THEN 'in transit'
+            WHEN LOWER(r.status) = 'approved'                  THEN 'received'
+            ELSE 'pending'
+          END
+        -- No DAF / pending grant link = funded from wallet, cash, or match
+        -- grant. Money is already in our hands → always shown as received.
+        ELSE 'received'
       END AS status
     FROM recommendations r
     LEFT JOIN pending_grants pg ON r.pending_grants_id = pg.id
