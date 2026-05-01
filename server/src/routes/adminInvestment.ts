@@ -1258,6 +1258,7 @@ router.get("/", async (req: Request, res: Response) => {
       SELECT c.id, c.name, c.created_date, c.stage, c.fundraising_close_date,
              c.is_active, c.property, c.original_pdf_file_name, c.image_file_name,
              c.pdf_file_name, c.meta_title, c.meta_description,
+             c.contact_info_email_address,
              c.deleted_at, du.first_name AS deleted_by_first, du.last_name AS deleted_by_last,
              ou.first_name AS owner_first, ou.last_name AS owner_last, ou.email AS owner_email
       FROM campaigns c
@@ -1296,7 +1297,10 @@ router.get("/", async (req: Request, res: Response) => {
           ownerFullName: (c.owner_first || c.owner_last)
             ? `${c.owner_first || ""} ${c.owner_last || ""}`.trim()
             : null,
-          ownerEmail: c.owner_email || null,
+          ownerEmail: c.owner_email
+            || (c.contact_info_email_address && String(c.contact_info_email_address).includes("@")
+              ? String(c.contact_info_email_address).trim()
+              : null),
         };
       });
 

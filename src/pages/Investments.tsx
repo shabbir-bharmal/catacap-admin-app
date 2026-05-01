@@ -598,9 +598,11 @@ export default function InvestmentsPage() {
                             </span>
                           </td>
                           <td className="px-4 py-3">
-                            {inv.ownerFullName ? (
+                            {(inv.ownerFullName || inv.ownerEmail) ? (
                               <div className="text-sm" data-testid={`text-owner-${inv.id}`}>
-                                <div className="font-medium">{inv.ownerFullName}</div>
+                                {inv.ownerFullName && (
+                                  <div className="font-medium">{inv.ownerFullName}</div>
+                                )}
                                 {inv.ownerEmail && (
                                   <div className="text-xs text-muted-foreground">{inv.ownerEmail}</div>
                                 )}

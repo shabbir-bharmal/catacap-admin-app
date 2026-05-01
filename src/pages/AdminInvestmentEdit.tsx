@@ -36,6 +36,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import BannerCropper from "@/components/BannerCropper";
 import { MultiSelectPopover } from "@/components/MultiSelectPopover";
+import { UserEmailCombobox } from "@/components/UserEmailCombobox";
 import { CalendarIcon, ArrowLeft, Download, ChevronDown, Copy, QrCode, Mail, User, Briefcase, ImageIcon, Settings, ArrowRight, CheckCircle2, Check, Pencil, Trash2, HelpCircle, FileText, Clock, X as XIcon, Plus } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { QRCodeCanvas } from "qrcode.react";
@@ -486,6 +487,7 @@ export default function AdminInvestmentEdit() {
   const [resolvedNumericId, setResolvedNumericId] = useState<number | null>(null);
   const [formData, setFormData] = useState<FormData>(defaultFormData);
   const [errors, setErrors] = useState<Record<string, boolean>>({});
+  const [investmentOwnerValid, setInvestmentOwnerValid] = useState(true);
   const [propertyError, setPropertyError] = useState("");
   const [fileErrors, setFileErrors] = useState<Record<string, string>>({});
 
@@ -1308,8 +1310,17 @@ export default function AdminInvestmentEdit() {
       if (first) {
         scrollToField(first);
       }
+      return false;
     }
-    return valid;
+    if (!investmentOwnerValid) {
+      toast({
+        title: "Invalid Investment Owner",
+        description: "User with such email address does not exist. Please pick an existing user.",
+        variant: "destructive",
+      });
+      return false;
+    }
+    return true;
   };
 
   const uploadLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -3014,15 +3025,15 @@ export default function AdminInvestmentEdit() {
               <CardContent className="space-y-5">
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Org email — editable */}
+                  {/* Investment Owner — must match an existing user */}
                   <div className="space-y-1.5">
-                    <Label htmlFor="email" className="text-sm">Organizational email to manage this account</Label>
-                    <Input
-                      id="email"
-                      type="email"
+                    <Label htmlFor="email" className="text-sm">Investment Owner</Label>
+                    <UserEmailCombobox
                       value={formData.email}
-                      onChange={(e) => upd("email", e.target.value)}
-                      data-testid="input-email-admin"
+                      onChange={(email) => upd("email", email)}
+                      onValidityChange={setInvestmentOwnerValid}
+                      placeholder="Search investment owner by email..."
+                      testId="combobox-investment-owner"
                     />
                   </div>
 

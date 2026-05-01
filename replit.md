@@ -134,3 +134,15 @@ You are a senior software engineer working with Node.js (Express), React (Vite),
   - Admin save: `server/src/routes/adminInvestment.ts` writes `campaign.investmentTypes ?? existing.investment_instruments` back to the same column.
   - Disbursal endpoints (`server/src/routes/campaign.ts`, `server/src/routes/adminDisbursalRequests.ts`) join `campaigns` and resolve names via `buildInvestmentTypeMap` / `resolveInvestmentTypeString`.
 - **History note (campaign id=229 investigation, task #347)**: The original .NET seed in `Back-End/Invest.Repo/Data/InvestmentTypeData.cs` only contained ids 1–11, ending with "Real Estate" (id=11). Ids 12+ ("Convertible Note", "Equity Fund", "SAFE", "Preferred Stock") were added on production after the seed. Campaign 229 currently stores `investment_instruments = "12"` which correctly resolves to "Convertible Note" — this matches the admin edit page. If a separate public-facing site (catacap.org) renders a different value, the divergence is in that site's own data path, not in this admin codebase.
+
+### Investment Owner field (Admin Settings tab on `/raisemoney/edit/:id`)
+- **UI control**: `UserEmailCombobox` (`src/components/UserEmailCombobox.tsx`) — typeahead Popover + cmdk that only allows selecting an email belonging to a real, non-deleted row in `users`. Free-text values are validated and rejected with the message "User with such email address does not exist".
+- **Backend lookups** (in `server/src/routes/adminUsers.ts`, mounted at `/api/admin/user`):
+  - `GET /email-search?q=<substr>&limit=<n>` — substring match on `users.email` (LOWER LIKE), case-insensitive, prioritises exact then prefix matches, returns up to 50.
+  - `GET /email-lookup?email=<exact>` — exact case-insensitive match, used to validate a stored value on form load and to decide whether to show the validation error.
+- **Storage**: this field still maps to `campaigns.contact_info_email_address` (no schema change). Validation is purely UI-side; the back-end save endpoint does not enforce that the email matches a real user (yet). If we ever want to also auto-update `campaigns.user_id` from this email, that would be a follow-up change.
+- **Save guard**: `validate()` in `AdminInvestmentEdit.tsx` blocks Save and shows a destructive toast when `investmentOwnerValid` is false.
+
+### Owner column on `/investments`
+- Server query (`server/src/routes/adminInvestment.ts` ~line 1260) `LEFT JOIN users ou ON c.user_id = ou.id` and selects `c.contact_info_email_address` as a fallback for the displayed `ownerEmail`. Mirrors the existing fallback in the `resolveInvestmentOwnerEmail` helper.
+- Frontend (`src/pages/Investments.tsx`) renders the Owner cell when EITHER `ownerFullName` OR `ownerEmail` is present, so campaigns with no linked user but a contact email still surface that email.
