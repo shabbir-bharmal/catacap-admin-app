@@ -616,6 +616,11 @@ export default function SchedulersTab() {
                                               (f): f is string => typeof f === "string",
                                             )
                                           : [];
+                                        const paths = Array.isArray(md.prunedPaths)
+                                          ? (md.prunedPaths as unknown[]).filter(
+                                              (p): p is string => typeof p === "string",
+                                            )
+                                          : [];
                                         const warnings = Array.isArray(md.warnings)
                                           ? (md.warnings as unknown[]).filter(
                                               (w): w is string => typeof w === "string",
@@ -627,8 +632,16 @@ export default function SchedulersTab() {
                                             ? `Retention: deleted ${prunedFiles} backup file(s)` +
                                               (folders.length > 0 ? ` from ${folders.join(", ")}` : "")
                                             : "Retention check");
+                                        const tooltipParts: string[] = [];
+                                        if (warnings.length > 0) tooltipParts.push(warnings.join("\n"));
+                                        if (paths.length > 0) {
+                                          tooltipParts.push(
+                                            `Pruned files:\n${paths.join("\n")}`,
+                                          );
+                                        }
+                                        const tooltip = tooltipParts.join("\n\n") || text;
                                         return (
-                                          <span title={warnings.join("\n") || text}>
+                                          <span title={tooltip}>
                                             <span className="text-xs">🗑️ {text}</span>
                                             {warnings.length > 0 && (
                                               <span className="ml-2 text-xs text-amber-600">

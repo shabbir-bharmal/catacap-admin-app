@@ -184,6 +184,7 @@ function buildBackupFilename(now: Date): string {
 interface PruneResult {
   prunedFiles: number;
   prunedFolders: string[];
+  prunedPaths: string[];
   warnings: string[];
 }
 
@@ -209,6 +210,7 @@ async function logRetentionRun(
     retentionDays: RETENTION_DAYS,
     prunedFiles: prune.prunedFiles,
     prunedFolders: prune.prunedFolders,
+    prunedPaths: prune.prunedPaths,
     warnings: prune.warnings,
     summary,
   };
@@ -234,7 +236,12 @@ async function pruneOldBackups(
 ): Promise<PruneResult> {
   const cutoff = new Date(now.getTime() - RETENTION_DAYS * 24 * 60 * 60 * 1000);
   const cutoffYMD = buildDateFolder(cutoff);
-  const result: PruneResult = { prunedFiles: 0, prunedFolders: [], warnings: [] };
+  const result: PruneResult = {
+    prunedFiles: 0,
+    prunedFolders: [],
+    prunedPaths: [],
+    warnings: [],
+  };
 
   const { data: entries, error: listErr } = await supabase.storage
     .from(bucket)
@@ -273,6 +280,7 @@ async function pruneOldBackups(
     }
     result.prunedFiles += paths.length;
     result.prunedFolders.push(folderName);
+    result.prunedPaths.push(...paths);
   }
   return result;
 }
@@ -461,6 +469,7 @@ export async function runBackupDatabase(): Promise<Record<string, unknown>> {
     retentionDays: RETENTION_DAYS,
     prunedFiles: prune.prunedFiles,
     prunedFolders: prune.prunedFolders,
+    prunedPaths: prune.prunedPaths,
     pruneWarnings: prune.warnings,
   };
 }
