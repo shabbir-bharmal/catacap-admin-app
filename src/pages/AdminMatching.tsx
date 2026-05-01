@@ -13,7 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import axiosInstance from "../api/axios";
 import { currency_format, formatDate } from "../helpers/format";
-import { Plus, Pencil, Trash2, GitMerge, Activity, ChevronDown, ChevronRight, Search, Loader2, Clock } from "lucide-react";
+import { Plus, Pencil, Trash2, GitMerge, Activity, ChevronDown, ChevronRight, Search, Loader2, Clock, Download } from "lucide-react";
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useDebounce } from "../hooks/useDebounce";
@@ -637,6 +637,34 @@ export default function AdminMatching() {
   const [editTarget, setEditTarget] = useState<(typeof EMPTY_FORM & { id?: number }) | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [exportingId, setExportingId] = useState<number | null>(null);
+
+  const handleExport = async (g: MatchGrant) => {
+    setExportingId(g.id);
+    try {
+      const response = await axiosInstance.get(`/api/admin/matching/${g.id}/export`, {
+        responseType: "blob",
+      });
+      const blob = new Blob([response.data], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      const safeName = (g.name || `Grant_${g.id}`).replace(/[^a-zA-Z0-9_-]+/g, "_").slice(0, 60);
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      link.setAttribute("download", `MatchGrant_${safeName}_${dateStamp}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      toast({ title: "Report downloaded", description: `${g.name || `Grant #${g.id}`}` });
+    } catch (err: any) {
+      toast({ title: "Export failed", description: err?.message || "Unknown error", variant: "destructive" });
+    } finally {
+      setExportingId(null);
+    }
+  };
 
   const { data: grants = [], isLoading: grantsLoading } = useQuery({
     queryKey: ["/api/admin/matching"],
@@ -877,6 +905,20 @@ export default function AdminMatching() {
                       </div>
 
                       <div className="flex items-center gap-1 shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleExport(g)}
+                          disabled={exportingId === g.id}
+                          title="Download Excel report"
+                          data-testid={`button-export-${g.id}`}
+                        >
+                          {exportingId === g.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Download className="h-4 w-4" />
+                          )}
+                        </Button>
                         <Button
                           variant="ghost"
                           size="icon"

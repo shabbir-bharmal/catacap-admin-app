@@ -1,5 +1,6 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
+import ExcelJS from "exceljs";
 import pool from "../db.js";
 import { runRetroactiveSweep } from "../utils/matchingGrants.js";
 
@@ -551,6 +552,222 @@ router.delete("/:id", async (req: Request, res: Response) => {
     res.status(500).json({ success: false, message: err.message });
   } finally {
     client.release();
+  }
+});
+
+// ------------------------------------------------------------------ //
+// GET /api/admin/matching/:id/export — per-grant Excel report
+// ------------------------------------------------------------------ //
+router.get("/:id/export", async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) {
+      res.status(400).json({ success: false, message: "Invalid id" });
+      return;
+    }
+
+    // Grant header
+    const grantRes = await pool.query(
+      `SELECT cmg.id, cmg.name, cmg.total_cap, cmg.amount_used, cmg.reserved_amount,
+              cmg.match_type, cmg.per_investment_cap, cmg.is_active, cmg.notes,
+              cmg.expires_at, cmg.retroactive_from, cmg.created_at, cmg.updated_at,
+              u.email AS donor_email,
+              CONCAT(u.first_name, ' ', u.last_name) AS donor_full_name,
+              u.user_name AS donor_user_name
+         FROM campaign_match_grants cmg
+         LEFT JOIN users u ON u.id = cmg.donor_user_id
+        WHERE cmg.id = $1`,
+      [id],
+    );
+    if (grantRes.rows.length === 0) {
+      res.status(404).json({ success: false, message: "Match grant not found." });
+      return;
+    }
+    const g = grantRes.rows[0];
+
+    // Eligible campaigns
+    const campsRes = await pool.query(
+      `SELECT c.name
+         FROM campaign_match_grant_campaigns cmgc
+         JOIN campaigns c ON c.id = cmgc.campaign_id
+        WHERE cmgc.match_grant_id = $1
+        ORDER BY c.name`,
+      [id],
+    );
+
+    // Activity rows: each match this grant has applied, with the original
+    // investment amount from the triggering recommendation.
+    const activityRes = await pool.query(
+      `SELECT a.id, a.amount AS match_amount, a.created_at,
+              c.name AS campaign_name,
+              CONCAT(iu.first_name, ' ', iu.last_name) AS investor_full_name,
+              iu.email AS investor_email,
+              iu.user_name AS investor_user_name,
+              tr.amount AS investment_amount,
+              tr.date_created AS investment_date,
+              tr.status AS investment_status,
+              dr.status AS donor_rec_status,
+              a.triggered_by_recommendation_id,
+              a.donor_recommendation_id
+         FROM campaign_match_grant_activity a
+         LEFT JOIN campaigns c ON c.id = a.campaign_id
+         LEFT JOIN users iu ON iu.id = a.triggered_by_user_id
+         LEFT JOIN recommendations tr ON tr.id = a.triggered_by_recommendation_id
+         LEFT JOIN recommendations dr ON dr.id = a.donor_recommendation_id
+        WHERE a.match_grant_id = $1
+        ORDER BY a.created_at ASC, a.id ASC`,
+      [id],
+    );
+
+    const totalCap = g.total_cap != null ? parseFloat(g.total_cap) : null;
+    const amountUsed = parseFloat(g.amount_used) || 0;
+    const reserved = parseFloat(g.reserved_amount) || 0;
+    const remaining =
+      totalCap != null
+        ? Math.max(0, totalCap - amountUsed)
+        : reserved > 0
+          ? Math.max(0, reserved - amountUsed)
+          : null;
+    const totalInvestmentMatched = activityRes.rows.reduce(
+      (s: number, r: any) => s + (parseFloat(r.investment_amount) || 0),
+      0,
+    );
+
+    const grantName = (g.name || `Grant #${id}`).trim() || `Grant #${id}`;
+    const donorName =
+      (g.donor_full_name || "").trim() ||
+      g.donor_user_name ||
+      g.donor_email ||
+      "";
+
+    // ── Build workbook ────────────────────────────────────────────────
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "CataCap Admin";
+    workbook.created = new Date();
+
+    // -- Sheet 1: Summary --
+    const summary = workbook.addWorksheet("Summary");
+    summary.columns = [
+      { key: "label", width: 28 },
+      { key: "value", width: 60 },
+    ];
+    const addRow = (label: string, value: any, fmt?: string) => {
+      const r = summary.addRow([label, value]);
+      r.getCell(1).font = { bold: true };
+      if (fmt) r.getCell(2).numFmt = fmt;
+    };
+    summary.addRow(["Match Grant Report"]).getCell(1).font = { bold: true, size: 14 };
+    summary.addRow([]);
+    addRow("Grant Name", grantName);
+    addRow("Status", g.is_active ? "Active" : "Inactive");
+    addRow("Donor", donorName);
+    addRow("Donor Email", g.donor_email || "");
+    addRow("Match Type", g.match_type === "capped" ? "Capped per investment" : "1:1 Full match");
+    if (g.match_type === "capped" && g.per_investment_cap != null) {
+      addRow("Per-Investment Cap", parseFloat(g.per_investment_cap), "$#,##0.00");
+    }
+    addRow("Total Funds Allocated (Cap)", totalCap != null ? totalCap : "Unlimited",
+      totalCap != null ? "$#,##0.00" : undefined);
+    if (reserved > 0) addRow("Reserved in Escrow", reserved, "$#,##0.00");
+    addRow("Total Matched So Far", amountUsed, "$#,##0.00");
+    if (remaining != null) addRow("Remaining Available", remaining, "$#,##0.00");
+    addRow("Number of Investments Matched", activityRes.rows.length);
+    addRow("Total Investment Amount Matched", totalInvestmentMatched, "$#,##0.00");
+    if (g.expires_at) addRow("Expires", new Date(g.expires_at), "MM/dd/yyyy");
+    if (g.retroactive_from) addRow("Retroactive From", new Date(g.retroactive_from), "MM/dd/yyyy");
+    addRow("Created", new Date(g.created_at), "MM/dd/yy HH:mm");
+    addRow("Updated", new Date(g.updated_at), "MM/dd/yy HH:mm");
+    if (g.notes) addRow("Notes", g.notes);
+    summary.addRow([]);
+    addRow("Eligible Campaigns", campsRes.rows.map((c: any) => c.name).join(", ") || "(none)");
+
+    // -- Sheet 2: Matched Investments --
+    const detail = workbook.addWorksheet("Matched Investments");
+    const headers = [
+      "Date Matched",
+      "Investor Name",
+      "Investor Email",
+      "Campaign",
+      "Investment Amount",
+      "Match Amount",
+      "Investment Status",
+      "Match Rec Status",
+      "Investment Rec ID",
+      "Donor Rec ID",
+    ];
+    const headerRow = detail.addRow(headers);
+    headerRow.eachCell((cell) => {
+      cell.font = { bold: true };
+      cell.alignment = { horizontal: "left" };
+    });
+
+    for (const r of activityRes.rows) {
+      const investorName =
+        (r.investor_full_name || "").trim() || r.investor_user_name || "";
+      const investAmt = r.investment_amount != null ? parseFloat(r.investment_amount) : null;
+      const matchAmt = r.match_amount != null ? parseFloat(r.match_amount) : null;
+      const dataRow = detail.addRow([
+        r.created_at ? new Date(r.created_at) : null,
+        investorName,
+        r.investor_email || "",
+        r.campaign_name || "",
+        investAmt,
+        matchAmt,
+        r.investment_status || "",
+        r.donor_rec_status || "",
+        r.triggered_by_recommendation_id ?? "",
+        r.donor_recommendation_id ?? "",
+      ]);
+      if (r.created_at) dataRow.getCell(1).numFmt = "MM/dd/yy HH:mm";
+      if (investAmt != null) dataRow.getCell(5).numFmt = "$#,##0.00";
+      if (matchAmt != null) dataRow.getCell(6).numFmt = "$#,##0.00";
+    }
+
+    // Totals row
+    if (activityRes.rows.length > 0) {
+      const totalsRow = detail.addRow([
+        "",
+        "",
+        "",
+        "TOTAL",
+        totalInvestmentMatched,
+        amountUsed,
+        "",
+        "",
+        "",
+        "",
+      ]);
+      totalsRow.eachCell((cell) => { cell.font = { bold: true }; });
+      totalsRow.getCell(5).numFmt = "$#,##0.00";
+      totalsRow.getCell(6).numFmt = "$#,##0.00";
+    }
+
+    detail.columns.forEach((col) => {
+      col.alignment = { horizontal: "left" };
+      let maxLen = 12;
+      col.eachCell?.({ includeEmpty: false }, (cell) => {
+        const len = String(cell.value ?? "").length;
+        if (len > maxLen) maxLen = len;
+      });
+      col.width = Math.min(maxLen + 4, 50);
+    });
+
+    const safeName = grantName.replace(/[^a-zA-Z0-9_-]+/g, "_").slice(0, 60);
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=MatchGrant_${safeName}_${dateStamp}.xlsx`,
+    );
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err: any) {
+    console.error("Error exporting match grant:", err);
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
