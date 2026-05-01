@@ -403,28 +403,53 @@ router.put("/:id", async (req: Request, res: Response) => {
       return;
     }
 
-    // Adjust reservation if cap OR donor changed
+    // ── Reservation adjustment ────────────────────────────────────
+    // The donor's wallet has historically been debited `oldReserved` for
+    // this grant. The `amountUsed` portion has already been disbursed as
+    // matches and CANNOT be returned to the donor. Only the prospective
+    // (unused) portion is mobile.
+    //
+    // newCommitted = the amount this grant must keep locked AFTER the edit
+    //   - active + capped:    max(amountUsed, newCap)
+    //   - paused / unlimited: amountUsed    (we can never release used funds)
     const donorChanged =
       b.donorUserId && b.donorUserId !== g.donor_user_id;
-    if (donorChanged || newCapVal !== oldReserved) {
-      // Always return unused funds to the OLD donor first
-      if (oldReserved > 0) {
+    const grantLabel = grantName || g.name || `Grant #${id}`;
+    const isActiveAfter = b.isActive !== false;
+    const newCommitted =
+      newCap != null && newCap > 0 && isActiveAfter
+        ? Math.max(amountUsed, newCap)
+        : amountUsed;
+
+    if (donorChanged) {
+      // Donor change: refund ALL prospective (unused) to old donor; new
+      // donor reserves the prospective portion only (they are not on the
+      // hook for matches the old donor already funded).
+      if (oldReserved > amountUsed) {
         await returnUnusedFunds(
           client,
-          g.donor_user_id,           // always the OLD donor
+          g.donor_user_id,
           oldReserved,
           amountUsed,
-          grantName || g.name || `Grant #${id}`,
+          grantLabel,
         );
       }
-      // Reserve new amount from the NEW (or unchanged) donor
-      if (newCap != null && newCap > 0 && b.isActive !== false) {
+      const newDonorReservation = Math.max(0, newCommitted - amountUsed);
+      if (newDonorReservation > 0) {
         await reserveCapFromWallet(
           client,
-          b.donorUserId || g.donor_user_id,
-          newCap,
-          grantName || g.name || `Grant #${id}`,
+          b.donorUserId,
+          newDonorReservation,
+          grantLabel,
         );
+      }
+    } else {
+      // Same donor: apply the net delta only.
+      const delta = newCommitted - oldReserved;
+      if (delta > 0) {
+        await reserveCapFromWallet(client, g.donor_user_id, delta, grantLabel);
+      } else if (delta < 0) {
+        await returnUnusedFunds(client, g.donor_user_id, -delta, 0, grantLabel);
       }
     }
 
@@ -452,7 +477,7 @@ router.put("/:id", async (req: Request, res: Response) => {
         (b.notes || "").trim() || null,
         expiresAt,
         retroactiveFrom,
-        newCap != null && newCap > 0 && b.isActive !== false ? newCap : 0,
+        newCommitted,
         id,
       ],
     );

@@ -295,9 +295,17 @@ function GrantFormDialog({
   const upd = (key: keyof typeof EMPTY_FORM, val: any) =>
     setForm((prev) => ({ ...prev, [key]: val }));
 
-  // When editing, some of the old reservation can be returned → effective available = live balance + unused
+  // When editing, the donor has already had `reservedAmount` debited for
+  // this grant. The `amountUsed` portion is locked (matches already paid
+  // out and cannot be refunded). The unused part is mobile and can be
+  // returned to the donor's wallet, so the maximum cap we can set is the
+  // donor's live balance PLUS the entire current reservation. The minimum
+  // is `amountUsed` (we can never set the cap below funds already spent).
   const unusedReservation = isEdit ? Math.max(0, form.reservedAmount - form.amountUsed) : 0;
-  const effectiveAvailable = form.donorBalance + unusedReservation;
+  const remainingCap = isEdit ? Math.max(0, form.reservedAmount - form.amountUsed) : 0;
+  const effectiveAvailable = isEdit
+    ? form.donorBalance + form.reservedAmount
+    : form.donorBalance;
 
   const handleSave = async () => {
     if (!form.donorUserId) {
@@ -318,11 +326,12 @@ function GrantFormDialog({
     }
     if (form.totalCap !== "" && form.donorUserId) {
       const cap = Number(form.totalCap);
-      const limit = isEdit ? effectiveAvailable : form.donorBalance;
-      if (cap > limit) {
+      if (cap > effectiveAvailable) {
         toast({
-          title: "Cap exceeds available balance",
-          description: `Total Grant Cap ($${cap.toLocaleString()}) cannot exceed ${currency_format(limit)}.`,
+          title: "Cap exceeds available funds",
+          description: isEdit
+            ? `Total Grant Cap (${currency_format(cap)}) cannot exceed ${currency_format(effectiveAvailable)} (donor balance ${currency_format(form.donorBalance)} + current reservation ${currency_format(form.reservedAmount)}).`
+            : `Total Grant Cap (${currency_format(cap)}) cannot exceed donor balance ${currency_format(form.donorBalance)}.`,
           variant: "destructive",
         });
         return;
@@ -427,27 +436,50 @@ function GrantFormDialog({
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label className="text-sm">Total Grant Cap ($)</Label>
+              {isEdit && form.reservedAmount > 0 && (
+                <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs space-y-0.5" data-testid="panel-current-cap-summary">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Current cap</span>
+                    <span className="font-medium tabular-nums" data-testid="text-current-cap">{currency_format(form.reservedAmount)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Already matched</span>
+                    <span className="font-medium tabular-nums text-amber-600 dark:text-amber-400" data-testid="text-amount-matched">{currency_format(form.amountUsed)}</span>
+                  </div>
+                  <div className="flex justify-between border-t pt-0.5 mt-1">
+                    <span className="text-muted-foreground">Remaining</span>
+                    <span className="font-semibold tabular-nums text-emerald-600 dark:text-emerald-400" data-testid="text-cap-remaining">{currency_format(remainingCap)}</span>
+                  </div>
+                </div>
+              )}
               <Input
                 type="number"
-                min="0"
+                min={isEdit ? form.amountUsed : 0}
                 value={form.totalCap}
                 onChange={(e) => upd("totalCap", e.target.value)}
                 placeholder="Leave empty for unlimited"
                 data-testid="input-total-cap"
                 className={
-                  form.totalCap !== "" && form.donorUserId && Number(form.totalCap) > (isEdit ? effectiveAvailable : form.donorBalance)
+                  form.totalCap !== "" && form.donorUserId && (
+                    Number(form.totalCap) > effectiveAvailable ||
+                    (isEdit && Number(form.totalCap) < form.amountUsed)
+                  )
                     ? "border-destructive focus-visible:ring-destructive"
                     : ""
                 }
               />
-              {form.donorUserId && form.totalCap !== "" && Number(form.totalCap) > (isEdit ? effectiveAvailable : form.donorBalance) ? (
-                <p className="text-xs text-destructive font-medium">
-                  Exceeds available {currency_format(isEdit ? effectiveAvailable : form.donorBalance)}
+              {form.donorUserId && form.totalCap !== "" && Number(form.totalCap) > effectiveAvailable ? (
+                <p className="text-xs text-destructive font-medium" data-testid="text-cap-error-exceeds">
+                  Exceeds maximum {currency_format(effectiveAvailable)}
+                </p>
+              ) : form.donorUserId && isEdit && form.totalCap !== "" && Number(form.totalCap) < form.amountUsed ? (
+                <p className="text-xs text-destructive font-medium" data-testid="text-cap-error-too-low">
+                  Cannot be below already-matched {currency_format(form.amountUsed)}
                 </p>
               ) : form.donorUserId ? (
                 <p className="text-xs text-muted-foreground">
-                  {isEdit && unusedReservation > 0
-                    ? `Available: ${currency_format(effectiveAvailable)} (live balance + ${currency_format(unusedReservation)} unused reservation)`
+                  {isEdit
+                    ? `Min ${currency_format(form.amountUsed)} · Max ${currency_format(effectiveAvailable)} (donor balance ${currency_format(form.donorBalance)} + current reservation ${currency_format(form.reservedAmount)})`
                     : `Available: ${currency_format(form.donorBalance)}`
                   }
                 </p>
