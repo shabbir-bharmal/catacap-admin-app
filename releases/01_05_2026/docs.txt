@@ -1,0 +1,158 @@
+Release: 01_05_2026
+====================
+
+Migrations
+----------
+
+1) 2026_05_01_backup_database_scheduler.sql
+   Schema:
+     No new tables or columns. Inserts a single row into the existing
+     scheduler_configurations table:
+       job_name    = 'BackupDatabase'
+       description = 'Takes a full pg_dump of the database (gzipped) and
+                      uploads it to a PRIVATE Supabase Storage bucket
+                      (e.g. database-backups)'
+       hour        = 3
+       minute      = 30
+       timezone    = 'America/New_York'
+       is_enabled  = true
+
+   Intent:
+     Registers the new BackupDatabase scheduler job so it appears in the
+     admin Schedulers tab (alongside SendReminderEmail, DeleteArchivedUsers,
+     etc.) and runs on its default daily off-peak schedule. Admins can
+     change the schedule, enable/disable, and trigger ad-hoc runs from the
+     UI without redeploying.
+
+     Job runtime behavior (server/src/scheduler/backupDatabase.ts):
+       - Spawns `pg_dump --no-owner --no-privileges` against
+         SUPABASE_DB_URL (or DATABASE_URL) with PGSSLMODE=require.
+       - Auto-discovers a pg_dump binary whose major version matches
+         the live Postgres server (probes PATH and
+         /nix/store/*postgresql-<major>*/bin/pg_dump). Override with
+         the optional PG_DUMP_PATH env var.
+       - Pipes the dump through gzip into an in-memory buffer.
+       - Uploads the buffer to a DEDICATED PRIVATE Supabase Storage
+         bucket configured by the new SUPABASE_BACKUP_BUCKET env var,
+         organised inside the bucket as
+         `<YYYY-MM-DD>/backup-<YYYY-MM-DD>-<HH-MM>.sql.gz` (UTC) —
+         e.g. inside the `database-backups` bucket:
+         `2026-05-01/backup-2026-05-01-14-30.sql.gz`. The filename
+         embeds the full date so the file is self-describing when
+         downloaded out of context (the date folder is just a
+         grouping convenience). The bucket name is NOT repeated as a
+         key prefix; the stored object key is just date folder +
+         filename. A new date folder is created on the first upload
+         of each UTC day.
+       - After a successful upload, prunes any backup files in date
+         subfolders older than 7 UTC days (RETENTION_DAYS = 7).
+       - On success, returns { artifactPath, bucket, storagePath,
+         sizeBytes, filename, retentionDays, prunedFiles, prunedFolders,
+         pruneWarnings } which the scheduler framework writes into
+         scheduler_logs.metadata (existing JSONB column — no schema
+         change required) so admins can identify and locate the
+         artifact later.
+       - On failure, throws so the scheduler logs a Failed row with the
+         error message (pg_dump stderr included when available).
+       - Concurrent runs are prevented via a unique advisory lock key
+         (900007) using the same `pg_try_advisory_lock` pattern as the
+         other scheduler jobs.
+
+     Backups are kept indefinitely — no automatic cleanup is performed.
+
+   Idempotency:
+     - INSERT ... ON CONFLICT (job_name) DO NOTHING
+     - Wrapped in BEGIN/COMMIT
+     - Mirrored at runtime by ensureSchedulerTables in server/src/db.ts so
+       fresh environments seed the row automatically on first boot.
+
+   Rollback:
+     DELETE FROM scheduler_configurations WHERE job_name = 'BackupDatabase';
+     (Code-side: remove the BackupDatabase entries from JOB_RUNNERS,
+      LOCK_KEYS, and getDefaultConfigs() in server/src/scheduler/index.ts,
+      and delete server/src/scheduler/backupDatabase.ts.)
+
+Operational Setup (REQUIRED before first run)
+---------------------------------------------
+1. Create a DEDICATED PRIVATE Supabase Storage bucket for database
+   backups (e.g. `database-backups`). It MUST be marked "Private" in
+   the Supabase dashboard (NOT public). Database dumps may contain
+   PII / secrets / hashed passwords — they must never be served via
+   public URLs.
+
+2. Provide a Supabase **service-role** secret key as the new
+   `SUPABASE_BACKUP_KEY` env var. This is the `sb_secret_...` value
+   from Supabase Project Settings → API → Secret keys. It must NOT
+   be the publishable/anon `SUPABASE_KEY` (which is shipped to the
+   browser and cannot read bucket metadata, upload to a private
+   bucket, prune objects, or sign download URLs). The job refuses to
+   start if SUPABASE_BACKUP_KEY is unset or equals SUPABASE_KEY.
+
+3. Set the `SUPABASE_BACKUP_BUCKET` env var (or Replit secret) to the
+   exact name of that private bucket. The job refuses to start if:
+     - SUPABASE_BACKUP_BUCKET is unset
+     - SUPABASE_BACKUP_BUCKET equals SUPABASE_STORAGE_BUCKET
+       (the existing public app asset bucket)
+     - The bucket cannot be verified as private at runtime
+     - The bucket is currently public (`getBucket().public === true`)
+   In each case it logs a Failed scheduler_logs row with an actionable
+   error message and uploads nothing.
+
+3. (Optional) configure storage RLS policies on that bucket so only the
+   service_role / publishable key used by the backend can read or write
+   it. Do NOT grant `anon` read access.
+
+4. (Optional) override `PG_DUMP_PATH` if a non-standard pg_dump binary
+   should be used instead of the auto-discovered one.
+
+Runtime Setup Notes
+-------------------
+- Requires `pg_dump` to be available somewhere reachable, with a major
+  version matching the live Postgres server. Installed via the
+  package-management skill: `installSystemDependencies({ packages:
+  ["postgresql_17"] })`. Verified present (PostgreSQL 17.5 client
+  tools) in the current Replit/Nix container; live Supabase server is
+  PG 17.6.
+- Reuses existing env vars: SUPABASE_DB_URL/DATABASE_URL for the dump
+  source, and SUPABASE_URL / SUPABASE_KEY for the Storage Admin API
+  call (getBucket privacy probe + upload). Adds ONE new env var:
+  SUPABASE_BACKUP_BUCKET (the private backup bucket name).
+- Backup files are organised inside the private bucket under
+  `<YYYY-MM-DD>/backup-<HH-MM>.sql.gz` (UTC). The bucket name is NOT
+  repeated as a key prefix — the storage key is just date folder +
+  filename. Each daily date folder is created on first upload by
+  Supabase Storage; no manual folder setup is needed beyond having
+  the private bucket itself provisioned (see "Operational Setup"
+  above).
+- Retention: 7 days. After every successful upload the job lists the
+  bucket root, treats every `<YYYY-MM-DD>` subfolder as a daily
+  bundle, parses the date from the folder name, and deletes every
+  file inside any subfolder older than 7 UTC days. Folder deletion
+  is implicit (Supabase Storage drops empty virtual folders). If the
+  cleanup pass fails, those warnings are stored on the same
+  scheduler_logs row under metadata.pruneWarnings — the upload itself
+  is still considered a success.
+- Retention LOG ROW: when the prune actually deletes files (or runs
+  into warnings), the job inserts a SECOND scheduler_logs row with
+  job_name = 'BackupDatabase' and metadata.action = 'retention'.
+  Other metadata fields on this row: summary (human-readable string),
+  retentionDays, prunedFiles, prunedFolders, warnings.
+    - status = "Success" if files were deleted (warnings, if any,
+      are listed alongside in metadata.warnings).
+    - status = "Failed" if the prune produced warnings without
+      deleting anything (error_message contains the joined warnings).
+  The Schedulers tab Details column renders this row with a 🗑️
+  prefix and the summary string (e.g. "Deleted 3 backup file(s)
+  older than 7 day(s) from folder(s): 2026-04-15"). The Download
+  column shows "—" because there is no artifact to download. No
+  retention row is inserted on runs where the prune ran cleanly with
+  zero deletions and zero warnings (avoids log noise).
+- Download: each successful BackupDatabase run shows a "Download"
+  button in the Schedulers tab Recent Logs table. It calls the new
+  admin-gated endpoint
+  `POST /api/admin/scheduler/BackupDatabase/download` with the
+  recorded artifact path. The server validates the path against a
+  strict regex (`database-backups/<YYYY-MM-DD>/backup-<HH-MM>.sql.gz`),
+  re-asserts the bucket is private, and returns a Supabase Storage
+  signed URL that is valid for 5 minutes. The browser opens that URL
+  in a new tab to start the .sql.gz download.

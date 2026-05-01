@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
 import { reloadScheduler, executeJobWithLock } from "../scheduler/index.js";
+import { createBackupDownloadUrl } from "../scheduler/backupDatabase.js";
 
 const router = Router();
 
@@ -246,6 +247,32 @@ router.post("/:jobName/trigger", async (req: Request, res: Response) => {
     res.status(500).json({ message: "Internal server error" });
   }
 });
+
+router.post(
+  "/BackupDatabase/download",
+  async (req: Request, res: Response) => {
+    try {
+      const rawPath =
+        typeof req.body?.path === "string" ? req.body.path : null;
+      if (!rawPath) {
+        res
+          .status(400)
+          .json({ message: "Missing required field: path (string)." });
+        return;
+      }
+      const result = await createBackupDownloadUrl(rawPath);
+      res.json({
+        url: result.url,
+        storagePath: result.storagePath,
+        expiresInSeconds: result.expiresInSeconds,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("BackupDatabase download error:", message);
+      res.status(400).json({ message });
+    }
+  },
+);
 
 router.get("/logs", async (req: Request, res: Response) => {
   try {

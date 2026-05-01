@@ -167,3 +167,19 @@ export async function fetchSchedulerLogs(
   );
   return response.data;
 }
+
+export interface BackupDownloadResponse {
+  url: string;
+  storagePath: string;
+  expiresInSeconds: number;
+}
+
+export async function fetchBackupDownloadUrl(
+  artifactPath: string
+): Promise<BackupDownloadResponse> {
+  const response = await axiosInstance.post<BackupDownloadResponse>(
+    "/api/admin/scheduler/BackupDatabase/download",
+    { path: artifactPath }
+  );
+  return response.data;
+}

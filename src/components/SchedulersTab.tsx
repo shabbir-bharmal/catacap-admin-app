@@ -26,7 +26,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Switch } from "@/components/ui/switch";
-import { Play, Save, ChevronDown, ChevronUp, Loader2, Clock, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Play, Save, ChevronDown, ChevronUp, Loader2, Clock, AlertCircle, CheckCircle2, Download } from "lucide-react";
 import {
   fetchSchedulerConfigs,
   updateSchedulerConfig,
@@ -35,6 +35,7 @@ import {
   fetchSchedulerLogs,
   fetchSentReminderEmails,
   fetchSentWelcomeEmails,
+  fetchBackupDownloadUrl,
   SchedulerConfig,
   SchedulerLog,
   SentEmailEntry,
@@ -54,12 +55,22 @@ const JOB_DISPLAY_NAMES: Record<string, string> = {
   DeleteArchivedUsers: "Delete Archived Users",
   DeleteTestUsers: "Delete Test Users",
   WelcomeSeries: "Welcome Series",
+  BackupDatabase: "Backup Database",
 };
 
 const JOB_DESCRIPTIONS: Record<string, string> = {
   DeleteTestUsers: "Soft-deletes test user accounts and all associated data (restorable from Archived Records)",
   WelcomeSeries: "Sends Day 1, Day 6, and Day 10 welcome emails to people who submitted the Learn More form",
+  BackupDatabase: "Takes a full Postgres database dump (gzipped) and uploads it to a private Supabase Storage bucket under database-backups/<date>/. Backups older than 7 days are auto-deleted.",
 };
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / Math.pow(1024, i);
+  return `${value.toFixed(value >= 100 || i === 0 ? 0 : 1)} ${units[i]}`;
+}
 
 const TIMEZONES = [
   "America/New_York",
@@ -96,6 +107,7 @@ export default function SchedulersTab() {
   const [expandedLogs, setExpandedLogs] = useState<Record<string, boolean>>({});
   const [jobLogs, setJobLogs] = useState<Record<string, SchedulerLog[]>>({});
   const [logsLoading, setLogsLoading] = useState<Record<string, boolean>>({});
+  const [downloadingLogs, setDownloadingLogs] = useState<Record<number, boolean>>({});
   const [sentEmailsOpen, setSentEmailsOpen] = useState(false);
   const [sentEmails, setSentEmails] = useState<SentEmailEntry[]>([]);
   const [sentWelcomeEmails, setSentWelcomeEmails] = useState<SentWelcomeEmailEntry[]>([]);
@@ -296,6 +308,39 @@ export default function SchedulersTab() {
       });
     } finally {
       setSentEmailsLoading(false);
+    }
+  };
+
+  const handleDownloadBackup = async (log: SchedulerLog) => {
+    const md = (log.metadata as Record<string, unknown> | null) || {};
+    const path =
+      (typeof md.artifactPath === "string" && md.artifactPath) ||
+      (typeof md.storagePath === "string" && md.storagePath) ||
+      "";
+    if (!path) {
+      toast({
+        title: "No backup file",
+        description: "This run did not record an artifact path.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setDownloadingLogs((prev) => ({ ...prev, [log.id]: true }));
+    try {
+      const { url } = await fetchBackupDownloadUrl(path);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { message?: string } } })?.response?.data
+          ?.message ||
+        (err instanceof Error ? err.message : "Failed to generate download link.");
+      toast({
+        title: "Download Failed",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setDownloadingLogs((prev) => ({ ...prev, [log.id]: false }));
     }
   };
 
@@ -515,7 +560,8 @@ export default function SchedulersTab() {
                               <TableHead>Duration</TableHead>
                               <TableHead>Details</TableHead>
                               {(config.jobName === "SendReminderEmail" ||
-                                config.jobName === "WelcomeSeries") && (
+                                config.jobName === "WelcomeSeries" ||
+                                config.jobName === "BackupDatabase") && (
                                 <TableHead>Action</TableHead>
                               )}
                             </TableRow>
@@ -558,6 +604,69 @@ export default function SchedulersTab() {
                                         </span>
                                       );
                                     })()
+                                  ) : config.jobName === "BackupDatabase" ? (
+                                    (() => {
+                                      const md = (log.metadata as Record<string, unknown> | null) || {};
+                                      const action = typeof md.action === "string" ? md.action : null;
+                                      if (action === "retention") {
+                                        const summary = typeof md.summary === "string" ? md.summary : null;
+                                        const prunedFiles = Number(md.prunedFiles ?? 0);
+                                        const folders = Array.isArray(md.prunedFolders)
+                                          ? (md.prunedFolders as unknown[]).filter(
+                                              (f): f is string => typeof f === "string",
+                                            )
+                                          : [];
+                                        const paths = Array.isArray(md.prunedPaths)
+                                          ? (md.prunedPaths as unknown[]).filter(
+                                              (p): p is string => typeof p === "string",
+                                            )
+                                          : [];
+                                        const warnings = Array.isArray(md.warnings)
+                                          ? (md.warnings as unknown[]).filter(
+                                              (w): w is string => typeof w === "string",
+                                            )
+                                          : [];
+                                        const text =
+                                          summary ??
+                                          (prunedFiles > 0
+                                            ? `Retention: deleted ${prunedFiles} backup file(s)` +
+                                              (folders.length > 0 ? ` from ${folders.join(", ")}` : "")
+                                            : "Retention check");
+                                        const tooltipParts: string[] = [];
+                                        if (warnings.length > 0) tooltipParts.push(warnings.join("\n"));
+                                        if (paths.length > 0) {
+                                          tooltipParts.push(
+                                            `Pruned files:\n${paths.join("\n")}`,
+                                          );
+                                        }
+                                        const tooltip = tooltipParts.join("\n\n") || text;
+                                        return (
+                                          <span title={tooltip}>
+                                            <span className="text-xs">🗑️ {text}</span>
+                                            {warnings.length > 0 && (
+                                              <span className="ml-2 text-xs text-amber-600">
+                                                ({warnings.length} warning{warnings.length === 1 ? "" : "s"})
+                                              </span>
+                                            )}
+                                          </span>
+                                        );
+                                      }
+                                      const artifactPath = typeof md.artifactPath === "string" ? md.artifactPath : null;
+                                      const sizeBytes = Number(md.sizeBytes ?? 0);
+                                      if (!artifactPath) {
+                                        return <span className="text-muted-foreground">Completed</span>;
+                                      }
+                                      return (
+                                        <span title={artifactPath}>
+                                          <span className="font-mono text-xs">{artifactPath}</span>
+                                          {sizeBytes > 0 && (
+                                            <span className="ml-2 text-muted-foreground">
+                                              ({formatBytes(sizeBytes)})
+                                            </span>
+                                          )}
+                                        </span>
+                                      );
+                                    })()
                                   ) : (
                                     <span className="text-muted-foreground">Completed</span>
                                   )}
@@ -573,6 +682,44 @@ export default function SchedulersTab() {
                                       <Eye className="h-4 w-4 mr-1" />
                                       View
                                     </Button>
+                                  </TableCell>
+                                )}
+                                {config.jobName === "BackupDatabase" && (
+                                  <TableCell>
+                                    {(() => {
+                                      const md =
+                                        (log.metadata as Record<string, unknown> | null) ||
+                                        {};
+                                      const hasArtifact =
+                                        typeof md.artifactPath === "string" ||
+                                        typeof md.storagePath === "string";
+                                      const isFailed =
+                                        log.status === "Failed" ||
+                                        (!log.status && !!log.errorMessage);
+                                      if (isFailed || !hasArtifact) {
+                                        return (
+                                          <span className="text-xs text-muted-foreground">
+                                            —
+                                          </span>
+                                        );
+                                      }
+                                      const isDownloading = !!downloadingLogs[log.id];
+                                      return (
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => handleDownloadBackup(log)}
+                                          disabled={isDownloading}
+                                        >
+                                          {isDownloading ? (
+                                            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                                          ) : (
+                                            <Download className="h-4 w-4 mr-1" />
+                                          )}
+                                          Download
+                                        </Button>
+                                      );
+                                    })()}
                                   </TableCell>
                                 )}
                               </TableRow>
