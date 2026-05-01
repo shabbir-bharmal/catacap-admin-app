@@ -1033,7 +1033,7 @@ export default function AdminInvestmentEdit() {
   const regulatoryIssuesRef = useRef<HTMLDivElement>(null);
   const goodLegalStandingRef = useRef<HTMLDivElement>(null);
 
-  const REQUIRED_FIELDS: (keyof FormData)[] = ["name", "website", "target", "property", "stage", "addedTotalAdminRaised", "minimumInvestment", "hasCorporateBankAccount", "hasPersonalFinancialBenefit", "hasRegulatoryIssues", "isInGoodLegalStanding"];
+  const REQUIRED_FIELDS: (keyof FormData)[] = ["name", "website", "target", "property", "stage", "addedTotalAdminRaised", "minimumInvestment"];
   const FIELD_REFS: Record<string, React.RefObject<HTMLDivElement>> = {
     name: nameRef,
     website: websiteRef,
@@ -2301,27 +2301,25 @@ export default function AdminInvestmentEdit() {
                   </div>
 
                   <div className="space-y-1.5" ref={corporateBankAccountRef}>
-                    <Label className="text-sm">Does your company have a corporate bank account set up? <span className="text-[#f06548]">*</span></Label>
+                    <Label className="text-sm">Does your company have a corporate bank account set up?</Label>
                     <Select value={formData.hasCorporateBankAccount} onValueChange={(val) => upd("hasCorporateBankAccount", val)}>
-                      <SelectTrigger className={fe("hasCorporateBankAccount")} data-testid="select-corporate-bank-account"><SelectValue placeholder="Select…" /></SelectTrigger>
+                      <SelectTrigger data-testid="select-corporate-bank-account"><SelectValue placeholder="Select…" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Yes">Yes</SelectItem>
                         <SelectItem value="No">No</SelectItem>
                       </SelectContent>
                     </Select>
-                    {errors.hasCorporateBankAccount && <p className="text-[#f06548] text-xs">Please select Yes or No.</p>}
                   </div>
 
                   <div className="space-y-1.5 sm:col-span-2" ref={personalFinancialBenefitRef}>
-                    <Label className="text-sm">Does any board member, officer, or related party stand to receive personal financial benefit from this investment? <span className="text-[#f06548]">*</span></Label>
+                    <Label className="text-sm">Does any board member, officer, or related party stand to receive personal financial benefit from this investment?</Label>
                     <Select value={formData.hasPersonalFinancialBenefit} onValueChange={(val) => upd("hasPersonalFinancialBenefit", val)}>
-                      <SelectTrigger className={fe("hasPersonalFinancialBenefit")} data-testid="select-personal-financial-benefit"><SelectValue placeholder="Select…" /></SelectTrigger>
+                      <SelectTrigger data-testid="select-personal-financial-benefit"><SelectValue placeholder="Select…" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Yes">Yes</SelectItem>
                         <SelectItem value="No">No</SelectItem>
                       </SelectContent>
                     </Select>
-                    {errors.hasPersonalFinancialBenefit && <p className="text-[#f06548] text-xs">Please select Yes or No.</p>}
                   </div>
 
                   {formData.hasPersonalFinancialBenefit === "Yes" && (
@@ -2332,15 +2330,14 @@ export default function AdminInvestmentEdit() {
                   )}
 
                   <div className="space-y-1.5 sm:col-span-2" ref={regulatoryIssuesRef}>
-                    <Label className="text-sm">Has the organization or any of its officers ever been subject to regulatory action, criminal investigation, or sanctions? <span className="text-[#f06548]">*</span></Label>
+                    <Label className="text-sm">Has the organization or any of its officers ever been subject to regulatory action, criminal investigation, or sanctions?</Label>
                     <Select value={formData.hasRegulatoryIssues} onValueChange={(val) => upd("hasRegulatoryIssues", val)}>
-                      <SelectTrigger className={fe("hasRegulatoryIssues")} data-testid="select-regulatory-issues"><SelectValue placeholder="Select…" /></SelectTrigger>
+                      <SelectTrigger data-testid="select-regulatory-issues"><SelectValue placeholder="Select…" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Yes">Yes</SelectItem>
                         <SelectItem value="No">No</SelectItem>
                       </SelectContent>
                     </Select>
-                    {errors.hasRegulatoryIssues && <p className="text-[#f06548] text-xs">Please select Yes or No.</p>}
                   </div>
 
                   {formData.hasRegulatoryIssues === "Yes" && (
@@ -2351,15 +2348,14 @@ export default function AdminInvestmentEdit() {
                   )}
 
                   <div className="space-y-1.5" ref={goodLegalStandingRef}>
-                    <Label className="text-sm">Is the organization currently in good legal standing with all relevant regulatory bodies? <span className="text-[#f06548]">*</span></Label>
+                    <Label className="text-sm">Is the organization currently in good legal standing with all relevant regulatory bodies?</Label>
                     <Select value={formData.isInGoodLegalStanding} onValueChange={(val) => upd("isInGoodLegalStanding", val)}>
-                      <SelectTrigger className={fe("isInGoodLegalStanding")} data-testid="select-good-legal-standing"><SelectValue placeholder="Select…" /></SelectTrigger>
+                      <SelectTrigger data-testid="select-good-legal-standing"><SelectValue placeholder="Select…" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Yes">Yes</SelectItem>
                         <SelectItem value="No">No</SelectItem>
                       </SelectContent>
                     </Select>
-                    {errors.isInGoodLegalStanding && <p className="text-[#f06548] text-xs">Please select Yes or No.</p>}
                   </div>
 
                   <div className="space-y-1.5">
