@@ -5,6 +5,7 @@ import { parsePagination, softDeleteFilter, handleMissingTableError } from "../u
 import { restoreOwningUsersForRecordsInTx } from "../utils/userRestore.js";
 import { autoEnrollInvestorIfApplicable } from "../utils/autoEnrollGroupMembership.js";
 import { sendNewInvestmentNotifications } from "../utils/investmentNotifications.js";
+import { applyMatchGrants } from "../utils/matchingGrants.js";
 import ExcelJS from "exceljs";
 
 const router = Router();
@@ -405,6 +406,10 @@ router.put("/:id", async (req: Request, res: Response) => {
     let notifyAfterCommit:
       | { campaignId: number; donorDisplayName: string; amount: number }
       | null = null;
+    let matchAfterCommit: {
+      campaignId: number; userId: string; recId: number;
+      amount: number; email: string; campaignName: string;
+    } | null = null;
 
     await client.query("BEGIN");
     await client.query(`UPDATE pending_grants SET modified_date = NOW() WHERE id = $1`, [id]);
@@ -473,9 +478,9 @@ router.put("/:id", async (req: Request, res: Response) => {
         const totalAvailable = newBalance + totalGroupBalance;
         const finalInvestmentAmount = Math.min(totalAvailable, investedSum);
 
-        await client.query(
+        const newRecResult = await client.query(
           `INSERT INTO recommendations (user_email, user_full_name, campaign_id, status, amount, date_created, pending_grants_id, user_id)
-           VALUES ($1, $2, $3, 'pending', $4, NOW(), $5, $6)`,
+           VALUES ($1, $2, $3, 'pending', $4, NOW(), $5, $6) RETURNING id`,
           [
             grant.user_email,
             `${grant.first_name || ""} ${grant.last_name || ""}`.trim(),
@@ -485,6 +490,17 @@ router.put("/:id", async (req: Request, res: Response) => {
             grant.uid,
           ]
         );
+        const newRecId: number | null = newRecResult.rows[0]?.id ?? null;
+        if (newRecId) {
+          matchAfterCommit = {
+            campaignId: Number(grant.camp_id),
+            userId: grant.uid,
+            recId: newRecId,
+            amount: finalInvestmentAmount,
+            email: grant.user_email,
+            campaignName: grant.campaign_name || "",
+          };
+        }
 
         await autoEnrollInvestorIfApplicable(client, grant.uid, grant.camp_id);
 
@@ -704,13 +720,19 @@ router.put("/:id", async (req: Request, res: Response) => {
     await client.query("COMMIT");
 
     if (notifyAfterCommit) {
-      // fire-and-forget after the investment is durably committed
       sendNewInvestmentNotifications(notifyAfterCommit).catch((err) =>
-        console.error(
-          "Investment notification email failed:",
-          err?.message || err,
-        ),
+        console.error("Investment notification email failed:", err?.message || err),
       );
+    }
+    if (matchAfterCommit) {
+      applyMatchGrants({
+        campaignId: matchAfterCommit.campaignId,
+        investorUserId: matchAfterCommit.userId,
+        triggeringRecommendationId: matchAfterCommit.recId,
+        investmentAmount: matchAfterCommit.amount,
+        investorEmail: matchAfterCommit.email,
+        campaignName: matchAfterCommit.campaignName,
+      }).catch((err) => console.error("applyMatchGrants (pendingGrants) error:", err?.message || err));
     }
 
     res.json({ success: true, message: `Grant set ${data.status}` });

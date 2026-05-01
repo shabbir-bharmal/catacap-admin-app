@@ -62,7 +62,16 @@ export async function applyMatchGrants(args: ApplyMatchArgs): Promise<void> {
 
     if (grantsResult.rows.length === 0) return;
 
+    // Filter out grants that already have a match (pending or approved) for this recommendation
+    const alreadyMatchedResult = await pool.query(
+      `SELECT DISTINCT match_grant_id FROM campaign_match_grant_activity
+        WHERE triggered_by_recommendation_id = $1`,
+      [triggeringRecommendationId],
+    );
+    const alreadyMatched = new Set(alreadyMatchedResult.rows.map((r: any) => r.match_grant_id));
+
     for (const grant of grantsResult.rows) {
+      if (alreadyMatched.has(grant.id)) continue;
       await applySingleGrant({
         grant,
         campaignId,
@@ -208,11 +217,11 @@ async function applySingleGrant(opts: {
       }
     }
 
-    // ── Create approved recommendation for donor ──────────────────────
+    // ── Create pending recommendation for donor ──────────────────────
     const recResult = await client.query(
       `INSERT INTO recommendations
          (user_email, user_full_name, campaign_id, status, amount, date_created, user_id)
-       VALUES ($1, $2, $3, 'approved', $4, NOW(), $5)
+       VALUES ($1, $2, $3, 'pending', $4, NOW(), $5)
        RETURNING id`,
       [donor.email, donorFullName, campaignId, matchAmount, donor.id],
     );

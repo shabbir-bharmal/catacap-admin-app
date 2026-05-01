@@ -5,6 +5,7 @@ import { parsePagination, softDeleteFilter, handleMissingTableError } from "../u
 import { restoreOwningUsersForRecordsInTx } from "../utils/userRestore.js";
 import { autoEnrollInvestorIfApplicable } from "../utils/autoEnrollGroupMembership.js";
 import { sendNewInvestmentNotifications } from "../utils/investmentNotifications.js";
+import { applyMatchGrants } from "../utils/matchingGrants.js";
 import ExcelJS from "exceljs";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
@@ -228,6 +229,10 @@ router.put("/:id/status", async (req: Request, res: Response) => {
     let notifyAfterCommit:
       | { campaignId: number; donorDisplayName: string; amount: number }
       | null = null;
+    let matchAfterCommit: {
+      campaignId: number; userId: string; recId: number;
+      amount: number; email: string; campaignName: string;
+    } | null = null;
 
     await client.query("BEGIN");
 
@@ -278,9 +283,9 @@ router.put("/:id/status", async (req: Request, res: Response) => {
           recAmount = currentBalance;
         }
 
-        await client.query(
+        const newRecResult = await client.query(
           `INSERT INTO recommendations (user_email, user_full_name, campaign_id, status, amount, date_created, user_id)
-           VALUES ($1, $2, $3, 'pending', $4, NOW(), $5)`,
+           VALUES ($1, $2, $3, 'pending', $4, NOW(), $5) RETURNING id`,
           [
             asset.user_email,
             `${asset.first_name || ""} ${asset.last_name || ""}`.trim(),
@@ -289,6 +294,17 @@ router.put("/:id/status", async (req: Request, res: Response) => {
             asset.uid,
           ]
         );
+        const newRecId = newRecResult.rows[0]?.id ?? null;
+        if (newRecId) {
+          matchAfterCommit = {
+            campaignId: Number(asset.camp_id),
+            userId: asset.uid,
+            recId: newRecId,
+            amount: recAmount,
+            email: asset.user_email,
+            campaignName: asset.campaign_name || "",
+          };
+        }
 
         await autoEnrollInvestorIfApplicable(client, asset.uid, asset.camp_id);
 
@@ -340,13 +356,19 @@ router.put("/:id/status", async (req: Request, res: Response) => {
     await client.query("COMMIT");
 
     if (notifyAfterCommit) {
-      // fire-and-forget after the investment is durably committed
       sendNewInvestmentNotifications(notifyAfterCommit).catch((err) =>
-        console.error(
-          "Investment notification email failed:",
-          err?.message || err,
-        ),
+        console.error("Investment notification email failed:", err?.message || err),
       );
+    }
+    if (matchAfterCommit) {
+      applyMatchGrants({
+        campaignId: matchAfterCommit.campaignId,
+        investorUserId: matchAfterCommit.userId,
+        triggeringRecommendationId: matchAfterCommit.recId,
+        investmentAmount: matchAfterCommit.amount,
+        investorEmail: matchAfterCommit.email,
+        campaignName: matchAfterCommit.campaignName,
+      }).catch((err) => console.error("applyMatchGrants (otherAssets) error:", err?.message || err));
     }
 
     res.json({ success: true, message: "Asset payment status updated successfully." });
