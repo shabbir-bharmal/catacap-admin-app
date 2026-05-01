@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import pool from "../db.js";
+import { runRetroactiveSweep } from "../utils/matchingGrants.js";
 
 const router = Router();
 
@@ -117,6 +118,7 @@ router.get("/", async (req: Request, res: Response) => {
               cmg.is_active,
               cmg.notes,
               cmg.expires_at,
+              cmg.retroactive_from,
               cmg.created_at,
               cmg.updated_at,
               (SELECT COUNT(*) FROM campaign_match_grant_activity a
@@ -151,6 +153,7 @@ router.get("/", async (req: Request, res: Response) => {
           isActive: g.is_active,
           notes: g.notes || "",
           expiresAt: g.expires_at || null,
+          retroactiveFrom: g.retroactive_from || null,
           createdAt: g.created_at,
           updatedAt: g.updated_at,
           timesUsed: parseInt(g.times_used) || 0,
@@ -275,6 +278,7 @@ router.post("/", async (req: Request, res: Response) => {
         ? parseFloat(String(b.perInvestmentCap))
         : null;
     const expiresAt = b.expiresAt ? new Date(b.expiresAt) : null;
+    const retroactiveFrom = b.retroactiveFrom ? new Date(b.retroactiveFrom) : null;
     const grantName = (b.name || "").trim();
 
     await client.query("BEGIN");
@@ -283,8 +287,8 @@ router.post("/", async (req: Request, res: Response) => {
     const grantResult = await client.query(
       `INSERT INTO campaign_match_grants
          (name, donor_user_id, total_cap, match_type, per_investment_cap,
-          is_active, notes, expires_at, reserved_amount)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0)
+          is_active, notes, expires_at, retroactive_from, reserved_amount)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0)
        RETURNING id`,
       [
         grantName,
@@ -295,6 +299,7 @@ router.post("/", async (req: Request, res: Response) => {
         b.isActive !== false,
         (b.notes || "").trim() || null,
         expiresAt,
+        retroactiveFrom,
       ],
     );
     const grantId = grantResult.rows[0].id;
@@ -322,7 +327,20 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     await client.query("COMMIT");
-    res.json({ success: true, message: "Match grant created.", id: grantId });
+
+    // Run retroactive sweep AFTER commit so that the grant + campaign links
+    // are visible to the sweep query and any errors don't roll back the grant.
+    let retroSummary = { matched: 0, totalAmount: 0, scanned: 0, skipped: 0 };
+    if (retroactiveFrom && b.isActive !== false) {
+      retroSummary = await runRetroactiveSweep(grantId);
+    }
+
+    res.json({
+      success: true,
+      message: "Match grant created.",
+      id: grantId,
+      retroactive: retroSummary,
+    });
   } catch (err: any) {
     await client.query("ROLLBACK").catch(() => {});
     console.error("Error creating match grant:", err);
@@ -353,12 +371,13 @@ router.put("/:id", async (req: Request, res: Response) => {
         ? parseFloat(String(b.perInvestmentCap))
         : null;
     const expiresAt = b.expiresAt ? new Date(b.expiresAt) : null;
+    const retroactiveFrom = b.retroactiveFrom ? new Date(b.retroactiveFrom) : null;
     const grantName = (b.name || "").trim();
 
     await client.query("BEGIN");
 
     const existing = await client.query(
-      `SELECT id, donor_user_id, reserved_amount, amount_used, name, total_cap
+      `SELECT id, donor_user_id, reserved_amount, amount_used, name, total_cap, retroactive_from
          FROM campaign_match_grants WHERE id = $1 FOR UPDATE`,
       [id],
     );
@@ -418,9 +437,10 @@ router.put("/:id", async (req: Request, res: Response) => {
               is_active          = $6,
               notes              = $7,
               expires_at         = $8,
-              reserved_amount    = $9,
+              retroactive_from   = $9,
+              reserved_amount    = $10,
               updated_at         = NOW()
-        WHERE id = $10`,
+        WHERE id = $11`,
       [
         grantName,
         b.donorUserId || g.donor_user_id,
@@ -430,6 +450,7 @@ router.put("/:id", async (req: Request, res: Response) => {
         b.isActive !== false,
         (b.notes || "").trim() || null,
         expiresAt,
+        retroactiveFrom,
         newCap != null && newCap > 0 && b.isActive !== false ? newCap : 0,
         id,
       ],
@@ -455,7 +476,21 @@ router.put("/:id", async (req: Request, res: Response) => {
     }
 
     await client.query("COMMIT");
-    res.json({ success: true, message: "Match grant updated." });
+
+    // If retroactive_from is set (or was changed), run a sweep. The sweep
+    // itself dedups via the unique index, so re-running on edit is safe and
+    // will only pick up newly eligible recommendations (e.g. campaigns added
+    // to the grant on this edit, or recs created since the last sweep).
+    let retroSummary = { matched: 0, totalAmount: 0, scanned: 0, skipped: 0 };
+    if (retroactiveFrom && b.isActive !== false) {
+      retroSummary = await runRetroactiveSweep(id);
+    }
+
+    res.json({
+      success: true,
+      message: "Match grant updated.",
+      retroactive: retroSummary,
+    });
   } catch (err: any) {
     await client.query("ROLLBACK").catch(() => {});
     console.error("Error updating match grant:", err);

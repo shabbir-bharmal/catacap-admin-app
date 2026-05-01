@@ -38,6 +38,7 @@ interface MatchGrant {
   isActive: boolean;
   notes: string;
   expiresAt: string | null;
+  retroactiveFrom: string | null;
   createdAt: string;
   timesUsed: number;
   campaigns: Campaign[];
@@ -68,6 +69,8 @@ const EMPTY_FORM = {
   isActive: true,
   notes: "",
   expiresAt: "",
+  applyRetroactive: false,
+  retroactiveFrom: "",
   campaignIds: [] as number[],
 };
 
@@ -300,6 +303,14 @@ function GrantFormDialog({
       toast({ title: "Error", description: "Please select at least one campaign.", variant: "destructive" });
       return;
     }
+    if (form.applyRetroactive && !form.retroactiveFrom) {
+      toast({
+        title: "Start date required",
+        description: "Please pick a start date for retroactive matching.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (form.totalCap !== "" && form.donorUserId) {
       const cap = Number(form.totalCap);
       const limit = isEdit ? effectiveAvailable : form.donorBalance;
@@ -331,14 +342,25 @@ function GrantFormDialog({
         isActive: form.isActive,
         notes: form.notes.trim(),
         expiresAt: form.expiresAt || null,
+        retroactiveFrom: form.applyRetroactive && form.retroactiveFrom ? form.retroactiveFrom : null,
         campaignIds: form.campaignIds,
       };
-      if (isEdit) {
-        await axiosInstance.put(`/api/admin/matching/${initial.id}`, payload);
-      } else {
-        await axiosInstance.post("/api/admin/matching", payload);
-      }
-      toast({ title: "Saved", description: `Match grant ${isEdit ? "updated" : "created"} successfully.` });
+      const { data } = isEdit
+        ? await axiosInstance.put(`/api/admin/matching/${initial.id}`, payload)
+        : await axiosInstance.post("/api/admin/matching", payload);
+
+      const retro = data?.retroactive;
+      const retroMsg =
+        retro && retro.matched > 0
+          ? ` Retroactively matched ${retro.matched} investment${retro.matched === 1 ? "" : "s"} for ${currency_format(retro.totalAmount)}.`
+          : retro && retro.scanned > 0
+            ? ` Retroactive sweep ran — no new matches (already covered).`
+            : "";
+
+      toast({
+        title: "Saved",
+        description: `Match grant ${isEdit ? "updated" : "created"} successfully.${retroMsg}`,
+      });
       onSaved();
       onOpenChange(false);
     } catch (err: any) {
@@ -472,6 +494,40 @@ function GrantFormDialog({
             <p className="text-xs text-muted-foreground">
               Optional. On this date the grant is automatically deactivated and any unused reserved funds are returned to the donor.
             </p>
+          </div>
+
+          <div className="space-y-2 rounded-md border p-3 bg-muted/30">
+            <div className="flex items-center gap-3">
+              <Switch
+                id="apply-retroactive"
+                checked={form.applyRetroactive}
+                onCheckedChange={(v) => upd("applyRetroactive", v)}
+                data-testid="switch-apply-retroactive"
+              />
+              <Label htmlFor="apply-retroactive" className="text-sm cursor-pointer font-medium">
+                Apply retroactively
+              </Label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Match existing investments on the eligible campaigns made on/after the start date. Each investment is matched at most once per grant.
+            </p>
+            {form.applyRetroactive && (
+              <div className="space-y-1.5 pt-1">
+                <Label className="text-sm">Match investments on or after *</Label>
+                <Input
+                  type="date"
+                  value={form.retroactiveFrom}
+                  onChange={(e) => upd("retroactiveFrom", e.target.value)}
+                  max={new Date().toISOString().slice(0, 10)}
+                  data-testid="input-retroactive-from"
+                />
+                {isEdit && (
+                  <p className="text-xs text-muted-foreground">
+                    Re-saving will scan again for newly eligible investments. Already-matched ones are skipped.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="space-y-1.5">
@@ -619,6 +675,8 @@ export default function AdminMatching() {
       isActive: g.isActive,
       notes: g.notes,
       expiresAt: g.expiresAt ? g.expiresAt.slice(0, 10) : "",
+      applyRetroactive: !!g.retroactiveFrom,
+      retroactiveFrom: g.retroactiveFrom ? g.retroactiveFrom.slice(0, 10) : "",
       campaignIds: g.campaigns.map((c) => c.id),
     });
     setFormOpen(true);
