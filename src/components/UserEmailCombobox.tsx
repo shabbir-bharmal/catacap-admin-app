@@ -12,6 +12,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
+import axiosInstance from "@/api/axios";
 
 export type UserEmailMatch = {
   id: string;
@@ -72,10 +73,11 @@ export function UserEmailCombobox({
   const searchQuery = useQuery<SearchResponse>({
     queryKey: ["user-email-search", debouncedQuery],
     queryFn: async () => {
-      const url = `/api/admin/user/email-search?q=${encodeURIComponent(debouncedQuery)}&limit=20`;
-      const res = await fetch(url, { credentials: "include" });
-      if (!res.ok) throw new Error(`Search failed: ${res.status}`);
-      return res.json();
+      const res = await axiosInstance.get<SearchResponse>(
+        "/api/admin/user/email-search",
+        { params: { q: debouncedQuery, limit: 20 } },
+      );
+      return res.data;
     },
     enabled: open && debouncedQuery.length >= 2,
     staleTime: 30_000,
@@ -86,10 +88,11 @@ export function UserEmailCombobox({
   const lookupQuery = useQuery<LookupResponse>({
     queryKey: ["user-email-lookup", trimmedValue.toLowerCase()],
     queryFn: async () => {
-      const url = `/api/admin/user/email-lookup?email=${encodeURIComponent(trimmedValue)}`;
-      const res = await fetch(url, { credentials: "include" });
-      if (!res.ok) throw new Error(`Lookup failed: ${res.status}`);
-      return res.json();
+      const res = await axiosInstance.get<LookupResponse>(
+        "/api/admin/user/email-lookup",
+        { params: { email: trimmedValue } },
+      );
+      return res.data;
     },
     enabled: trimmedValue.length > 0,
     staleTime: 60_000,
