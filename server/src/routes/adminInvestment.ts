@@ -1845,13 +1845,23 @@ router.put("/:id", async (req: Request, res: Response) => {
     }
 
     let finalUserId = existing.user_id;
-    if ((campaign.contactInfoEmailAddress || "").trim()) {
-      const { id: resolvedUserId } = await findOrCreateAnonymousUser(
-        campaign.contactInfoEmailAddress,
-        campaign.firstName || campaign.contactInfoFullName?.split(" ")[0] || "",
-        campaign.lastName || campaign.contactInfoFullName?.split(" ").slice(1).join(" ") || ""
+    const ownerEmailRaw = (campaign.contactInfoEmailAddress || "").trim();
+    if (ownerEmailRaw) {
+      const ownerLookup = await pool.query(
+        `SELECT id FROM users
+          WHERE (is_deleted IS NULL OR is_deleted = false)
+            AND LOWER(TRIM(email)) = $1
+          LIMIT 1`,
+        [ownerEmailRaw.toLowerCase()]
       );
-      finalUserId = resolvedUserId;
+      if (ownerLookup.rows.length === 0) {
+        res.status(400).json({
+          success: false,
+          message: `Investment Owner "${ownerEmailRaw}" does not match any existing user. Please pick an existing user from the dropdown.`,
+        });
+        return;
+      }
+      finalUserId = ownerLookup.rows[0].id;
     }
 
     const campaignUpdateSql = `UPDATE campaigns SET
