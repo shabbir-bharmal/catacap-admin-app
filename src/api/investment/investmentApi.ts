@@ -141,6 +141,38 @@ export async function fetchInvestmentInvestors(
     return response.data;
 }
 
+export async function exportInvestmentInvestors(investmentId: number, investmentName: string): Promise<void> {
+    const response = await axiosInstance.get(`/api/admin/investment/${investmentId}/investors/export`, {
+        responseType: "blob",
+    });
+
+    if (response.headers["content-type"]?.includes("application/json")) {
+        const text = await (response.data as Blob).text();
+        const json = JSON.parse(text);
+        if (json.Success === false || json.success === false) {
+            throw new Error(json.Message || json.message || "There are no investors to export.");
+        }
+    }
+
+    const blob = new Blob([response.data]);
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = downloadUrl;
+
+    const now = new Date();
+    const formattedDate = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+    const cleanName = (investmentName || `investment_${investmentId}`).replace(/[^a-z0-9]/gi, "_").toLowerCase();
+    const fileName = `Investors_${cleanName}_${formattedDate}.xlsx`;
+
+    link.setAttribute("download", fileName);
+    link.target = "_self";
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(downloadUrl);
+}
+
 export async function exportInvestmentRecommendations(investmentId: number, investmentName: string): Promise<void> {
     const response = await axiosInstance.get(`/api/admin/investment/${investmentId}/recommendations/export`, {
         responseType: "blob",

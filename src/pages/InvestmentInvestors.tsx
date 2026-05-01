@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { useLocation, useRoute } from "wouter";
-import { fetchInvestmentInvestors, type InvestmentInvestorsResponse } from "../api/investment/investmentApi";
+import { exportInvestmentInvestors, fetchInvestmentInvestors, type InvestmentInvestorsResponse } from "../api/investment/investmentApi";
 import { AdminLayout } from "../components/AdminLayout";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Download } from "lucide-react";
 import { currency_format } from "@/helpers/format";
+import { useToast } from "@/hooks/use-toast";
 
 export default function InvestmentInvestors() {
   const [, params] = useRoute("/investments/:id/investors");
@@ -15,6 +16,24 @@ export default function InvestmentInvestors() {
   const [data, setData] = useState<InvestmentInvestorsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const { toast } = useToast();
+
+  const handleExport = async () => {
+    if (!data || data.items.length === 0) return;
+    setExporting(true);
+    try {
+      await exportInvestmentInvestors(investmentId, data.campaignName || `investment_${investmentId}`);
+    } catch (err: any) {
+      toast({
+        title: "Export failed",
+        description: err?.message || "Could not export investors.",
+        variant: "destructive",
+      });
+    } finally {
+      setExporting(false);
+    }
+  };
 
   useEffect(() => {
     if (Number.isNaN(investmentId)) {
@@ -52,17 +71,29 @@ export default function InvestmentInvestors() {
 
         <Card>
           <CardHeader>
-            <div className="flex flex-col gap-1">
-              <h1 className="text-2xl font-semibold" data-testid="text-investment-name">
-                {loading ? "Loading…" : data?.campaignName || `Investment #${investmentId}`}
-              </h1>
-              {data && (
-                <p className="text-sm text-muted-foreground" data-testid="text-investors-summary">
-                  {data.totalInvestors.toLocaleString()} {data.totalInvestors === 1 ? "investor" : "investors"}
-                  {" · "}
-                  Total raised: <span className="font-medium">{currency_format(totalAmount)}</span>
-                </p>
-              )}
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex flex-col gap-1">
+                <h1 className="text-2xl font-semibold" data-testid="text-investment-name">
+                  {loading ? "Loading…" : data?.campaignName || `Investment #${investmentId}`}
+                </h1>
+                {data && (
+                  <p className="text-sm text-muted-foreground" data-testid="text-investors-summary">
+                    {data.totalInvestors.toLocaleString()} {data.totalInvestors === 1 ? "investor" : "investors"}
+                    {" · "}
+                    Total raised: <span className="font-medium">{currency_format(totalAmount)}</span>
+                  </p>
+                )}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExport}
+                disabled={loading || exporting || !data || data.items.length === 0}
+                data-testid="button-export-investors"
+              >
+                <Download className="h-4 w-4 mr-1" />
+                {exporting ? "Exporting…" : "Export"}
+              </Button>
             </div>
           </CardHeader>
           <CardContent>

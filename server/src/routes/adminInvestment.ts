@@ -863,6 +863,112 @@ router.get("/:id/investors", async (req: Request, res: Response) => {
   }
 });
 
+router.get("/:id/investors/export", async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) {
+      res.status(400).json({ success: false, message: "Invalid investment id" });
+      return;
+    }
+
+    const PREDICATE = `r.campaign_id = $1
+         AND (r.is_deleted IS NULL OR r.is_deleted = false)
+         AND (LOWER(r.status) = 'approved' OR LOWER(r.status) = 'pending')
+         AND r.amount > 0
+         AND r.user_email IS NOT NULL`;
+
+    const [groupedResult, totalResult, nameResult] = await Promise.all([
+      pool.query(
+        `SELECT
+           COALESCE(NULLIF(TRIM(MAX(r.user_full_name)), ''), MAX(r.user_email)) AS name,
+           MAX(r.user_email) AS email,
+           COUNT(*) AS contributions,
+           COALESCE(SUM(r.amount), 0) AS total_amount,
+           MAX(r.date_created) AS last_contribution_at
+         FROM recommendations r
+         WHERE ${PREDICATE}
+         GROUP BY LOWER(TRIM(r.user_email))
+         ORDER BY total_amount DESC, name ASC`,
+        [id],
+      ),
+      pool.query(
+        `SELECT COALESCE(SUM(r.amount), 0) AS total_amount
+         FROM recommendations r
+         WHERE ${PREDICATE}`,
+        [id],
+      ),
+      pool.query(`SELECT name FROM campaigns WHERE id = $1`, [id]),
+    ]);
+
+    if (groupedResult.rows.length === 0) {
+      res.json({ success: false, message: "There are no investors to export for this investment." });
+      return;
+    }
+
+    const totalAmount = parseFloat(totalResult.rows[0]?.total_amount) || 0;
+    const campaignName = nameResult.rows[0]?.name || `Investment #${id}`;
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Investors");
+
+    const titleRow = worksheet.addRow([campaignName]);
+    titleRow.getCell(1).font = { bold: true, size: 14 };
+    worksheet.mergeCells(titleRow.number, 1, titleRow.number, 6);
+
+    const summaryRow = worksheet.addRow([
+      `${groupedResult.rows.length} investor${groupedResult.rows.length === 1 ? "" : "s"} · Total raised: $${totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    ]);
+    summaryRow.getCell(1).font = { italic: true };
+    worksheet.mergeCells(summaryRow.number, 1, summaryRow.number, 6);
+
+    worksheet.addRow([]);
+
+    const headerRow = worksheet.addRow(["#", "Name", "Email", "Contributions", "Amount Invested", "% of Total"]);
+    headerRow.eachCell((cell) => { cell.font = { bold: true }; });
+
+    let rank = 0;
+    for (const r of groupedResult.rows) {
+      rank += 1;
+      const amount = parseFloat(r.total_amount) || 0;
+      const pct = totalAmount > 0 ? amount / totalAmount : 0;
+      const dataRow = worksheet.addRow([
+        rank,
+        r.name || "Anonymous",
+        r.email || "",
+        parseInt(r.contributions) || 0,
+        Math.round(amount * 100) / 100,
+        pct,
+      ]);
+      dataRow.getCell(5).numFmt = "$#,##0.00";
+      dataRow.getCell(6).numFmt = "0.00%";
+    }
+
+    const totalsRow = worksheet.addRow(["", "Total", "", "", Math.round(totalAmount * 100) / 100, 1]);
+    totalsRow.eachCell((cell) => { cell.font = { bold: true }; });
+    totalsRow.getCell(5).numFmt = "$#,##0.00";
+    totalsRow.getCell(6).numFmt = "0.00%";
+
+    worksheet.columns.forEach((col, idx) => {
+      col.alignment = { horizontal: idx === 0 || idx >= 3 ? "right" : "left" };
+      let maxLen = 10;
+      col.eachCell?.({ includeEmpty: false }, (cell) => {
+        const len = String(cell.value ?? "").length;
+        if (len > maxLen) maxLen = len;
+      });
+      col.width = maxLen + 4;
+    });
+
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", "attachment; filename=Investors.xlsx");
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err: any) {
+    console.error("Error exporting investors:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 router.get("/:id/recommendations/export", async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id, 10);
