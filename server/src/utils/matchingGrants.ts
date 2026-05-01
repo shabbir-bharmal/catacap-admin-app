@@ -45,6 +45,21 @@ export async function applyMatchGrants(args: ApplyMatchArgs): Promise<void> {
   } = args;
 
   try {
+    // ── Guardrail: never match a recommendation that was itself created by
+    // a match grant. Prevents chain-matching (e.g. FundHer's donor recommendation
+    // being matched by Lily's grant, or vice versa).
+    const isMatchCreated = await pool.query(
+      `SELECT 1 FROM campaign_match_grant_activity
+        WHERE donor_recommendation_id = $1 LIMIT 1`,
+      [triggeringRecommendationId],
+    );
+    if (isMatchCreated.rows.length > 0) {
+      console.log(
+        `applyMatchGrants: skipping rec ${triggeringRecommendationId} on campaign ${campaignId} — created by a match grant (no chain matching).`,
+      );
+      return;
+    }
+
     // Find active, non-expired grants covering this campaign
     const grantsResult = await pool.query(
       `SELECT cmg.id, cmg.donor_user_id, cmg.total_cap, cmg.amount_used,
