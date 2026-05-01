@@ -815,7 +815,7 @@ router.get("/:id/investors", async (req: Request, res: Response) => {
          AND r.amount > 0
          AND r.user_email IS NOT NULL`;
 
-    const [groupedResult, totalResult] = await Promise.all([
+    const [groupedResult, totalResult, nameResult] = await Promise.all([
       pool.query(
         `SELECT
            COALESCE(NULLIF(TRIM(MAX(r.user_full_name)), ''), MAX(r.user_email)) AS name,
@@ -835,6 +835,7 @@ router.get("/:id/investors", async (req: Request, res: Response) => {
          WHERE ${PREDICATE}`,
         [id],
       ),
+      pool.query(`SELECT name FROM campaigns WHERE id = $1`, [id]),
     ]);
 
     const items = groupedResult.rows.map((r: any) => ({
@@ -851,6 +852,7 @@ router.get("/:id/investors", async (req: Request, res: Response) => {
 
     res.json({
       campaignId: id,
+      campaignName: nameResult.rows[0]?.name || `Investment #${id}`,
       totalInvestors: items.length,
       totalAmount,
       items,

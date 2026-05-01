@@ -126,6 +126,7 @@ export interface InvestmentInvestor {
 
 export interface InvestmentInvestorsResponse {
     campaignId: number;
+    campaignName: string;
     totalInvestors: number;
     totalAmount: number;
     items: InvestmentInvestor[];

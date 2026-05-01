@@ -616,9 +616,21 @@ export default function InvestmentsPage() {
                             )}
                           </td>
                           <td className="px-4 py-3 text-center">
-                            <span className="text-sm" data-testid={`text-investors-${inv.id}`}>
-                              {inv.totalInvestors}
-                            </span>
+                            {inv.totalInvestors > 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/investments/${inv.id}/investors`)}
+                                className="text-sm text-[#405189] underline-offset-2 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-[#405189] rounded-sm"
+                                title="View investor breakdown"
+                                data-testid={`button-investors-${inv.id}`}
+                              >
+                                {inv.totalInvestors}
+                              </button>
+                            ) : (
+                              <span className="text-sm" data-testid={`text-investors-${inv.id}`}>
+                                {inv.totalInvestors}
+                              </span>
+                            )}
                           </td>
                           <td className="px-4 py-3">
                             <span className="text-sm" data-testid={`text-date-${inv.id}`}>
