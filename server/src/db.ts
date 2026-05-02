@@ -721,6 +721,7 @@ export async function testConnection(): Promise<void> {
     await ensureCampaignsOwnerGroupColumns(client);
     await ensureInvestmentNotificationRecipientsTable(client);
     await ensureSchemaChangeLogTable(client);
+    await ensureDbSchemaLogsModule(client);
     await backfillSchedulerLogIds(client);
     await backfillSoftDeleteTimestamps(client);
     await fixIncorrectBackfillDates(client);
@@ -913,6 +914,26 @@ async function ensureSchemaChangeLogTable(client: pg.PoolClient): Promise<void> 
     console.log("[migration] schema_change_logs + apply_schema_change ready.");
   } catch (e) {
     console.warn("ensureSchemaChangeLogTable: could not ensure table/function:", e);
+  }
+}
+
+async function ensureDbSchemaLogsModule(client: pg.PoolClient): Promise<void> {
+  // Mirrors releases/02_05_2026/migrations/2026_05_02_add_db_schema_logs_module.sql
+  // so fresh environments self-heal: the /db-schema-logs page cannot be granted
+  // through the Roles & Permissions UI until this row exists in public.modules.
+  try {
+    const exists = await client.query(
+      `SELECT 1 FROM public.modules WHERE name = 'db-schema-logs' LIMIT 1`,
+    );
+    if (exists.rows.length === 0) {
+      await client.query(
+        `INSERT INTO public.modules (name, category, sort_order, created_at)
+         VALUES ('db-schema-logs', 'site-config', 24, now())`,
+      );
+      console.log("[migration] modules: inserted 'db-schema-logs' row.");
+    }
+  } catch (e) {
+    console.warn("ensureDbSchemaLogsModule: could not ensure module row:", e);
   }
 }
 

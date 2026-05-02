@@ -193,7 +193,7 @@ export const sidebarConfig = [
             title: "DB Schema Logs",
             url: "/db-schema-logs",
             icon: GitMerge,
-            permission: { module: "site-configuration", action: "view" }
+            permission: { module: "db-schema-logs", action: "view" }
           }
           // {
           //   title: "Analytics",

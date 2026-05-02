@@ -92,7 +92,7 @@ function Router() {
         <ProtectedRoute path="/analytics" component={Analytics} moduleName="site configuration" />
         <ProtectedRoute path="/archived-records" component={ArchivedRecords} moduleName="site configuration" />
         <ProtectedRoute path="/archived-records/:type" component={ArchivedRecordsDetail} moduleName="site configuration" />
-        <ProtectedRoute path="/db-schema-logs" component={SchemaChangeLogs} moduleName="site configuration" />
+        <ProtectedRoute path="/db-schema-logs" component={SchemaChangeLogs} moduleName="db schema logs" />
         <ProtectedRoute path="/matching" component={AdminMatching} moduleName="recommendation" />
 
         <ProtectedRoute path="/profile" component={AdminUserProfile} />

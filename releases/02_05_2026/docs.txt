@@ -160,3 +160,46 @@ New router mounted at /api/admin/schema-changes
          from JWT>, and returns { success: true, change_id, status }.
        - On failure: leaves the row unchanged and returns 500 with
          the Postgres error message.
+
+
+2) 2026_05_02_add_db_schema_logs_module.sql
+   Schema:
+     New row in public.modules:
+         name        = 'db-schema-logs'
+         category    = 'site-config'        (groups under "Site Config" in
+                                             the Roles & Permissions UI)
+         sort_order  = 24                   (next free value after the
+                                             current max of 23)
+         id          = <auto, sequence Module_Id_seq>
+         created_at  = now()
+
+   Intent:
+     Register the new admin page "DB Schema Logs" (route /db-schema-logs)
+     in the RBAC system. Without a row in public.modules, the Roles &
+     Permissions UI cannot grant any role view/manage access to the page,
+     because that UI is driven by SELECT * FROM public.modules. The page
+     is then gated client-side by ProtectedRoute(moduleName="db schema
+     logs") and the sidebar entry's permission key "db-schema-logs"
+     (AuthContext.hasActionPermission normalises hyphens to spaces, so
+     both forms map to the same module).
+
+     Module name was deliberately split out from "site-configuration"
+     because rolling back schema changes is destructive and should be
+     grantable independently of the broader Site Configuration permission
+     set.
+
+   Idempotency:
+     Wrapped in BEGIN/COMMIT. INSERT is guarded by NOT EXISTS on
+     name = 'db-schema-logs'. There is no UNIQUE constraint on
+     public.modules.name in the .NET-managed schema, so ON CONFLICT
+     cannot be used. Re-running the migration is a no-op.
+
+     Mirrored at runtime by ensureDbSchemaLogsModule() in
+     server/src/db.ts so fresh environments (and Supabase branches that
+     skipped this migration) self-heal on first boot.
+
+   Rollback:
+     DELETE FROM public.modules WHERE name = 'db-schema-logs';
+     (Cascades to public.module_access_permissions rows for any role
+      that was granted this module; re-granting requires re-running the
+      migration and re-saving the role from the Roles UI.)
