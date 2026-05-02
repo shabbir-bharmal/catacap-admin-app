@@ -3331,7 +3331,7 @@ export default function AdminInvestmentEdit() {
                     </Select>
                   </div>
 
-                  {/* Owning Group (admin: campaign-owns-group + auto-enrol) */}
+                  {/* Owning Group (admin: campaign-owns-group + auto-enroll) */}
                   <div className="space-y-1.5">
                     <Label className="text-sm">Owning Group</Label>
                     <Select value={formData.ownerGroupId || "null"} onValueChange={(val) => upd("ownerGroupId", val === "null" ? "" : val)}>
@@ -3347,7 +3347,7 @@ export default function AdminInvestmentEdit() {
                   </div>
                 </div>
 
-                {/* Auto-enrol investors into the owning group */}
+                {/* Auto-enroll investors into the owning group */}
                 <div className="flex items-start gap-2">
                   <Checkbox
                     id="autoEnrollInvestors"

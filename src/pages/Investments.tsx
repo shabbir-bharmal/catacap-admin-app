@@ -11,8 +11,6 @@ import {
   deleteInvestment,
   exportInvestmentRecommendations,
   downloadInvestmentDocument,
-  fetchInvestmentInvestors,
-  type InvestmentInvestorsResponse
 } from "../api/investment/investmentApi";
 import { AdminLayout } from "../components/AdminLayout";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -23,7 +21,6 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { Search, Download, Copy, ClipboardCopy, Pencil, Trash2, ChevronLeft, ChevronRight, ChevronDown, Check, FileText, History } from "lucide-react";
@@ -158,27 +155,6 @@ export default function InvestmentsPage() {
   // Audit Log State
   const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
   const [auditTarget, setAuditTarget] = useState<{ id: string; name: string } | null>(null);
-
-  // Investors drilldown state
-  const [investorsTarget, setInvestorsTarget] = useState<{ id: number; name: string } | null>(null);
-  const [investorsData, setInvestorsData] = useState<InvestmentInvestorsResponse | null>(null);
-  const [investorsLoading, setInvestorsLoading] = useState(false);
-  const [investorsError, setInvestorsError] = useState<string | null>(null);
-
-  const handleOpenInvestors = async (id: number, name: string) => {
-    setInvestorsTarget({ id, name });
-    setInvestorsData(null);
-    setInvestorsError(null);
-    setInvestorsLoading(true);
-    try {
-      const data = await fetchInvestmentInvestors(id);
-      setInvestorsData(data);
-    } catch (err: any) {
-      setInvestorsError(err?.message || "Failed to load investors");
-    } finally {
-      setInvestorsLoading(false);
-    }
-  };
 
   useEffect(() => {
     if (searchQuery !== debouncedSearch) {
@@ -623,7 +599,7 @@ export default function InvestmentsPage() {
                             {inv.catacapFunding > 0 ? (
                               <button
                                 type="button"
-                                onClick={() => handleOpenInvestors(inv.id, inv.name)}
+                                onClick={() => navigate(`/investments/${inv.id}/investors`)}
                                 className="text-sm text-[#405189] underline-offset-2 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-[#405189] rounded-sm"
                                 title="View investors"
                                 data-testid={`button-funding-${inv.id}`}
@@ -909,117 +885,6 @@ export default function InvestmentsPage() {
         title={`Audit Logs - ${auditTarget?.name}`}
       />
 
-      <Dialog
-        open={investorsTarget !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setInvestorsTarget(null);
-            setInvestorsData(null);
-            setInvestorsError(null);
-          }
-        }}
-      >
-        <DialogContent className="max-w-2xl" data-testid="dialog-investors">
-          <DialogHeader>
-            <DialogTitle data-testid="text-investors-title">
-              Investors{investorsTarget ? ` — ${investorsTarget.name}` : ""}
-            </DialogTitle>
-            <DialogDescription>
-              {investorsData
-                ? `${investorsData.totalInvestors.toLocaleString()} ${
-                    investorsData.totalInvestors === 1 ? "investor" : "investors"
-                  } · ${investorsData.totalContributions.toLocaleString()} ${
-                    investorsData.totalContributions === 1 ? "contribution" : "contributions"
-                  } · ${currency_format(investorsData.totalAmount)} total`
-                : "Pending, in transit and received contributions for this investment."}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="max-h-[60vh] overflow-y-auto">
-            {investorsLoading ? (
-              <div className="py-8 text-center text-sm text-muted-foreground">
-                Loading investors...
-              </div>
-            ) : investorsError ? (
-              <div className="py-8 text-center text-sm text-destructive">
-                {investorsError}
-              </div>
-            ) : !investorsData || investorsData.items.length === 0 ? (
-              <div className="py-8 text-center text-sm text-muted-foreground">
-                No investors found for this investment.
-              </div>
-            ) : (
-              <table className="w-full text-sm" data-testid="table-investors">
-                <thead className="sticky top-0 bg-background">
-                  <tr className="border-b">
-                    <th className="py-2 pr-3 text-left font-medium text-muted-foreground">
-                      Investor
-                    </th>
-                    <th className="py-2 px-3 text-left font-medium text-muted-foreground">
-                      Status
-                    </th>
-                    <th className="py-2 pl-3 text-right font-medium text-muted-foreground">
-                      Amount
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {investorsData.items.map((it, idx) => {
-                    const statusLabel = it.status === "in transit" ? "In Transit" : it.status === "received" ? "Received" : "Pending";
-                    const statusClass = it.status === "received"
-                      ? "bg-emerald-100 text-emerald-800 border-emerald-200"
-                      : it.status === "in transit"
-                      ? "bg-blue-100 text-blue-800 border-blue-200"
-                      : "bg-amber-100 text-amber-800 border-amber-200";
-                    return (
-                      <tr
-                        key={`${it.sourceType}-${it.sourceId}`}
-                        className="border-b last:border-b-0"
-                        data-testid={`row-investor-${idx}`}
-                      >
-                        <td className="py-2 pr-3">
-                          <div className="font-medium" data-testid={`text-investor-name-${idx}`}>
-                            {it.name}
-                          </div>
-                          {it.email && (
-                            <div className="text-xs text-muted-foreground">{it.email}</div>
-                          )}
-                        </td>
-                        <td className="py-2 px-3">
-                          <span
-                            className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium ${statusClass}`}
-                            data-testid={`badge-status-${idx}`}
-                          >
-                            {statusLabel}
-                          </span>
-                        </td>
-                        <td
-                          className="py-2 pl-3 text-right tabular-nums"
-                          data-testid={`text-investor-amount-${idx}`}
-                        >
-                          {currency_format(it.totalAmount)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t-2">
-                    <td className="py-2 pr-3 text-right text-muted-foreground" colSpan={2}>
-                      Total
-                    </td>
-                    <td
-                      className="py-2 pl-3 text-right font-bold tabular-nums"
-                      data-testid="text-investors-total"
-                    >
-                      {currency_format(investorsData.totalAmount)}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
     </AdminLayout>
   );
 }
