@@ -3358,7 +3358,7 @@ export default function AdminInvestmentEdit() {
                   />
                   <div className="space-y-0.5">
                     <Label htmlFor="autoEnrollInvestors" className="text-sm font-normal cursor-pointer">
-                      Auto-enrol investors as members of the owning group
+                      Auto-enroll investors as members of the owning group
                     </Label>
                     <p className="text-xs text-muted-foreground">
                       When enabled, every new investor in this campaign is added to the owning group as an accepted member (existing members are unaffected).
