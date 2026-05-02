@@ -15,6 +15,11 @@ import {
   getInvestmentNotificationRecipients,
   replaceInvestmentNotificationRecipients,
 } from "../utils/investmentNotifications.js";
+import {
+  CAMPAIGN_UPDATE_RECIPIENT_USERS_SQL,
+  CAMPAIGN_UPDATE_RECIPIENT_USER_IDS_SQL,
+  CAMPAIGN_UPDATE_RECIPIENT_COUNT_SQL,
+} from "../utils/campaignUpdateRecipients.js";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
 dayjs.extend(utc);
@@ -3354,12 +3359,11 @@ router.post("/:id/updates", async (req: Request, res: Response) => {
     const startDateValue = created.startDate ? new Date(created.startDate) : null;
     const shouldFireNow = !startDateValue || startDateValue <= new Date();
     if (shouldFireNow) try {
+      // Recipients mirror the Investors tab (recommendations + orphan
+      // pending_grants + In-Transit asset_based_payment_requests). See
+      // utils/campaignUpdateRecipients.ts for the full definition.
       const investorsResult = await pool.query(
-        `SELECT DISTINCT ui.user_id
-         FROM user_investments ui
-         WHERE ui.campaign_id = $1
-           AND ui.user_id IS NOT NULL
-           AND (ui.is_deleted IS NULL OR ui.is_deleted = false)`,
+        CAMPAIGN_UPDATE_RECIPIENT_USER_IDS_SQL,
         [campaignId]
       );
 
@@ -3686,40 +3690,11 @@ router.get("/:id/updates/:updateId/email-preview", async (req: Request, res: Res
       return;
     }
 
-    // Mirror the recipient filter used by the actual send: investors with
-    // status Pending/Rejected (case-insensitive) are excluded so the preview
-    // shows the true number that will be emailed.
+    // Mirror the recipient filter used by the actual send so the preview
+    // shows the true number that will be emailed. Source-of-truth lives in
+    // utils/campaignUpdateRecipients.ts (kept in sync with the Investors tab).
     const investorsCount = await pool.query(
-      `SELECT COUNT(DISTINCT u.id)::int AS count
-         FROM users u
-         JOIN (
-           -- Standard investors on this campaign whose recommendation is not Rejected
-           SELECT ui.user_id
-             FROM user_investments ui
-            WHERE ui.campaign_id = $1
-              AND ui.user_id IS NOT NULL
-              AND (ui.is_deleted IS NULL OR ui.is_deleted = false)
-              AND EXISTS (
-                SELECT 1 FROM recommendations r
-                 WHERE r.campaign_id = ui.campaign_id
-                   AND r.user_id    = ui.user_id
-                   AND (r.is_deleted IS NULL OR r.is_deleted = false)
-                   AND LOWER(COALESCE(r.status, '')) <> 'rejected'
-              )
-           UNION
-           -- Other-asset (asset_based_payment_requests) investors on this same
-           -- campaign whose request is currently "In Transit". They've committed
-           -- an asset toward this investment but no user_investments row exists
-           -- yet, so without this branch they'd never receive update emails.
-           SELECT abpr.user_id
-             FROM asset_based_payment_requests abpr
-            WHERE abpr.campaign_id = $1
-              AND abpr.user_id IS NOT NULL
-              AND (abpr.is_deleted IS NULL OR abpr.is_deleted = false)
-              AND LOWER(TRIM(COALESCE(abpr.status, ''))) = 'in transit'
-         ) src ON src.user_id = u.id
-        WHERE u.email IS NOT NULL AND u.email <> ''
-          AND (u.opt_out_email_notifications IS NULL OR u.opt_out_email_notifications = false)`,
+      CAMPAIGN_UPDATE_RECIPIENT_COUNT_SQL,
       [campaignId]
     );
 
@@ -3849,46 +3824,19 @@ router.post("/:id/updates/:updateId/send-email", async (req: Request, res: Respo
     const senderName = cfg.defaultEmailSenderName || "CataCap Support";
     const fromHeader = `${senderName} <${fromAddress}>`;
 
-    // Recipients are pulled from two sources for this same campaign and then
-    // de-duplicated by user.id:
-    //   1. `user_investments` rows whose backing `recommendations.status` is
-    //      anything other than Rejected (case-insensitive). Pending investors
-    //      *are* included so they receive update emails as soon as they have
-    //      any non-rejected recommendation on the deal.
-    //   2. `asset_based_payment_requests` rows for this campaign whose status
-    //      is exactly "In Transit" (case-insensitive). These investors have
-    //      committed an asset toward the investment but typically have no
-    //      `user_investments` row yet, so without this branch they'd be
-    //      silently skipped on update sends.
-    // In both cases we still require a deliverable email and that the user
-    // hasn't opted out of email notifications.
+    // Recipients mirror the Investors tab on the admin investment page so
+    // every visible investor (with a deliverable, non-opted-out email) gets
+    // the update. Source-of-truth lives in
+    // utils/campaignUpdateRecipients.ts and combines:
+    //   1. `recommendations` with status approved/pending and amount > 0,
+    //      excluding any whose linked pending_grant is Rejected.
+    //   2. Orphan `pending_grants` (no linked rec) in 'Pending' status.
+    //   3. `asset_based_payment_requests` in 'In Transit' status.
+    // Previously the fan-out only looked at `user_investments`, which
+    // silently skipped approved-but-not-yet-funded investors who were
+    // visible on the Investors tab.
     const investorsResult = await pool.query(
-      `SELECT u.id, u.email, COALESCE(u.first_name, '') AS first_name
-         FROM users u
-         JOIN (
-           SELECT ui.user_id
-             FROM user_investments ui
-            WHERE ui.campaign_id = $1
-              AND ui.user_id IS NOT NULL
-              AND (ui.is_deleted IS NULL OR ui.is_deleted = false)
-              AND EXISTS (
-                SELECT 1 FROM recommendations r
-                 WHERE r.campaign_id = ui.campaign_id
-                   AND r.user_id    = ui.user_id
-                   AND (r.is_deleted IS NULL OR r.is_deleted = false)
-                   AND LOWER(COALESCE(r.status, '')) <> 'rejected'
-              )
-           UNION
-           SELECT abpr.user_id
-             FROM asset_based_payment_requests abpr
-            WHERE abpr.campaign_id = $1
-              AND abpr.user_id IS NOT NULL
-              AND (abpr.is_deleted IS NULL OR abpr.is_deleted = false)
-              AND LOWER(TRIM(COALESCE(abpr.status, ''))) = 'in transit'
-         ) src ON src.user_id = u.id
-        WHERE u.email IS NOT NULL
-          AND u.email <> ''
-          AND (u.opt_out_email_notifications IS NULL OR u.opt_out_email_notifications = false)`,
+      CAMPAIGN_UPDATE_RECIPIENT_USERS_SQL,
       [campaignId]
     );
 
