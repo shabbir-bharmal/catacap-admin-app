@@ -33,6 +33,8 @@ router.get("/", async (req: Request, res: Response) => {
     const status = typeof req.query.status === "string" ? req.query.status : undefined;
     const table = typeof req.query.table === "string" ? req.query.table : undefined;
     const operation = typeof req.query.operation === "string" ? req.query.operation : undefined;
+    const dateFrom = typeof req.query.dateFrom === "string" && req.query.dateFrom ? req.query.dateFrom : undefined;
+    const dateTo = typeof req.query.dateTo === "string" && req.query.dateTo ? req.query.dateTo : undefined;
     const limitRaw = Number.parseInt(String(req.query.limit ?? "100"), 10);
     const offsetRaw = Number.parseInt(String(req.query.offset ?? "0"), 10);
     const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 500) : 100;
@@ -40,6 +42,14 @@ router.get("/", async (req: Request, res: Response) => {
 
     if (status && !ALLOWED_STATUSES.has(status)) {
       res.status(400).json({ error: `invalid status; allowed: ${[...ALLOWED_STATUSES].join(", ")}` });
+      return;
+    }
+    if (dateFrom && Number.isNaN(Date.parse(dateFrom))) {
+      res.status(400).json({ error: "invalid dateFrom (expected ISO timestamp)" });
+      return;
+    }
+    if (dateTo && Number.isNaN(Date.parse(dateTo))) {
+      res.status(400).json({ error: "invalid dateTo (expected ISO timestamp)" });
       return;
     }
 
@@ -56,6 +66,14 @@ router.get("/", async (req: Request, res: Response) => {
     if (operation) {
       params.push(operation.toUpperCase());
       conds.push(`upper(operation_type) = $${params.length}`);
+    }
+    if (dateFrom) {
+      params.push(dateFrom);
+      conds.push(`created_at >= $${params.length}`);
+    }
+    if (dateTo) {
+      params.push(dateTo);
+      conds.push(`created_at <= $${params.length}`);
     }
     const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
 

@@ -45,6 +45,7 @@ import ArchivedRecordsDetail from "./pages/ArchivedRecordsDetail";
 import Schedulers from "./pages/Schedulers";
 import Analytics from "./pages/Analytics";
 import AdminMatching from "./pages/AdminMatching";
+import SchemaChangeLogs from "./pages/SchemaChangeLogs";
 
 
 function Router() {
@@ -91,6 +92,7 @@ function Router() {
         <ProtectedRoute path="/analytics" component={Analytics} moduleName="site configuration" />
         <ProtectedRoute path="/archived-records" component={ArchivedRecords} moduleName="site configuration" />
         <ProtectedRoute path="/archived-records/:type" component={ArchivedRecordsDetail} moduleName="site configuration" />
+        <ProtectedRoute path="/db-schema-logs" component={SchemaChangeLogs} moduleName="site configuration" />
         <ProtectedRoute path="/matching" component={AdminMatching} moduleName="recommendation" />
 
         <ProtectedRoute path="/profile" component={AdminUserProfile} />
