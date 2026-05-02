@@ -64,7 +64,21 @@ function unifiedInvestorsCTE(scope: { campaignParamIdx?: number } = {}): string 
         -- No DAF / pending grant link = funded from wallet, cash, or match
         -- grant. Money is already in our hands → always shown as received.
         ELSE 'received'
-      END AS status
+      END AS status,
+      -- Payment-method classification (mirrors the donation flow):
+      --   * Linked pending_grant whose daf_provider is the sentinel
+      --     "foundation grant" → 'foundation'
+      --   * Any other linked pending_grant → 'daf'
+      --   * No linked pending_grant → 'wallet' (cash / CC / ACH / account
+      --     balance / match grant). Match-grant rows are re-labeled to
+      --     'match' in the JS mapping using the matchInfo.asMatch lookup.
+      CASE
+        WHEN r.pending_grants_id IS NULL THEN 'wallet'
+        WHEN LOWER(TRIM(COALESCE(pg.daf_provider, ''))) = 'foundation grant' THEN 'foundation'
+        ELSE 'daf'
+      END AS payment_method,
+      pg.daf_provider AS daf_provider,
+      pg.daf_name     AS daf_name
     FROM recommendations r
     LEFT JOIN pending_grants pg ON r.pending_grants_id = pg.id
     WHERE (r.is_deleted IS NULL OR r.is_deleted = false)
@@ -83,7 +97,13 @@ function unifiedInvestorsCTE(scope: { campaignParamIdx?: number } = {}): string 
       COALESCE(NULLIF(TRIM(CONCAT_WS(' ', u.first_name, u.last_name)), ''), u.email) AS name,
       COALESCE(NULLIF(pg.amount, '')::numeric, 0) AS amount,
       pg.created_date AS date_created,
-      'pending'::text AS status
+      'pending'::text AS status,
+      CASE
+        WHEN LOWER(TRIM(COALESCE(pg.daf_provider, ''))) = 'foundation grant' THEN 'foundation'
+        ELSE 'daf'
+      END AS payment_method,
+      pg.daf_provider AS daf_provider,
+      pg.daf_name     AS daf_name
     FROM pending_grants pg
     JOIN users u ON pg.user_id = u.id
     WHERE pg.campaign_id IS NOT NULL
@@ -962,7 +982,8 @@ router.get("/:id/investors", async (req: Request, res: Response) => {
     const [rowsResult, summaryResult, nameResult, matchInfo, projections] = await Promise.all([
       pool.query(
         `${unifiedInvestorsCTE({ campaignParamIdx: 1 })}
-         SELECT source_id, source_type, name, email, amount, date_created, status
+         SELECT source_id, source_type, name, email, amount, date_created, status,
+                payment_method, daf_provider, daf_name
            FROM unified_investors
           ORDER BY amount DESC, name ASC, date_created DESC`,
         [id],
@@ -986,6 +1007,15 @@ router.get("/:id/investors", async (req: Request, res: Response) => {
       const triggeredMatches = sourceType === "recommendation"
         ? (matchInfo.triggeredBy[sourceId] || []).map((t) => ({ ...t, pending: false as const }))
         : [];
+      // A recommendation with no linked pending_grant that was created by a
+      // match-grant landing is funded from grant escrow, not the donor's
+      // wallet. Re-label it from 'wallet' → 'match' so the UI badge is
+      // accurate. Detection: matchInfo.asMatch[sourceId] is populated.
+      const sqlPaymentMethod = (r.payment_method as string) || "wallet";
+      const paymentMethod: "wallet" | "daf" | "foundation" | "match" =
+        matchAsDonor && sqlPaymentMethod === "wallet"
+          ? "match"
+          : (sqlPaymentMethod as "wallet" | "daf" | "foundation");
       return {
         sourceId,
         sourceType,
@@ -994,6 +1024,9 @@ router.get("/:id/investors", async (req: Request, res: Response) => {
         totalAmount: parseFloat(r.amount) || 0,
         date: r.date_created ? new Date(r.date_created).toISOString() : null,
         status: r.status as "pending" | "in transit" | "received",
+        paymentMethod,
+        dafProvider: r.daf_provider || null,
+        dafName: r.daf_name || null,
         match: (matchAsDonor || triggeredMatches.length > 0)
           ? { asMatch: matchAsDonor ? { ...matchAsDonor, pending: false as const } : null, triggeredMatches }
           : null,
@@ -1036,6 +1069,9 @@ router.get("/:id/investors", async (req: Request, res: Response) => {
         totalAmount: p.projectedAmount,
         date: p.trigger.triggerDate ? new Date(p.trigger.triggerDate).toISOString() : null,
         status: "pending",
+        paymentMethod: "match",
+        dafProvider: null,
+        dafName: null,
         match: {
           asMatch: {
             grantName: p.grantName,
@@ -1104,7 +1140,8 @@ router.get("/:id/investors/export", async (req: Request, res: Response) => {
     const [rowsResult, summaryResult, nameResult, matchInfo, projections] = await Promise.all([
       pool.query(
         `${unifiedInvestorsCTE({ campaignParamIdx: 1 })}
-         SELECT source_id, source_type, name, email, amount, date_created, status
+         SELECT source_id, source_type, name, email, amount, date_created, status,
+                payment_method, daf_provider, daf_name
            FROM unified_investors
           ORDER BY amount DESC, name ASC, date_created DESC`,
         [id],
@@ -1178,8 +1215,28 @@ router.get("/:id/investors/export", async (req: Request, res: Response) => {
     // Build the export rows: actual rows first, then projected match rows
     // appended (each annotated as "Projected match from <grant>").
     const exportRows: Array<{
-      name: string; email: string; status: string; date: Date | null; amount: number; matchText: string;
+      name: string; email: string; status: string; date: Date | null; amount: number; matchText: string; methodText: string;
     }> = [];
+    // Mirror the JSON endpoint's payment-method classification so the Excel
+    // matches what the Investors tab shows (wallet / DAF / Foundation /
+    // Match). Provider/name suffixes are appended for DAF/Foundation rows.
+    const methodLabel = (sqlMethod: string, sourceId: number, sourceType: string, dafProvider: string | null, dafName: string | null): string => {
+      let m = sqlMethod || "wallet";
+      if (m === "wallet" && sourceType === "recommendation" && matchInfo.asMatch[sourceId]) m = "match";
+      if (m === "daf") {
+        const provider = (dafProvider || "").trim();
+        const name = (dafName || "").trim();
+        if (provider && name && provider.toLowerCase() !== name.toLowerCase()) return `DAF · ${provider} (${name})`;
+        if (provider) return `DAF · ${provider}`;
+        return "DAF";
+      }
+      if (m === "foundation") {
+        const name = (dafName || "").trim();
+        return name ? `Foundation · ${name}` : "Foundation";
+      }
+      if (m === "match") return "Match Grant";
+      return "Wallet";
+    };
     for (const r of rowsResult.rows) {
       exportRows.push({
         name: r.name || "Anonymous",
@@ -1188,6 +1245,7 @@ router.get("/:id/investors/export", async (req: Request, res: Response) => {
         date: r.date_created ? new Date(r.date_created) : null,
         amount: parseFloat(r.amount) || 0,
         matchText: buildMatchText(Number(r.source_id), r.source_type),
+        methodText: methodLabel(r.payment_method, Number(r.source_id), r.source_type, r.daf_provider, r.daf_name),
       });
     }
     for (const p of projections) {
@@ -1199,6 +1257,7 @@ router.get("/:id/investors/export", async (req: Request, res: Response) => {
         date: p.trigger.triggerDate ? new Date(p.trigger.triggerDate) : null,
         amount: p.projectedAmount,
         matchText: `Projected match from "${p.grantName}" for ${who}'s ${fmtUsd(p.trigger.triggerAmount)}`,
+        methodText: "Match Grant (projected)",
       });
     }
     exportRows.sort((a, b) => {
@@ -1211,7 +1270,7 @@ router.get("/:id/investors/export", async (req: Request, res: Response) => {
 
     const titleRow = worksheet.addRow([campaignName]);
     titleRow.getCell(1).font = { bold: true, size: 14 };
-    worksheet.mergeCells(titleRow.number, 1, titleRow.number, 8);
+    worksheet.mergeCells(titleRow.number, 1, titleRow.number, 9);
 
     const summaryParts: string[] = [
       `${totalInvestors} investor${totalInvestors === 1 ? "" : "s"}`,
@@ -1223,11 +1282,11 @@ router.get("/:id/investors/export", async (req: Request, res: Response) => {
     }
     const summaryRow = worksheet.addRow([summaryParts.join(" · ")]);
     summaryRow.getCell(1).font = { italic: true };
-    worksheet.mergeCells(summaryRow.number, 1, summaryRow.number, 8);
+    worksheet.mergeCells(summaryRow.number, 1, summaryRow.number, 9);
 
     worksheet.addRow([]);
 
-    const headerRow = worksheet.addRow(["#", "Name", "Email", "Status", "Date", "Amount Invested", "% of Total", "Match"]);
+    const headerRow = worksheet.addRow(["#", "Name", "Email", "Method", "Status", "Date", "Amount Invested", "% of Total", "Match"]);
     headerRow.eachCell((cell) => { cell.font = { bold: true }; });
 
     const statusLabel = (s: string) =>
@@ -1241,32 +1300,33 @@ router.get("/:id/investors/export", async (req: Request, res: Response) => {
         rank,
         r.name || "Anonymous",
         r.email || "",
+        r.methodText,
         statusLabel(r.status),
         r.date,
         Math.round(r.amount * 100) / 100,
         pct,
         r.matchText,
       ]);
-      dataRow.getCell(5).numFmt = "mm/dd/yyyy";
-      dataRow.getCell(6).numFmt = "$#,##0.00";
-      dataRow.getCell(7).numFmt = "0.00%";
-      dataRow.getCell(8).alignment = { wrapText: true, vertical: "top" };
+      dataRow.getCell(6).numFmt = "mm/dd/yyyy";
+      dataRow.getCell(7).numFmt = "$#,##0.00";
+      dataRow.getCell(8).numFmt = "0.00%";
+      dataRow.getCell(9).alignment = { wrapText: true, vertical: "top" };
     }
 
-    const totalsRow = worksheet.addRow(["", "Total", "", "", "", Math.round(totalAmount * 100) / 100, 1, ""]);
+    const totalsRow = worksheet.addRow(["", "Total", "", "", "", "", Math.round(totalAmount * 100) / 100, 1, ""]);
     totalsRow.eachCell((cell) => { cell.font = { bold: true }; });
-    totalsRow.getCell(6).numFmt = "$#,##0.00";
-    totalsRow.getCell(7).numFmt = "0.00%";
+    totalsRow.getCell(7).numFmt = "$#,##0.00";
+    totalsRow.getCell(8).numFmt = "0.00%";
 
     worksheet.columns.forEach((col, idx) => {
-      col.alignment = { horizontal: idx === 0 || (idx >= 5 && idx <= 6) ? "right" : "left", vertical: "top" };
+      col.alignment = { horizontal: idx === 0 || (idx >= 6 && idx <= 7) ? "right" : "left", vertical: "top" };
       let maxLen = 10;
       col.eachCell?.({ includeEmpty: false }, (cell) => {
         const len = String(cell.value ?? "").length;
         if (len > maxLen) maxLen = len;
       });
       // Cap the Match column width so very long descriptions don't blow out the layout
-      col.width = idx === 7 ? Math.min(maxLen + 4, 70) : maxLen + 4;
+      col.width = idx === 8 ? Math.min(maxLen + 4, 70) : maxLen + 4;
     });
 
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");

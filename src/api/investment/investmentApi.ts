@@ -140,6 +140,8 @@ export interface InvestmentMatchInfo {
     triggeredMatches: InvestmentMatchTriggered[];
 }
 
+export type InvestmentPaymentMethod = "wallet" | "daf" | "foundation" | "match";
+
 export interface InvestmentInvestor {
     sourceId: number;
     sourceType: "recommendation" | "pending_grant" | "projected_match";
@@ -148,6 +150,9 @@ export interface InvestmentInvestor {
     totalAmount: number;
     date: string | null;
     status: InvestmentContributionStatus;
+    paymentMethod: InvestmentPaymentMethod;
+    dafProvider: string | null;
+    dafName: string | null;
     match: InvestmentMatchInfo | null;
 }
 

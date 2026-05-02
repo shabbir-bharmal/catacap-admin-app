@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation, useRoute } from "wouter";
-import { exportInvestmentInvestors, fetchInvestmentInvestors, type InvestmentContributionStatus, type InvestmentInvestorsResponse, type InvestmentMatchInfo } from "../api/investment/investmentApi";
+import { exportInvestmentInvestors, fetchInvestmentInvestors, type InvestmentContributionStatus, type InvestmentInvestor, type InvestmentInvestorsResponse, type InvestmentMatchInfo, type InvestmentPaymentMethod } from "../api/investment/investmentApi";
 import { AdminLayout } from "../components/AdminLayout";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,55 @@ const STATUS_BADGE_CLASS: Record<InvestmentContributionStatus, string> = {
   "in transit": "bg-blue-100 text-blue-800 hover:bg-blue-100 border-blue-200",
   "received": "bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border-emerald-200",
 };
+
+const METHOD_LABEL: Record<InvestmentPaymentMethod, string> = {
+  "wallet": "Wallet",
+  "daf": "DAF",
+  "foundation": "Foundation",
+  "match": "Match Grant",
+};
+
+const METHOD_BADGE_CLASS: Record<InvestmentPaymentMethod, string> = {
+  // Slate for direct funding (cash, CC, ACH, account balance).
+  "wallet":     "bg-slate-100 text-slate-700 hover:bg-slate-100 border-slate-200",
+  // Sky-blue for donor-advised funds — the primary thing we want to surface.
+  "daf":        "bg-sky-100 text-sky-800 hover:bg-sky-100 border-sky-300",
+  // Indigo for foundation grants (close cousin of DAF, distinct color).
+  "foundation": "bg-indigo-100 text-indigo-800 hover:bg-indigo-100 border-indigo-300",
+  // Violet for match grants (matches the existing match-annotation color).
+  "match":      "bg-violet-100 text-violet-800 hover:bg-violet-100 border-violet-200",
+};
+
+function PaymentMethodBadge({ investor, idx }: { investor: InvestmentInvestor; idx: number }) {
+  const method = investor.paymentMethod || "wallet";
+  const label = METHOD_LABEL[method] || "Wallet";
+  const provider = (investor.dafProvider || "").trim();
+  const name = (investor.dafName || "").trim();
+  // Show provider inline for DAF/Foundation so admins can tell Fidelity from
+  // Vanguard from a foundation grant at a glance. The fund name (often a
+  // donor-specific identifier) goes in the tooltip to keep the row compact.
+  const showProvider = method === "daf" || method === "foundation";
+  const tooltip = showProvider
+    ? [provider && `Provider: ${provider}`, name && `Fund: ${name}`].filter(Boolean).join(" · ") || undefined
+    : method === "wallet"
+      ? "Funded directly (cash, credit card, ACH, or account balance)"
+      : method === "match"
+        ? "Match-grant contribution"
+        : undefined;
+  return (
+    <Badge
+      variant="outline"
+      className={METHOD_BADGE_CLASS[method] || METHOD_BADGE_CLASS.wallet}
+      title={tooltip}
+      data-testid={`badge-method-${idx}`}
+    >
+      <span className="font-medium">{label}</span>
+      {showProvider && provider && (
+        <span className="ml-1 font-normal opacity-80">· {provider}</span>
+      )}
+    </Badge>
+  );
+}
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
@@ -218,6 +267,7 @@ export default function InvestmentInvestors() {
                       <th className="px-3 py-2 text-left font-medium text-muted-foreground w-12">#</th>
                       <th className="px-3 py-2 text-left font-medium text-muted-foreground">Name</th>
                       <th className="px-3 py-2 text-left font-medium text-muted-foreground">Email</th>
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">Method</th>
                       <th className="px-3 py-2 text-left font-medium text-muted-foreground">Status</th>
                       <th className="px-3 py-2 text-left font-medium text-muted-foreground">Date</th>
                       <th className="px-3 py-2 text-right font-medium text-muted-foreground">Amount Invested</th>
@@ -256,6 +306,9 @@ export default function InvestmentInvestors() {
                               "—"
                             )}
                           </td>
+                          <td className="px-3 py-2" data-testid={`text-investor-method-${idx}`}>
+                            <PaymentMethodBadge investor={it} idx={idx} />
+                          </td>
                           <td className="px-3 py-2" data-testid={`text-investor-status-${idx}`}>
                             <Badge variant="outline" className={STATUS_BADGE_CLASS[it.status]}>
                               {STATUS_LABEL[it.status]}
@@ -277,7 +330,7 @@ export default function InvestmentInvestors() {
                   <tfoot>
                     <tr className="border-t-2 font-medium bg-muted/30">
                       <td className="px-3 py-2"></td>
-                      <td className="px-3 py-2" colSpan={4}>Total</td>
+                      <td className="px-3 py-2" colSpan={5}>Total</td>
                       <td className="px-3 py-2 text-right tabular-nums" data-testid="text-investors-total-amount">
                         {currency_format(totalAmount)}
                       </td>
